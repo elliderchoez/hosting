@@ -1,0 +1,1119 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nexus Tech - Tienda de Tecnología Demostrativa</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+      --card-bg: rgba(30, 41, 59, 0.7);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --primary: #6366f1;
+      --primary-hover: #4f46e5;
+      --accent: #ec4899;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --success: #10b981;
+      --danger: #ef4444;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Outfit', sans-serif;
+      background: var(--bg-gradient);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+
+    header {
+      background: rgba(15, 23, 42, 0.8);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-color);
+      padding: 16px 40px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .logo-container {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-icon {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      color: white;
+      font-size: 1.3rem;
+      box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+    }
+
+    .logo-text {
+      font-size: 1.6rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #ffffff 0%, #a5b4fc 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.02em;
+    }
+
+    nav {
+      display: flex;
+      gap: 20px;
+      align-items: center;
+    }
+
+    .nav-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      padding: 10px 18px;
+      border-radius: 10px;
+      font-family: inherit;
+      font-size: 0.95rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .nav-btn:hover, .nav-btn.active {
+      color: var(--text-main);
+      background: rgba(255, 255, 255, 0.05);
+      border-color: var(--border-color);
+    }
+
+    .nav-btn.accent {
+      background: var(--primary);
+      color: white;
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+    }
+
+    .nav-btn.accent:hover {
+      background: var(--primary-hover);
+      transform: translateY(-1px);
+    }
+
+    main {
+      flex: 1;
+      padding: 40px;
+      max-width: 1400px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    .welcome-banner {
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(236, 72, 153, 0.05) 100%);
+      border: 1px solid rgba(99, 102, 241, 0.25);
+      border-radius: 20px;
+      padding: 30px;
+      margin-bottom: 40px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+    }
+
+    .welcome-text h2 {
+      font-size: 1.8rem;
+      margin-bottom: 8px;
+    }
+
+    .welcome-text p {
+      color: var(--text-muted);
+      font-size: 1.05rem;
+    }
+
+    .btn-reset-db {
+      background: rgba(239, 68, 68, 0.2);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      color: #fca5a5;
+      padding: 12px 24px;
+      border-radius: 12px;
+      font-family: inherit;
+      font-weight: 600;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .btn-reset-db:hover {
+      background: var(--danger);
+      color: white;
+      box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4);
+    }
+
+    /* Grid Layouts */
+    .catalog-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 30px;
+    }
+
+    .product-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .product-card:hover {
+      transform: translateY(-6px);
+      box-shadow: 0 12px 30px rgba(0,0,0,0.25);
+      border-color: rgba(99, 102, 241, 0.3);
+    }
+
+    .product-img {
+      height: 200px;
+      width: 100%;
+      object-fit: cover;
+      background-color: #0f172a;
+    }
+
+    .product-info {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+    }
+
+    .product-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: var(--text-main);
+    }
+
+    .product-desc {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      margin-bottom: 20px;
+      flex: 1;
+      line-height: 1.5;
+    }
+
+    .product-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: auto;
+    }
+
+    .product-price {
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: var(--accent);
+    }
+
+    .btn-add-cart {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-add-cart:hover {
+      background: var(--primary);
+      border-color: var(--primary);
+      box-shadow: 0 4px 10px rgba(99, 102, 241, 0.3);
+    }
+
+    /* Modal Styling */
+    .auth-container {
+      max-width: 450px;
+      margin: 60px auto;
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 24px;
+      padding: 40px;
+      box-shadow: 0 15px 35px rgba(0,0,0,0.3);
+    }
+
+    .auth-title {
+      font-size: 2rem;
+      font-weight: 800;
+      margin-bottom: 30px;
+      text-align: center;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-label {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--text-muted);
+      font-weight: 500;
+      font-size: 0.9rem;
+    }
+
+    .form-input {
+      width: 100%;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 12px 16px;
+      color: white;
+      font-family: inherit;
+      font-size: 1rem;
+      transition: all 0.2s;
+    }
+
+    .form-input:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+    }
+
+    .form-select {
+      width: 100%;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 12px 16px;
+      color: white;
+      font-family: inherit;
+      font-size: 1rem;
+    }
+
+    .btn-submit {
+      width: 100%;
+      background: var(--primary);
+      border: none;
+      color: white;
+      padding: 14px;
+      border-radius: 10px;
+      font-family: inherit;
+      font-weight: 700;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: all 0.3s;
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+    }
+
+    .btn-submit:hover {
+      background: var(--primary-hover);
+    }
+
+    .auth-toggle {
+      text-align: center;
+      margin-top: 20px;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+
+    .auth-toggle span {
+      color: var(--primary);
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    /* Admin Panel and Tables */
+    .admin-container {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      padding: 30px;
+      margin-bottom: 40px;
+    }
+
+    .admin-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 16px;
+    }
+
+    .crud-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .crud-table th, .crud-table td {
+      padding: 14px 18px;
+      text-align: left;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .crud-table th {
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .btn-action {
+      background: transparent;
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.85rem;
+      transition: all 0.2s;
+    }
+
+    .btn-action.edit:hover {
+      background: var(--primary);
+      border-color: var(--primary);
+    }
+
+    .btn-action.delete:hover {
+      background: var(--danger);
+      border-color: var(--danger);
+    }
+
+    /* Cart view styling */
+    .cart-container {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 40px;
+    }
+
+    .cart-list {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      padding: 30px;
+    }
+
+    .cart-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 0;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .cart-item-details {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .cart-item-img {
+      width: 60px;
+      height: 60px;
+      object-fit: cover;
+      border-radius: 8px;
+    }
+
+    .summary-card {
+      background: rgba(30, 41, 59, 0.9);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      border-radius: 20px;
+      padding: 30px;
+      height: fit-content;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+    }
+
+    .summary-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      font-size: 1.05rem;
+    }
+
+    .summary-total {
+      border-top: 1px solid var(--border-color);
+      padding-top: 16px;
+      font-size: 1.4rem;
+      font-weight: 800;
+      color: var(--accent);
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    /* Payment Simulation */
+    .payment-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(8px);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+
+    .payment-card {
+      background: #1e293b;
+      border: 2px solid var(--primary);
+      border-radius: 24px;
+      padding: 40px;
+      max-width: 500px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+    }
+
+    .payment-animation {
+      width: 80px;
+      height: 80px;
+      margin: 0 auto 24px auto;
+      border: 4px solid var(--primary);
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .success-icon {
+      width: 80px;
+      height: 80px;
+      margin: 0 auto 24px auto;
+      background: var(--success);
+      color: white;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 3rem;
+      font-weight: bold;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--success);
+      color: white;
+      padding: 16px 24px;
+      border-radius: 12px;
+      font-weight: 600;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+      z-index: 10000;
+      animation: fadeInUp 0.3s ease-out;
+    }
+
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="logo-container">
+      <div class="logo-icon">N</div>
+      <div class="logo-text">Nexus Tech</div>
+    </div>
+    <nav>
+      <button class="nav-btn active" onclick="switchTab('catalog')">Catálogo</button>
+      <button class="nav-btn" id="nav-cart" onclick="switchTab('cart')">Carrito (0)</button>
+      <button class="nav-btn hidden" id="nav-admin" onclick="switchTab('admin')">Administrar</button>
+      <button class="nav-btn accent" id="nav-auth" onclick="showAuth()">Iniciar Sesión</button>
+      <button class="nav-btn hidden" id="nav-logout" onclick="logout()">Cerrar Sesión</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Welcome Banner with Reset DB Option -->
+    <div class="welcome-banner">
+      <div class="welcome-text">
+        <h2>Entorno de Tesis: Demo Tecnológica</h2>
+        <p>Este es un proyecto real simulado para reclutadores. Modifica datos, agrega productos y realiza compras sin riesgos.</p>
+      </div>
+      <button class="btn-reset-db" onclick="resetDatabase()">Restablecer Base de Datos</button>
+    </div>
+
+    <!-- Tab 1: Catalog -->
+    <div id="tab-catalog" class="tab-content">
+      <h2 style="font-size: 2rem; font-weight: 800; margin-bottom: 30px;">Catálogo de Artículos Tecnológicos</h2>
+      <div class="catalog-grid" id="catalog-list">
+        <!-- Rendered via JS -->
+      </div>
+    </div>
+
+    <!-- Tab 2: Cart -->
+    <div id="tab-cart" class="tab-content hidden">
+      <h2 style="font-size: 2rem; font-weight: 800; margin-bottom: 30px;">Mi Carrito de Compras</h2>
+      <div class="cart-container">
+        <div class="cart-list" id="cart-items-list">
+          <!-- Rendered via JS -->
+        </div>
+        <div class="summary-card">
+          <h3 style="margin-bottom: 20px; font-weight: 700;">Resumen del Pedido</h3>
+          <div class="summary-row">
+            <span>Subtotal</span>
+            <span id="cart-subtotal">$0.00</span>
+          </div>
+          <div class="summary-row">
+            <span>Envío</span>
+            <span style="color: var(--success); font-weight: 600;">GRATIS</span>
+          </div>
+          <div class="summary-row summary-total">
+            <span>Total</span>
+            <span id="cart-total">$0.00</span>
+          </div>
+          <button class="btn-submit" style="margin-top: 20px; background: var(--accent);" onclick="startCheckout()">Proceder al Pago Simulado</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 3: Admin CRUD -->
+    <div id="tab-admin" class="tab-content hidden">
+      <div class="admin-container">
+        <div class="admin-header">
+          <h2 style="font-weight: 700; margin: 0;">Panel de Administración (CRUD de Productos)</h2>
+          <button class="nav-btn accent" onclick="showProductForm()">+ Nuevo Producto</button>
+        </div>
+
+        <table class="crud-table">
+          <thead>
+            <tr>
+              <th>Imagen</th>
+              <th>Producto</th>
+              <th>Descripción</th>
+              <th>Precio</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="admin-products-table">
+            <!-- Rendered via JS -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Add/Edit Product Modal Area -->
+      <div class="auth-container hidden" id="product-form-container" style="margin-top: 20px;">
+        <h3 id="product-form-title" style="margin-bottom: 20px; font-weight: 700;">Añadir Nuevo Producto</h3>
+        <form id="product-form" onsubmit="saveProduct(event)">
+          <input type="hidden" id="form-product-id">
+          <div class="form-group">
+            <label class="form-label">Nombre del Producto</label>
+            <input type="text" class="form-input" id="form-product-name" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Descripción</label>
+            <textarea class="form-input" id="form-product-desc" style="height: 80px;" required></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Precio ($)</label>
+            <input type="number" step="0.01" class="form-input" id="form-product-price" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">URL de Imagen (Unsplash, etc.)</label>
+            <input type="text" class="form-input" id="form-product-img" placeholder="https://...">
+          </div>
+          <button type="submit" class="btn-submit">Guardar Producto</button>
+          <button type="button" class="nav-btn" style="width: 100%; margin-top: 10px; border: 1px solid var(--border-color);" onclick="hideProductForm()">Cancelar</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Login/Register Panel -->
+    <div id="tab-auth" class="tab-content hidden">
+      <div class="auth-container" id="login-box">
+        <h3 class="auth-title" id="auth-box-title">Iniciar Sesión</h3>
+        
+        <!-- Quick login tags for recruiter testing -->
+        <div style="background: rgba(99, 102, 241, 0.1); border: 1px dashed var(--primary); padding: 12px; border-radius: 8px; margin-bottom: 24px; font-size: 0.85rem; line-height: 1.4;">
+          <strong>Credenciales de Prueba:</strong><br>
+          • Rol Administrador: <code>admin</code> / <code>admin123</code><br>
+          • Rol Estudiante/Usuario: <code>estudiante</code> / <code>user123</code>
+        </div>
+
+        <form id="auth-form" onsubmit="handleAuth(event)">
+          <div class="form-group">
+            <label class="form-label">Usuario</label>
+            <input type="text" class="form-input" id="auth-username" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Contraseña</label>
+            <input type="password" class="form-input" id="auth-password" required>
+          </div>
+          <div class="form-group hidden" id="register-role-group">
+            <label class="form-label">Rol del Usuario</label>
+            <select class="form-select" id="auth-role">
+              <option value="user">Usuario Regular / Estudiante</option>
+              <option value="admin">Administrador (Gestión CRUD)</option>
+            </select>
+          </div>
+          <button type="submit" class="btn-submit" id="btn-auth-submit">Entrar</button>
+        </form>
+        <div class="auth-toggle" id="auth-toggle-text">
+          ¿No tienes una cuenta? <span onclick="toggleAuthMode(true)">Registrarse aquí</span>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Payment Simulation Modal -->
+  <div class="payment-modal hidden" id="payment-modal">
+    <div class="payment-card" id="payment-processing">
+      <div class="payment-animation"></div>
+      <h3 style="font-size: 1.5rem; margin-bottom: 12px;">Procesando Pago Simulado</h3>
+      <p style="color: var(--text-muted);">Estamos conectando con la pasarela de pagos de Nexus Tech...</p>
+    </div>
+    <div class="payment-card hidden" id="payment-success">
+      <div class="success-icon">✓</div>
+      <h3 style="font-size: 1.8rem; margin-bottom: 12px; color: var(--success);">¡Pago Realizado con Éxito!</h3>
+      <p style="color: var(--text-muted); margin-bottom: 24px;">La compra de simulación fue procesada. Se vació el carrito.</p>
+      <button class="btn-submit" onclick="closePaymentModal()">Volver a la Tienda</button>
+    </div>
+  </div>
+
+  <script>
+    let currentUser = null;
+    let products = [];
+    let cart = [];
+    let isRegisterMode = false;
+
+    // Load initial products and check health
+    window.onload = async () => {
+      await checkDbHealth();
+      await loadProducts();
+      updateCartBadge();
+    };
+
+    async function checkDbHealth() {
+      try {
+        const res = await fetch('/api/health');
+        const data = await res.json();
+        if (data.status !== 'OK') {
+          showToast('Error conectando a MySQL: ' + data.error, 'danger');
+        }
+      } catch (err) {
+        showToast('No se puede conectar con el servidor backend.', 'danger');
+      }
+    }
+
+    async function resetDatabase() {
+      if (!confirm('¿Deseas restablecer la base de datos a su estado de fábrica? Se borrarán cuentas de usuarios creadas y modificaciones de productos.')) return;
+      try {
+        const res = await fetch('/api/reset-db', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          showToast('Base de datos restablecida con éxito.');
+          logout();
+          await loadProducts();
+        } else {
+          showToast('Error al restablecer: ' + data.error, 'danger');
+        }
+      } catch (err) {
+        showToast('Error al conectar con la API de reinicio.', 'danger');
+      }
+    }
+
+    async function loadProducts() {
+      try {
+        const res = await fetch('/api/products');
+        products = await res.json();
+        renderCatalog();
+        renderAdminTable();
+      } catch (err) {
+        showToast('Error al cargar productos.', 'danger');
+      }
+    }
+
+    function renderCatalog() {
+      const container = document.getElementById('catalog-list');
+      container.innerHTML = '';
+
+      products.forEach(p => {
+        container.innerHTML += `
+          <div class="product-card">
+            <img src="${p.image_url}" class="product-img" alt="${p.name}" onerror="this.src='https://images.unsplash.com/photo-1531403009284-440f080d1e12?w=500&auto=format&fit=crop'">
+            <div class="product-info">
+              <h3 class="product-title">${p.name}</h3>
+              <p class="product-desc">${p.description}</p>
+              <div class="product-footer">
+                <span class="product-price">$${Number(p.price).toFixed(2)}</span>
+                <button class="btn-add-cart" onclick="addToCart(${p.id})">Añadir</button>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+    }
+
+    // Switch between views
+    function switchTab(tab) {
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+      document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+      
+      const tabElement = document.getElementById('tab-' + tab);
+      if (tabElement) tabElement.classList.remove('hidden');
+
+      // Find trigger button and highlight it
+      const btnMap = {
+        'catalog': 0,
+        'cart': 1,
+        'admin': 2
+      };
+      const btnIdx = btnMap[tab];
+      if (btnIdx !== undefined) {
+        document.querySelectorAll('nav .nav-btn')[btnIdx].classList.add('active');
+      }
+
+      if (tab === 'cart') {
+        loadCart();
+      }
+      if (tab === 'admin') {
+        if (!currentUser || currentUser.role !== 'admin') {
+          showToast('Acceso Denegado. Por favor inicia sesión como Administrador (admin / admin123).', 'danger');
+          switchTab('catalog');
+          showAuth();
+        }
+      }
+    }
+
+    function showAuth() {
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+      document.getElementById('tab-auth').classList.remove('hidden');
+    }
+
+    function toggleAuthMode(registerMode) {
+      isRegisterMode = registerMode;
+      const title = document.getElementById('auth-box-title');
+      const submitBtn = document.getElementById('btn-auth-submit');
+      const roleGroup = document.getElementById('register-role-group');
+      const toggleText = document.getElementById('auth-toggle-text');
+
+      if (registerMode) {
+        title.innerText = 'Registrar Cuenta';
+        submitBtn.innerText = 'Crear Cuenta';
+        roleGroup.classList.remove('hidden');
+        toggleText.innerHTML = '¿Ya tienes una cuenta? <span onclick="toggleAuthMode(false)">Inicia sesión aquí</span>';
+      } else {
+        title.innerText = 'Iniciar Sesión';
+        submitBtn.innerText = 'Entrar';
+        roleGroup.classList.add('hidden');
+        toggleText.innerHTML = '¿No tienes una cuenta? <span onclick="toggleAuthMode(true)">Registrarse aquí</span>';
+      }
+    }
+
+    async function handleAuth(event) {
+      event.preventDefault();
+      const username = document.getElementById('auth-username').value;
+      const password = document.getElementById('auth-password').value;
+      const role = document.getElementById('auth-role').value;
+
+      const endpoint = isRegisterMode ? '/api/register' : '/api/login';
+      const payload = isRegisterMode ? { username, password, role } : { username, password };
+
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        if (data.error) {
+          showToast(data.error, 'danger');
+          return;
+        }
+
+        currentUser = data.user;
+        showToast(`Bienvenido de nuevo, ${currentUser.username}!`);
+        
+        // UI Updates
+        document.getElementById('nav-auth').classList.add('hidden');
+        document.getElementById('nav-logout').classList.remove('hidden');
+        if (currentUser.role === 'admin') {
+          document.getElementById('nav-admin').classList.remove('hidden');
+        } else {
+          document.getElementById('nav-admin').classList.add('hidden');
+        }
+        document.getElementById('auth-form').reset();
+        
+        switchTab('catalog');
+        loadCart();
+      } catch (err) {
+        showToast('Error de autenticación.', 'danger');
+      }
+    }
+
+    function logout() {
+      currentUser = null;
+      cart = [];
+      updateCartBadge();
+      document.getElementById('nav-auth').classList.remove('hidden');
+      document.getElementById('nav-logout').classList.add('hidden');
+      document.getElementById('nav-admin').classList.add('hidden');
+      showToast('Sesión cerrada correctamente.');
+      switchTab('catalog');
+    }
+
+    // Cart Logic
+    async function addToCart(productId) {
+      if (!currentUser) {
+        showToast('Por favor, inicia sesión para añadir artículos al carrito.', 'danger');
+        showAuth();
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/cart', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: currentUser.id,
+            product_id: productId,
+            quantity: 1
+          })
+        });
+
+        if (res.ok) {
+          showToast('Producto agregado al carrito con éxito.');
+          await loadCart();
+        }
+      } catch (err) {
+        showToast('Fallo al agregar producto al carrito.', 'danger');
+      }
+    }
+
+    async function loadCart() {
+      if (!currentUser) return;
+      try {
+        const res = await fetch('/api/cart/' + currentUser.id);
+        cart = await res.json();
+        renderCart();
+        updateCartBadge();
+      } catch (err) {
+        showToast('Error al cargar tu carrito.', 'danger');
+      }
+    }
+
+    function updateCartBadge() {
+      const count = cart.reduce((sum, item) => sum + item.quantity, 0);
+      document.getElementById('nav-cart').innerText = `Carrito (${count})`;
+    }
+
+    function renderCart() {
+      const container = document.getElementById('cart-items-list');
+      container.innerHTML = '';
+
+      let subtotal = 0;
+
+      if (cart.length === 0) {
+        container.innerHTML = '<p style="text-align: center; color: var(--text-muted); padding: 40px 0;">Tu carrito está vacío.</p>';
+      } else {
+        cart.forEach(item => {
+          const itemTotal = Number(item.price) * item.quantity;
+          subtotal += itemTotal;
+
+          container.innerHTML += `
+            <div class="cart-item">
+              <div class="cart-item-details">
+                <img src="${item.image_url}" class="cart-item-img" alt="${item.name}">
+                <div>
+                  <h4 style="font-weight: 600;">${item.name}</h4>
+                  <p style="color: var(--text-muted); font-size: 0.9rem;">$${Number(item.price).toFixed(2)} x ${item.quantity}</p>
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 20px;">
+                <span style="font-weight: 700; color: var(--text-main);">$${itemTotal.toFixed(2)}</span>
+                <button class="btn-action delete" onclick="deleteCartItem(${item.id})">Remover</button>
+              </div>
+            </div>
+          `;
+        });
+      }
+
+      document.getElementById('cart-subtotal').innerText = `$${subtotal.toFixed(2)}`;
+      document.getElementById('cart-total').innerText = `$${subtotal.toFixed(2)}`;
+    }
+
+    async function deleteCartItem(cartId) {
+      try {
+        const res = await fetch('/api/cart/' + cartId, { method: 'DELETE' });
+        if (res.ok) {
+          showToast('Artículo removido del carrito.');
+          await loadCart();
+        }
+      } catch (err) {
+        showToast('Error al remover el artículo.', 'danger');
+      }
+    }
+
+    function startCheckout() {
+      if (cart.length === 0) {
+        showToast('Añade al menos un producto para proceder al pago.', 'danger');
+        return;
+      }
+
+      const modal = document.getElementById('payment-modal');
+      const processing = document.getElementById('payment-processing');
+      const success = document.getElementById('payment-success');
+
+      modal.classList.remove('hidden');
+      processing.classList.remove('hidden');
+      success.classList.add('hidden');
+
+      setTimeout(async () => {
+        try {
+          const res = await fetch('/api/cart/checkout/' + currentUser.id, { method: 'POST' });
+          if (res.ok) {
+            processing.classList.add('hidden');
+            success.classList.remove('hidden');
+            cart = [];
+            updateCartBadge();
+          }
+        } catch (err) {
+          showToast('Fallo al realizar la transacción.', 'danger');
+          closePaymentModal();
+        }
+      }, 2000); // 2 seconds simulated delay
+    }
+
+    function closePaymentModal() {
+      document.getElementById('payment-modal').classList.add('hidden');
+      switchTab('catalog');
+    }
+
+    // CRUD Panel Logic (Admin Only)
+    function renderAdminTable() {
+      const container = document.getElementById('admin-products-table');
+      container.innerHTML = '';
+
+      products.forEach(p => {
+        container.innerHTML += `
+          <tr>
+            <td><img src="${p.image_url}" style="width: 50px; height: 50px; object-fit: cover; border-radius: 6px;" onerror="this.src='https://images.unsplash.com/photo-1531403009284-440f080d1e12?w=500&auto=format&fit=crop'"></td>
+            <td style="font-weight: 600;">${p.name}</td>
+            <td style="color: var(--text-muted); font-size: 0.85rem; max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${p.description}</td>
+            <td style="font-weight: 700; color: var(--accent);">$${Number(p.price).toFixed(2)}</td>
+            <td>
+              <div style="display: flex; gap: 10px;">
+                <button class="btn-action edit" onclick="editProduct(${p.id})">Editar</button>
+                <button class="btn-action delete" onclick="deleteProduct(${p.id})">Eliminar</button>
+              </div>
+            </td>
+          </tr>
+        `;
+      });
+    }
+
+    function showProductForm() {
+      document.getElementById('product-form-container').classList.remove('hidden');
+      document.getElementById('product-form-title').innerText = 'Añadir Nuevo Producto';
+      document.getElementById('product-form').reset();
+      document.getElementById('form-product-id').value = '';
+    }
+
+    function hideProductForm() {
+      document.getElementById('product-form-container').classList.add('hidden');
+    }
+
+    function editProduct(id) {
+      const p = products.find(prod => prod.id === id);
+      if (!p) return;
+
+      document.getElementById('product-form-container').classList.remove('hidden');
+      document.getElementById('product-form-title').innerText = 'Editar Producto';
+      
+      document.getElementById('form-product-id').value = p.id;
+      document.getElementById('form-product-name').value = p.name;
+      document.getElementById('form-product-desc').value = p.description;
+      document.getElementById('form-product-price').value = p.price;
+      document.getElementById('form-product-img').value = p.image_url;
+
+      document.getElementById('product-form-container').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    async function saveProduct(event) {
+      event.preventDefault();
+      const id = document.getElementById('form-product-id').value;
+      const name = document.getElementById('form-product-name').value;
+      const description = document.getElementById('form-product-desc').value;
+      const price = parseFloat(document.getElementById('form-product-price').value);
+      const image_url = document.getElementById('form-product-img').value;
+
+      const payload = { name, description, price, image_url };
+      const endpoint = id ? `/api/products/${id}` : '/api/products';
+      const method = id ? 'PUT' : 'POST';
+
+      try {
+        const res = await fetch(endpoint, {
+          method: method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+          showToast(id ? 'Producto actualizado con éxito.' : 'Producto creado con éxito.');
+          hideProductForm();
+          await loadProducts();
+        } else {
+          const errData = await res.json();
+          showToast('Error al guardar: ' + (errData.error || 'Desconocido'), 'danger');
+        }
+      } catch (err) {
+        showToast('Error al guardar el producto.', 'danger');
+      }
+    }
+
+    async function deleteProduct(id) {
+      if (!confirm('¿Seguro que deseas eliminar este producto?')) return;
+      try {
+        const res = await fetch('/api/products/' + id, { method: 'DELETE' });
+        if (res.ok) {
+          showToast('Producto eliminado con éxito.');
+          await loadProducts();
+        }
+      } catch (err) {
+        showToast('Error al eliminar el producto.', 'danger');
+      }
+    }
+
+    // Helper: Toast alert
+    function showToast(message, type = 'success') {
+      const toast = document.createElement('div');
+      toast.className = 'toast';
+      if (type === 'danger') {
+        toast.style.background = 'var(--danger)';
+      }
+      toast.innerText = message;
+      document.body.appendChild(toast);
+
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(20px)';
+        toast.style.transition = 'all 0.3s';
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
+  </script>
+</body>
+</html>

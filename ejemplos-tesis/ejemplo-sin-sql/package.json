@@ -1,0 +1,13 @@
+{
+  "name": "ejemplo-sin-sql",
+  "version": "1.0.0",
+  "description": "Proyecto ejemplo que necesita base de datos pero no provee ningún .sql ni migraciones",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "pg": "^8.12.0"
+  }
+}

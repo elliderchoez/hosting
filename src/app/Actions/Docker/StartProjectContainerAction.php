@@ -1,0 +1,286 @@
+<?php
+
+namespace App\Actions\Docker;
+
+use App\Models\Project;
+use Symfony\Component\Process\Process;
+use Symfony\Component\Process\Exception\ProcessFailedException;
+use Illuminate\Support\Facades\File;
+use Exception;
+
+class StartProjectContainerAction
+{
+    /**
+     * Start the Docker container for a student project.
+     *
+     * @param Project $project
+     * @param string $projectPath
+     * @param string $domain The base domain (e.g. uleam-academic.software)
+     * @return array{success: bool, container_id: string|null, output: string}
+     */
+    public function execute(Project $project, string $projectPath, string $domain): array
+    {
+        $containerName = $this->getContainerName($project);
+        $output = "Iniciando contenedor $containerName...\n";
+
+        try {
+            // 1. Ensure Docker Network exists
+            $this->ensureDockerNetworkExists('uleam_academic_network');
+
+            // 2. Stop and remove existing container if running
+            $this->stopAndRemoveContainer($containerName);
+
+            // 3. Define language settings
+            $settings = $this->getLanguageSettings($project->language, $projectPath);
+            if (!$settings) {
+                return [
+                    'success' => false,
+                    'container_id' => null,
+                    'output' => "Lenguaje no soportado o no detectado para el proyecto."
+                ];
+            }
+
+            // 4. Read runtime from env (runsc for production gVisor, runc for local development)
+            $runtime = env('DOCKER_RUNTIME', 'runc');
+
+            // 5. Construct Docker Run Command
+            $command = [
+                'docker', 'run', '-d',
+                '--name', $containerName,
+                '--runtime', $runtime,
+                '--network', 'uleam_academic_network',
+                '--memory', '256m',
+                '--cpus', '0.5',
+                '--pids-limit', '50',
+                '-v', "$projectPath:/app", // Montar como lectura y escritura para permitir caché/logs
+                '-w', '/app',
+            ];
+
+            $command[] = '--label';
+            $command[] = 'traefik.enable=true';
+
+            if (config('app.env') === 'production') {
+                $command[] = '--label';
+                $command[] = "traefik.http.routers.{$project->id}.rule=Host(`{$project->subdomain}.{$domain}`)";
+                $command[] = '--label';
+                $command[] = "traefik.http.routers.{$project->id}.entrypoints=websecure";
+                $command[] = '--label';
+                $command[] = "traefik.http.routers.{$project->id}.tls.certresolver=myresolver";
+            } else {
+                $command[] = '--label';
+                $command[] = "traefik.http.routers.{$project->id}.rule=Host(`{$project->subdomain}.{$domain}`)";
+                $command[] = '--label';
+                $command[] = "traefik.http.routers.{$project->id}.entrypoints=web";
+            }
+
+            // Router local (HTTP / web) para pruebas locales en localhost
+            $command[] = '--label';
+            $command[] = "traefik.http.routers.{$project->id}-local.rule=Host(`{$project->subdomain}.localhost`)";
+            $command[] = '--label';
+            $command[] = "traefik.http.routers.{$project->id}-local.entrypoints=web";
+
+            // Asociación al servicio balanceador de carga
+            $command[] = '--label';
+            $command[] = "traefik.http.services.{$project->id}-service.loadbalancer.server.port={$settings['port']}";
+
+            // Add environment variables if needed
+            $command[] = '-e';
+            $command[] = 'PORT=' . $settings['port'];
+
+            if (!empty($project->db_name)) {
+                $dbDriver = $project->db_driver ?: 'pgsql';
+                
+                if ($dbDriver === 'mongodb') {
+                    $dbHost = 'uleam_mongodb_students';
+                    $dbPort = '27017';
+                    $mongoUri = "mongodb://{$project->db_user}:{$project->db_password}@{$dbHost}:{$dbPort}/{$project->db_name}?authSource={$project->db_name}";
+                    
+                    $command[] = '-e';
+                    $command[] = 'DB_CONNECTION=mongodb';
+                    $command[] = '-e';
+                    $command[] = 'DB_HOST=' . $dbHost;
+                    $command[] = '-e';
+                    $command[] = 'DB_PORT=' . $dbPort;
+                    $command[] = '-e';
+                    $command[] = 'DB_DATABASE=' . $project->db_name;
+                    $command[] = '-e';
+                    $command[] = 'DB_USERNAME=' . $project->db_user;
+                    $command[] = '-e';
+                    $command[] = 'DB_PASSWORD=' . $project->db_password;
+                    $command[] = '-e';
+                    $command[] = 'DB_USER=' . $project->db_user;
+                    $command[] = '-e';
+                    $command[] = 'DB_NAME=' . $project->db_name;
+                    $command[] = '-e';
+                    $command[] = 'DB_PASS=' . $project->db_password;
+                    $command[] = '-e';
+                    $command[] = 'DATABASE_URL=' . $mongoUri;
+                    $command[] = '-e';
+                    $command[] = 'MONGODB_URI=' . $mongoUri;
+                    $command[] = '-e';
+                    $command[] = 'MONGO_URL=' . $mongoUri;
+                } else {
+                    $dbHost = $dbDriver === 'mysql' ? 'uleam_mysql_students' : 'uleam_postgres_students';
+                    $dbPort = $dbDriver === 'mysql' ? '3306' : '5432';
+                    $dbUrlScheme = $dbDriver === 'mysql' ? 'mysql' : 'postgres';
+
+                    $command[] = '-e';
+                    $command[] = 'DB_CONNECTION=' . $dbDriver;
+                    $command[] = '-e';
+                    $command[] = 'DB_HOST=' . $dbHost;
+                    $command[] = '-e';
+                    $command[] = 'DB_PORT=' . $dbPort;
+                    $command[] = '-e';
+                    $command[] = 'DB_DATABASE=' . $project->db_name;
+                    $command[] = '-e';
+                    $command[] = 'DB_USERNAME=' . $project->db_user;
+                    $command[] = '-e';
+                    $command[] = 'DB_PASSWORD=' . $project->db_password;
+                    $command[] = '-e';
+                    $command[] = 'DB_USER=' . $project->db_user;
+                    $command[] = '-e';
+                    $command[] = 'DB_NAME=' . $project->db_name;
+                    $command[] = '-e';
+                    $command[] = 'DB_PASS=' . $project->db_password;
+                    $command[] = '-e';
+                    $command[] = 'DATABASE_URL=' . $dbUrlScheme . '://' . $project->db_user . ':' . $project->db_password . '@' . $dbHost . ':' . $dbPort . '/' . $project->db_name;
+                }
+            }
+
+            // Append base image
+            $command[] = $settings['image'];
+
+            // Append start command
+            foreach ($settings['command'] as $arg) {
+                $command[] = $arg;
+            }
+
+            $process = new Process($command);
+            $process->setTimeout(60);
+            $process->mustRun();
+
+            $containerId = trim($process->getOutput());
+            $output .= "Contenedor iniciado exitosamente con ID: $containerId\n";
+
+            return [
+                'success' => true,
+                'container_id' => $containerId,
+                'output' => $output
+            ];
+
+        } catch (ProcessFailedException $e) {
+            return [
+                'success' => false,
+                'container_id' => null,
+                'output' => $output . "Fallo al iniciar el contenedor: " . $e->getMessage() . "\n" . $e->getProcess()->getErrorOutput()
+            ];
+        } catch (Exception $e) {
+            return [
+                'success' => false,
+                'container_id' => null,
+                'output' => $output . "Error: " . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Get unique container name.
+     */
+    private function getContainerName(Project $project): string
+    {
+        return "project-{$project->id}";
+    }
+
+    /**
+     * Ensure the shared Docker network exists.
+     */
+    private function ensureDockerNetworkExists(string $networkName): void
+    {
+        $check = new Process(['docker', 'network', 'inspect', $networkName]);
+        $check->run();
+
+        if (!$check->isSuccessful()) {
+            $create = new Process(['docker', 'network', 'create', $networkName]);
+            $create->run();
+        }
+    }
+
+    /**
+     * Detener y eliminar el contenedor si ya existe de forma inmediata.
+     */
+    private function stopAndRemoveContainer(string $name): void
+    {
+        // Forzar eliminación inmediata
+        $rm = new Process(['docker', 'rm', '-f', $name]);
+        $rm->run();
+    }
+
+    /**
+     * Get container image, port, and start command based on language.
+     */
+    private function getLanguageSettings(?string $language, string $projectPath): ?array
+    {
+        switch ($language) {
+            case 'nodejs':
+                // Check if index.js, server.js, app.js exists, or fallback to scripts in package.json
+                $command = ['node', 'index.js'];
+                if (File::exists($projectPath . '/server.js')) {
+                    $command = ['node', 'server.js'];
+                } elseif (File::exists($projectPath . '/app.js')) {
+                    $command = ['node', 'app.js'];
+                } elseif (File::exists($projectPath . '/package.json')) {
+                    $packageJson = json_decode(File::get($projectPath . '/package.json'), true);
+                    if (isset($packageJson['scripts']['start'])) {
+                        $command = ['npm', 'start'];
+                    } elseif (isset($packageJson['scripts']['preview'])) {
+                        // Proyecto frontend estático (como Vite): Servimos el build en el puerto 3000
+                        $command = ['npx', 'vite', 'preview', '--host', '0.0.0.0', '--port', '3000'];
+                    } elseif (isset($packageJson['scripts']['dev'])) {
+                        // Servidor de desarrollo como alternativa
+                        $command = ['npx', 'vite', '--host', '0.0.0.0', '--port', '3000'];
+                    }
+                }
+
+                return [
+                    'image' => 'node:18-alpine',
+                    'port' => 3000,
+                    'command' => $command
+                ];
+
+            case 'php':
+                // Built-in PHP server is light and suitable for students
+                $command = ['php', '-S', '0.0.0.0:80'];
+                if (File::exists($projectPath . '/public/index.php')) {
+                    $command = ['php', '-S', '0.0.0.0:80', '-t', 'public'];
+                }
+                return [
+                    'image' => 'webdevops/php:8.4',
+                    'port' => 80,
+                    'command' => $command
+                ];
+
+            case 'python':
+                // Check if main.py, app.py or manage.py exists
+                $command = ['python', 'main.py'];
+                if (File::exists($projectPath . '/app.py')) {
+                    $command = ['python', 'app.py'];
+                } elseif (File::exists($projectPath . '/manage.py')) {
+                    $command = ['python', 'manage.py', 'runserver', '0.0.0.0:5000'];
+                }
+
+                // If virtual env exists, run from it
+                if (File::isDirectory($projectPath . '/.venv')) {
+                    $command[0] = './.venv/bin/' . $command[0];
+                }
+
+                return [
+                    'image' => 'python:3.11-alpine',
+                    'port' => 5000,
+                    'command' => $command
+                ];
+
+            default:
+                return null;
+        }
+    }
+}

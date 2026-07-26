@@ -1,0 +1,41 @@
+<?php
+
+use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\ShowcaseController;
+use App\Http\Controllers\ProjectController;
+use App\Http\Controllers\ContainerController;
+use Illuminate\Support\Facades\Route;
+
+// 1. Public Vitrina Showcase routes
+Route::get('/', [ShowcaseController::class, 'index'])->name('welcome');
+Route::get('/student/{userId}/profile', [ShowcaseController::class, 'studentProfile'])->name('student.profile');
+Route::post('/contact/{studentId}', [ShowcaseController::class, 'contactStudent'])->name('student.contact');
+Route::post('/showcase/projects/{project}/start', [ShowcaseController::class, 'startDemo'])->name('showcase.start');
+Route::post('/showcase/projects/{project}/stop', [ShowcaseController::class, 'stopDemo'])->name('showcase.stop');
+
+// 2. Authenticated Student routes
+Route::middleware(['auth', 'verified'])->group(function () {
+    // Dashboard
+    Route::get('/dashboard', [ProjectController::class, 'index'])->name('dashboard');
+
+    // Projects CRUD & Actions
+    Route::post('/projects', [ProjectController::class, 'store'])->name('projects.store');
+    Route::delete('/projects/{project}', [ProjectController::class, 'destroy'])->name('projects.destroy');
+    Route::post('/projects/{project}/rebuild', [ProjectController::class, 'rebuild'])->name('projects.rebuild');
+    Route::patch('/projects/{project}/instructions', [ProjectController::class, 'updateInstructions'])->name('projects.instructions');
+    
+    // Container Controls
+    Route::post('/projects/{project}/start', [ContainerController::class, 'start'])->name('projects.start');
+    Route::post('/projects/{project}/stop', [ContainerController::class, 'stop'])->name('projects.stop');
+    Route::get('/projects/{project}/logs', [ContainerController::class, 'logs'])->name('projects.logs');
+
+    // Profile updates
+    Route::get('/profile', [ProfileController::class, 'showProfessional'])->name('profile.professional');
+    Route::get('/profile/account', [ProfileController::class, 'edit'])->name('profile.edit');
+    Route::patch('/profile/account', [ProfileController::class, 'update'])->name('profile.update');
+    Route::delete('/profile/account', [ProfileController::class, 'destroy'])->name('profile.destroy');
+    Route::post('/profile/details', [ProfileController::class, 'updateDetails'])->name('profile.details');
+    Route::get('/profile/cv/generate', [ProfileController::class, 'generateCv'])->name('profile.cv.generate');
+});
+
+require __DIR__.'/auth.php';

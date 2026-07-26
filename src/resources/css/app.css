@@ -1,0 +1,324 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =========================================================
+   TEMA ACADÉMICO / CORPORATIVO (LIGHT THEME GLOBAL OVERRIDES)
+   ========================================================= */
+
+/* Activo en el elemento root <html> */
+.theme-academic {
+    background-color: #f1f5f9 !important;
+    color: #0f172a !important;
+}
+
+/* Fondo principal de las páginas */
+.theme-academic .min-h-screen,
+.theme-academic .bg-slate-950,
+.theme-academic div.bg-slate-950 {
+    background-color: #f1f5f9 !important;
+    background-image: none !important;
+}
+
+/* Tarjetas y paneles (Fondo Blanco Puro) */
+.theme-academic .bg-slate-900:not(nav):not(header),
+.theme-academic .bg-slate-900\/20:not(nav):not(header),
+.theme-academic .bg-slate-900\/40:not(nav):not(header),
+.theme-academic .bg-slate-900\/60:not(nav):not(header),
+.theme-academic .bg-slate-900\/70:not(nav):not(header),
+.theme-academic .bg-slate-950\/90:not(nav):not(header),
+.theme-academic .bg-slate-950\/80:not(nav):not(header),
+.theme-academic .group.bg-slate-900\/20:not(nav):not(header),
+.theme-academic .group:hover:not(nav):not(header),
+.theme-academic .rounded-xl.bg-slate-950:not(nav):not(header),
+.theme-academic .rounded-2xl.bg-slate-900\/40:not(nav):not(header),
+.theme-academic div[class*="bg-slate-900"]:not(nav):not(header),
+.theme-academic div[class*="bg-slate-950"]:not(nav):not(header) {
+    background-color: #ffffff !important;
+    background-image: none !important;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05) !important;
+}
+
+/* Bordes en tarjetas, paneles y divisores */
+.theme-academic .border-slate-900:not(nav):not(header),
+.theme-academic .border-slate-850:not(nav):not(header),
+.theme-academic .border-slate-800:not(nav):not(header),
+.theme-academic .border-slate-700:not(nav):not(header),
+.theme-academic .border-dashed {
+    border-color: #e2e8f0 !important; /* slate-200 */
+}
+
+/* Forzar textos oscuros legibles en la página */
+.theme-academic .text-slate-100,
+.theme-academic .text-slate-200,
+.theme-academic .text-white,
+.theme-academic h1,
+.theme-academic h2,
+.theme-academic h3,
+.theme-academic h4,
+.theme-academic .font-bold,
+.theme-academic strong {
+    color: #0f172a; /* slate-900 */
+}
+
+.theme-academic .text-slate-300,
+.theme-academic .text-slate-400,
+.theme-academic .text-slate-500,
+.theme-academic p,
+.theme-academic span.text-slate-400 {
+    color: #475569; /* slate-600 */
+}
+
+/* Inputs de formularios */
+.theme-academic input,
+.theme-academic textarea,
+.theme-academic select {
+    background-color: #ffffff !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #0f172a !important;
+}
+
+.theme-academic input:focus,
+.theme-academic textarea:focus,
+.theme-academic select:focus {
+    border-color: #3b82f6 !important;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2) !important;
+}
+
+/* Botones secundarios (Actualizar, Ver logs, Instrucciones) */
+.theme-academic button.bg-slate-900:not(nav):not(header),
+.theme-academic button.bg-slate-800:not(nav):not(header),
+.theme-academic a.bg-slate-900:not(nav):not(header),
+.theme-academic a.bg-slate-800:not(nav):not(header),
+.theme-academic .bg-slate-900\/60:not(nav):not(header) {
+    background-color: #ffffff !important;
+    color: #334155 !important;
+    border: 1px solid #cbd5e1 !important;
+}
+
+.theme-academic button.bg-slate-900:hover:not(nav):not(header),
+.theme-academic button.bg-slate-800:hover:not(nav):not(header),
+.theme-academic a.bg-slate-900:hover:not(nav):not(header),
+.theme-academic a.bg-slate-800:hover:not(nav):not(header) {
+    background-color: #f1f5f9 !important;
+    color: #0f172a !important;
+}
+
+/* Botón "Encender" */
+.theme-academic .bg-green-600 {
+    background-color: #16a34a !important;
+    color: #ffffff !important;
+    border: none !important;
+}
+.theme-academic .bg-green-600:hover {
+    background-color: #15803d !important;
+}
+
+/* Botón "Apagar" */
+.theme-academic .bg-slate-800:not(nav):not(header) {
+    background-color: #e2e8f0 !important;
+    color: #334155 !important;
+    border: 1px solid #cbd5e1 !important;
+}
+.theme-academic .bg-slate-800:hover:not(nav):not(header) {
+    background-color: #cbd5e1 !important;
+    color: #0f172a !important;
+}
+
+/* Botón "Eliminar" */
+.theme-academic .bg-red-950\/20 {
+    background-color: #fee2e2 !important;
+    border-color: #fca5a5 !important;
+    color: #dc2626 !important;
+}
+.theme-academic .bg-red-950\/20:hover {
+    background-color: #fecaca !important;
+}
+
+/* =========================================================================
+   FORZAR QUE EL NAVBAR Y EL HEADER SEAN SIEMPRE OSCUROS (AZUL INSTITUCIONAL)
+   ========================================================================= */
+.theme-academic nav,
+.theme-academic header.sticky,
+.theme-academic header.shadow {
+    background-color: #0f172a !important; /* Azul Marino Oscuro */
+    border-bottom: 2px solid #1e293b !important;
+}
+
+/* Forzar color de texto e iconos claros dentro del navbar y header */
+.theme-academic nav a,
+.theme-academic nav button,
+.theme-academic nav span,
+.theme-academic header.sticky a,
+.theme-academic header.sticky button,
+.theme-academic header.sticky span,
+.theme-academic header.shadow a,
+.theme-academic header.shadow button,
+.theme-academic header.shadow span,
+.theme-academic nav .text-slate-100,
+.theme-academic nav .text-slate-200,
+.theme-academic nav .text-slate-300,
+.theme-academic nav .text-slate-400,
+.theme-academic nav .text-slate-500,
+.theme-academic header.sticky .text-slate-100,
+.theme-academic header.sticky .text-slate-200,
+.theme-academic header.sticky .text-slate-300,
+.theme-academic header.sticky .text-slate-400,
+.theme-academic header.sticky .text-slate-500,
+.theme-academic header.shadow .text-slate-100,
+.theme-academic header.shadow .text-slate-200,
+.theme-academic header.shadow .text-slate-300,
+.theme-academic header.shadow .text-slate-400,
+.theme-academic header.shadow .text-slate-500,
+.theme-academic nav h2,
+.theme-academic header.sticky h2,
+.theme-academic header.shadow h2 {
+    color: #cbd5e1 !important; /* Gris claro de alta legibilidad */
+}
+
+/* Título de la marca en degradado */
+.theme-academic nav span.bg-gradient-to-r,
+.theme-academic header.sticky span.bg-gradient-to-r,
+.theme-academic header.shadow span.bg-gradient-to-r {
+    background-image: linear-gradient(to right, #22d3ee, #6366f1) !important;
+    -webkit-background-clip: text !important;
+    background-clip: text !important;
+    color: transparent !important;
+}
+
+/* Hover de enlaces en el navbar */
+.theme-academic nav a:hover,
+.theme-academic nav button:hover,
+.theme-academic header.sticky a:hover,
+.theme-academic header.sticky button:hover,
+.theme-academic header.shadow a:hover,
+.theme-academic header.shadow button:hover {
+    color: #ffffff !important;
+    background-color: #1e293b !important;
+}
+
+/* Enlaces activos (Panel de Control, etc) */
+.theme-academic nav a.border-cyan-400,
+.theme-academic nav button.border-cyan-400,
+.theme-academic nav a.bg-slate-800,
+.theme-academic header.sticky a.bg-slate-800,
+.theme-academic header.shadow a.bg-slate-800 {
+    border-color: #22d3ee !important;
+    color: #ffffff !important;
+    background-color: #1e293b !important;
+}
+
+/* Botón de selector de tema en la barra superior */
+.theme-academic nav button.flex,
+.theme-academic header.sticky button.flex,
+.theme-academic header.shadow button.flex,
+.theme-academic nav button[title*="tema"],
+.theme-academic header.sticky button[title*="tema"],
+.theme-academic header.shadow button[title*="tema"] {
+    background-color: #1e293b !important;
+    border: 1px solid #334155 !important;
+    color: #f8fafc !important;
+}
+
+.theme-academic nav button.flex:hover,
+.theme-academic header.sticky button.flex:hover,
+.theme-academic header.shadow button.flex:hover,
+.theme-academic nav button[title*="tema"]:hover,
+.theme-academic header.sticky button[title*="tema"]:hover,
+.theme-academic header.shadow button[title*="tema"]:hover {
+    background-color: #334155 !important;
+    color: #ffffff !important;
+}
+
+/* Botón con fondo gradiente o color sólido (Registrarme, Iniciar) */
+.theme-academic nav a.bg-gradient-to-r,
+.theme-academic header.sticky a.bg-gradient-to-r,
+.theme-academic header.shadow a.bg-gradient-to-r,
+.theme-academic nav a.bg-cyan-500,
+.theme-academic header.sticky a.bg-cyan-500,
+.theme-academic header.shadow a.bg-cyan-500 {
+    color: #0f172a !important; /* Texto oscuro para contraste */
+}
+
+/* Botones secundarios oscuros convertidos a claros dentro de la cabecera */
+.theme-academic header.shadow a.bg-slate-900,
+.theme-academic header.shadow a.bg-slate-800,
+.theme-academic header.sticky a.bg-slate-900,
+.theme-academic header.sticky a.bg-slate-800 {
+    color: #334155 !important;
+    background-color: #ffffff !important;
+    border-color: #cbd5e1 !important;
+}
+
+.theme-academic header.shadow a.bg-slate-900:hover,
+.theme-academic header.shadow a.bg-slate-800:hover,
+.theme-academic header.sticky a.bg-slate-900:hover,
+.theme-academic header.sticky a.bg-slate-800:hover {
+    color: #0f172a !important;
+    background-color: #f1f5f9 !important;
+}
+
+/* Ajustes de badges informativos */
+.theme-academic .bg-indigo-500\/10 {
+    background-color: #e0e7ff !important;
+    color: #3730a3 !important;
+    border: 1px solid #c7d2fe !important;
+}
+
+.theme-academic .bg-cyan-500\/15 {
+    background-color: #ecfeff !important;
+    color: #0369a1 !important;
+}
+
+.theme-academic .bg-yellow-500\/15 {
+    background-color: #fef9c3 !important;
+    color: #854d0e !important;
+}
+
+/* Modales */
+.theme-academic .fixed .bg-slate-900,
+.theme-academic .fixed .bg-slate-900\/85 {
+    background-color: rgba(255, 255, 255, 0.85) !important;
+    border: 1px solid #cbd5e1 !important;
+    box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+}
+.theme-academic .fixed .text-white {
+    color: #0f172a !important;
+}
+.theme-academic .fixed .text-slate-400 {
+    color: #475569 !important;
+}
+
+/* Badges de habilidades y estudiante en el tema claro */
+.theme-academic .bg-cyan-950\/30,
+.theme-academic .bg-cyan-950\/40 {
+    background-color: #ecfeff !important; /* Fondo cian muy suave */
+    border-color: #cffafe !important;
+}
+
+.theme-academic .text-cyan-400 {
+    color: #0891b2 !important; /* Texto cian oscuro profesional */
+}
+
+.theme-academic .border-cyan-900\/30,
+.theme-academic .border-cyan-800\/30 {
+    border-color: #cffafe !important;
+}
+
+/* Custom scrollbar to match the modern dark/light page style */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: #334155;
+    border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #06b6d4;
+}
