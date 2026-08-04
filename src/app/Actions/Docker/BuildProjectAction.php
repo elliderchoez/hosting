@@ -191,7 +191,7 @@ class BuildProjectAction
             '-v', "$path:/app",
             '-w', '/app',
             'composer:latest',
-            'composer', 'install', '--no-dev', '--optimize-autoloader', '--no-interaction', '--ignore-platform-reqs'
+            'composer', 'install', '--optimize-autoloader', '--no-interaction', '--ignore-platform-reqs'
         ];
 
         $output = "Ejecutando composer install...\n";

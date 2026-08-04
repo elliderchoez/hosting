@@ -73,13 +73,13 @@ class ResetStudentDatabases extends Command
                         '--authenticationDatabase', 'admin',
                         '--eval', "
                             db = db.getSiblingDB('{$dbname}');
-                            const collections = db.getCollectionNames();
-                            for (let i = 0; i < collections.length; i++) {
-                                const col = collections[i];
-                                if (!col.startsWith('system.')) {
-                                    db.getCollection(col).drop();
-                                }
-                            }
+                            db.dropDatabase();
+                            try { db.dropUser('{$dbuser}'); } catch (e) {}
+                            db.createUser({
+                                user: '{$dbuser}',
+                                pwd: '{$dbpass}',
+                                roles: [ { role: 'readWrite', db: '{$dbname}' } ]
+                            });
                         "
                     ];
                     $process = new Process($command);
@@ -195,45 +195,66 @@ class ResetStudentDatabases extends Command
         $dbuser = $project->db_user;
         $dbpass = $project->db_password;
 
+        $containerName = "project-{$project->id}";
+        $check = new Process(['docker', 'inspect', '-f', '{{.State.Running}}', $containerName]);
+        $check->run();
+        $isRunning = trim($check->getOutput()) === 'true';
+
         // 1. Laravel (PHP)
         if (File::exists($projectPath . '/artisan')) {
-            $this->info("Detectado Framework Laravel. Ejecutando migraciones y seeders...");
-            $command = [
-                'docker', 'run', '--rm',
-                '--network', 'uleam_academic_network',
-                '-v', "{$projectPath}:/app",
-                '-w', '/app',
-                '-e', "DB_CONNECTION={$driver}",
-                '-e', "DB_HOST={$dbHost}",
-                '-e', "DB_PORT={$dbPort}",
-                '-e', "DB_DATABASE={$dbname}",
-                '-e', "DB_USERNAME={$dbuser}",
-                '-e', "DB_PASSWORD={$dbpass}",
-                'webdevops/php:8.4',
-                'sh', '-c', 'php artisan migrate --force && php artisan db:seed --force'
-            ];
+            if ($isRunning) {
+                $this->info("Contenedor activo. Ejecutando migraciones y seeders vía exec...");
+                $command = [
+                    'docker', 'exec', $containerName,
+                    'sh', '-c', 'php artisan migrate --force && php artisan db:seed --force'
+                ];
+            } else {
+                $this->info("Contenedor inactivo. Ejecutando mediante contenedor temporal...");
+                $command = [
+                    'docker', 'run', '--rm',
+                    '--network', 'uleam_academic_network',
+                    '-v', "{$projectPath}:/app",
+                    '-w', '/app',
+                    '-e', "DB_CONNECTION={$driver}",
+                    '-e', "DB_HOST={$dbHost}",
+                    '-e', "DB_PORT={$dbPort}",
+                    '-e', "DB_DATABASE={$dbname}",
+                    '-e', "DB_USERNAME={$dbuser}",
+                    '-e', "DB_PASSWORD={$dbpass}",
+                    'webdevops/php:8.4',
+                    'sh', '-c', 'php artisan migrate --force && php artisan db:seed --force'
+                ];
+            }
             $this->executeMigrationCommand($command);
             return;
         }
 
         // 2. Django (Python)
         if (File::exists($projectPath . '/manage.py')) {
-            $this->info("Detectado Framework Django. Ejecutando migraciones...");
-            $command = [
-                'docker', 'run', '--rm',
-                '--network', 'uleam_academic_network',
-                '-v', "{$projectPath}:/app",
-                '-w', '/app',
-                '-e', "DB_CONNECTION={$driver}",
-                '-e', "DB_HOST={$dbHost}",
-                '-e', "DB_PORT={$dbPort}",
-                '-e', "DB_DATABASE={$dbname}",
-                '-e', "DB_USERNAME={$dbuser}",
-                '-e', "DB_PASSWORD={$dbpass}",
-                '-e', "DATABASE_URL=" . ($driver === 'mysql' ? 'mysql' : 'postgres') . "://{$dbuser}:{$dbpass}@{$dbHost}:{$dbPort}/{$dbname}",
-                'python:3.11-alpine',
-                'sh', '-c', '.venv/bin/python manage.py migrate'
-            ];
+            if ($isRunning) {
+                $this->info("Contenedor activo. Ejecutando migraciones vía exec...");
+                $command = [
+                    'docker', 'exec', $containerName,
+                    'sh', '-c', '.venv/bin/python manage.py migrate'
+                ];
+            } else {
+                $this->info("Contenedor inactivo. Ejecutando mediante contenedor temporal...");
+                $command = [
+                    'docker', 'run', '--rm',
+                    '--network', 'uleam_academic_network',
+                    '-v', "{$projectPath}:/app",
+                    '-w', '/app',
+                    '-e', "DB_CONNECTION={$driver}",
+                    '-e', "DB_HOST={$dbHost}",
+                    '-e', "DB_PORT={$dbPort}",
+                    '-e', "DB_DATABASE={$dbname}",
+                    '-e', "DB_USERNAME={$dbuser}",
+                    '-e', "DB_PASSWORD={$dbpass}",
+                    '-e', "DATABASE_URL=" . ($driver === 'mysql' ? 'mysql' : 'postgres') . "://{$dbuser}:{$dbpass}@{$dbHost}:{$dbPort}/{$dbname}",
+                    'python:3.11-alpine',
+                    'sh', '-c', '.venv/bin/python manage.py migrate'
+                ];
+            }
             $this->executeMigrationCommand($command);
             return;
         }
@@ -250,22 +271,30 @@ class ResetStudentDatabases extends Command
         }
 
         if ($hasSequelize) {
-            $this->info("Detectado ORM Sequelize. Ejecutando migraciones...");
-            $command = [
-                'docker', 'run', '--rm',
-                '--network', 'uleam_academic_network',
-                '-v', "{$projectPath}:/app",
-                '-w', '/app',
-                '-e', "DB_CONNECTION={$driver}",
-                '-e', "DB_HOST={$dbHost}",
-                '-e', "DB_PORT={$dbPort}",
-                '-e', "DB_DATABASE={$dbname}",
-                '-e', "DB_USERNAME={$dbuser}",
-                '-e', "DB_PASSWORD={$dbpass}",
-                '-e', "DATABASE_URL=" . ($driver === 'mysql' ? 'mysql' : 'postgres') . "://{$dbuser}:{$dbpass}@{$dbHost}:{$dbPort}/{$dbname}",
-                'node:18-alpine',
-                'sh', '-c', 'npx sequelize-cli db:migrate || npx sequelize db:migrate'
-            ];
+            if ($isRunning) {
+                $this->info("Contenedor activo. Ejecutando migraciones vía exec...");
+                $command = [
+                    'docker', 'exec', $containerName,
+                    'sh', '-c', 'npx sequelize-cli db:migrate || npx sequelize db:migrate'
+                ];
+            } else {
+                $this->info("Contenedor inactivo. Ejecutando mediante contenedor temporal...");
+                $command = [
+                    'docker', 'run', '--rm',
+                    '--network', 'uleam_academic_network',
+                    '-v', "{$projectPath}:/app",
+                    '-w', '/app',
+                    '-e', "DB_CONNECTION={$driver}",
+                    '-e', "DB_HOST={$dbHost}",
+                    '-e', "DB_PORT={$dbPort}",
+                    '-e', "DB_DATABASE={$dbname}",
+                    '-e', "DB_USERNAME={$dbuser}",
+                    '-e', "DB_PASSWORD={$dbpass}",
+                    '-e', "DATABASE_URL=" . ($driver === 'mysql' ? 'mysql' : 'postgres') . "://{$dbuser}:{$dbpass}@{$dbHost}:{$dbPort}/{$dbname}",
+                    'node:18-alpine',
+                    'sh', '-c', 'npx sequelize-cli db:migrate || npx sequelize db:migrate'
+                ];
+            }
             $this->executeMigrationCommand($command);
             return;
         }

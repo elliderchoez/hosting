@@ -136,6 +136,35 @@ class BuildProjectJob implements ShouldQueue
                 }
             }
 
+            // Auto-parchear config/cors.php de proyectos Laravel para aceptar
+            // cualquier origen *.localhost y *.uleam-academic.software automáticamente,
+            // eliminando la necesidad de que el estudiante configure FRONTEND_URL.
+            $corsConfigPath = $projectPath . '/config/cors.php';
+            if (\Illuminate\Support\Facades\File::exists($corsConfigPath)) {
+                $corsContent = \Illuminate\Support\Facades\File::get($corsConfigPath);
+                $needsPatch = strpos($corsContent, 'localhost') === false
+                    || strpos($corsContent, 'uleam-academic') === false;
+                if ($needsPatch) {
+                    $logs .= "Detectado config/cors.php en proyecto Laravel. Habilitando CORS automático para dominios de la plataforma...\n";
+                    // Insertar patrones al inicio del array 'allowed_origins_patterns'
+                    $corsContent = preg_replace(
+                        "/('allowed_origins_patterns'\s*=>\s*\[)/",
+                        "$1\n        '#^https?://.*\\.localhost\$#',\n        '#^https?://.*\\.uleam-academic\\.software\$#',",
+                        $corsContent
+                    );
+                    // También agregar wildcard al array 'allowed_origins' si usa env()
+                    if (strpos($corsContent, "env('FRONTEND_URL'") !== false) {
+                        $corsContent = preg_replace(
+                            "/('allowed_origins'\s*=>\s*\[)/",
+                            "$1\n        'http://localhost',\n        'http://localhost:5173',",
+                            $corsContent
+                        );
+                    }
+                    \Illuminate\Support\Facades\File::put($corsConfigPath, $corsContent);
+                    $logs .= "CORS habilitado automáticamente para *.localhost y *.uleam-academic.software.\n";
+                }
+            }
+
             $buildResult = $buildAction->execute($project, $projectPath);
             $logs .= $buildResult['output'] . "\n";
 

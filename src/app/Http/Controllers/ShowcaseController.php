@@ -80,6 +80,7 @@ class ShowcaseController extends Controller
         \App\Actions\Docker\StartProjectContainerAction $startAction,
         \App\Actions\Docker\StopProjectContainerAction $stopAction
     ): \Illuminate\Http\JsonResponse {
+        session_write_close();
         $containerName = "project-{$project->id}";
         
         // Si el estado en BD es 'running' y el contenedor en Docker está activo, abrimos al instante
@@ -173,6 +174,8 @@ class ShowcaseController extends Controller
      */
     public function stopDemo(Project $project): \Illuminate\Http\JsonResponse
     {
+        session_write_close();
+
         // Reset databases for ALL projects belonging to the same student/user
         // to ensure frontend + backend/API projects are reset together.
         $studentProjects = Project::where('user_id', $project->user_id)
@@ -181,11 +184,11 @@ class ShowcaseController extends Controller
 
         foreach ($studentProjects as $p) {
             try {
-                \Illuminate\Support\Facades\Artisan::call('projects:reset-databases', [
+                \Illuminate\Support\Facades\Artisan::queue('projects:reset-databases', [
                     '--project' => $p->id
                 ]);
             } catch (\Exception $e) {
-                \Illuminate\Support\Facades\Log::error("Error resetting database for project {$p->id}: " . $e->getMessage());
+                \Illuminate\Support\Facades\Log::error("Error queuing database reset for project {$p->id}: " . $e->getMessage());
             }
         }
 

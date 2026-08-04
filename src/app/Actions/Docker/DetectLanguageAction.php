@@ -18,18 +18,17 @@ class DetectLanguageAction
             return null;
         }
 
-        // 1. Detect Node.js
-        if (File::exists($projectPath . '/package.json')) {
-            return 'nodejs';
-        }
-
-        // 2. Detect PHP
+        // 1. Detect PHP (Prioritized because Laravel contains package.json for Vite/JS compilation)
         if (File::exists($projectPath . '/composer.json') || 
-            File::exists($projectPath . '/index.php') || 
-            File::exists($projectPath . '/index.html') || 
-            File::exists($projectPath . '/artisan')
+            File::exists($projectPath . '/artisan') ||
+            File::exists($projectPath . '/index.php')
         ) {
             return 'php';
+        }
+
+        // 2. Detect Node.js
+        if (File::exists($projectPath . '/package.json')) {
+            return 'nodejs';
         }
 
         // 3. Detect Python
