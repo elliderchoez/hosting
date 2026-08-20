@@ -377,10 +377,21 @@ class BuildProjectJob implements ShouldQueue
         $strongMarkers = [
             'composer.json', 'artisan',
             'package.json',
-            'requirements.txt', 'Pipfile', 'manage.py'
+            'requirements.txt', 'Pipfile', 'manage.py',
+            'pom.xml', 'build.gradle', 'build.gradle.kts', 'gradlew',
+            'Program.cs', 'Startup.cs'
         ];
         foreach ($strongMarkers as $marker) {
             if (\Illuminate\Support\Facades\File::exists($dir . '/' . $marker)) {
+                return 10;
+            }
+        }
+
+        // Check for .csproj or .sln files in directory -> Score 10
+        $dirFiles = \Illuminate\Support\Facades\File::files($dir);
+        foreach ($dirFiles as $file) {
+            $ext = strtolower($file->getExtension());
+            if ($ext === 'csproj' || $ext === 'sln' || $ext === 'fsproj') {
                 return 10;
             }
         }
@@ -398,11 +409,10 @@ class BuildProjectJob implements ShouldQueue
         }
 
         // Weak markers (raw source code files) -> Score 1
-        $files = \Illuminate\Support\Facades\File::files($dir);
-        foreach ($files as $file) {
+        foreach ($dirFiles as $file) {
             $name = $file->getFilename();
             $ext = strtolower($file->getExtension());
-            if (in_array($ext, ['php', 'py'])) {
+            if (in_array($ext, ['php', 'py', 'java', 'cs'])) {
                 return 1;
             }
             if (in_array($ext, ['js', 'ts', 'jsx', 'tsx'])) {
@@ -573,12 +583,16 @@ class BuildProjectJob implements ShouldQueue
                 ");
 
                 $logs .= "Preparando base de datos Postgres limpia '{$dbname}'...\n";
-                \Illuminate\Support\Facades\DB::connection('students_postgres')->statement("
-                    SELECT pg_terminate_backend(pg_stat_activity.pid)
-                    FROM pg_stat_activity
-                    WHERE pg_stat_activity.datname = '{$dbname}'
-                      AND pid <> pg_backend_pid();
-                ");
+                try {
+                    \Illuminate\Support\Facades\DB::connection('students_postgres')->select("
+                        SELECT pg_terminate_backend(pg_stat_activity.pid)
+                        FROM pg_stat_activity
+                        WHERE pg_stat_activity.datname = '{$dbname}'
+                          AND pid <> pg_backend_pid();
+                    ");
+                } catch (\Throwable $e) {
+                    // Ignorar si no había conexiones activas
+                }
 
                 \Illuminate\Support\Facades\DB::connection('students_postgres')->statement("DROP DATABASE IF EXISTS {$dbname};");
                 \Illuminate\Support\Facades\DB::connection('students_postgres')->statement("CREATE DATABASE {$dbname} OWNER {$dbuser};");

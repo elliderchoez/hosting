@@ -11,6 +11,10 @@ export default function Dashboard({ auth, profile, projects }) {
     const [localUploadMode, setLocalUploadMode] = useState('zip');
     const [projectToDelete, setProjectToDelete] = useState(null);
     const [instructionsProject, setInstructionsProject] = useState(null);
+    const [deletedProjectIds, setDeletedProjectIds] = useState([]);
+
+    // Proyectos visibles filtrando optimistamente los que están en proceso de eliminación
+    const visibleProjects = projects.filter(p => !deletedProjectIds.includes(p.id));
 
     // Polling en segundo plano para mantener los estados de los proyectos sincronizados en tiempo real (cada 5 segundos)
     useEffect(() => {
@@ -36,6 +40,31 @@ export default function Dashboard({ auth, profile, projects }) {
         root_dir: '',
         env_vars: ''
     });
+
+    // Auto-linking: subdominio del backend seleccionado para inyectar URLs en env_vars
+    const [linkedBackend, setLinkedBackend] = useState('');
+
+    // Proyectos del estudiante que son backends (PHP, Python, Java, .NET)
+    const backendProjects = visibleProjects.filter(p =>
+        ['php', 'python', 'java', 'dotnet'].includes(p.language) && p.status === 'running'
+    );
+
+    // Cuando el usuario selecciona un backend, inyecta todas las variantes de URL conocidas
+    const handleLinkBackend = (subdomain) => {
+        setLinkedBackend(subdomain);
+        if (!subdomain) {
+            projectForm.setData('env_vars', '');
+            return;
+        }
+        const apiUrl = `http://${subdomain}.uleam-academic.software/api`;
+        const vars = [
+            `VITE_API_URL=${apiUrl}`,
+            `REACT_APP_API_URL=${apiUrl}`,
+            `NEXT_PUBLIC_API_URL=${apiUrl}`,
+            `API_URL=${apiUrl}`,
+        ].join('\n');
+        projectForm.setData('env_vars', vars);
+    };
 
     const instructionsForm = useForm({
         demo_instructions: ''
@@ -209,14 +238,14 @@ export default function Dashboard({ auth, profile, projects }) {
                             )}
                         </div>
 
-                        {projects.length === 0 ? (
+                        {visibleProjects.length === 0 ? (
                             <div className="text-center py-12 border border-dashed border-slate-800 rounded-xl bg-slate-900/10">
                                 <p className="text-slate-400">Aún no has registrado ningún proyecto.</p>
                                 <p className="text-xs text-slate-500 mt-1">Sube tu primer proyecto desde GitHub o una carpeta local para mostrarlo en tu vitrina.</p>
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                {projects.map((project) => (
+                                {visibleProjects.map((project) => (
                                     <div
                                         key={project.id}
                                         className="rounded-xl border border-slate-900 bg-slate-950 p-5 flex flex-col justify-between shadow-md"
@@ -488,6 +517,29 @@ export default function Dashboard({ auth, profile, projects }) {
 
                             <div>
                                 <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Variables de Entorno (Opcional)</label>
+
+                                {/* Auto-linking Frontend ↔ Backend */}
+                                {backendProjects.length > 0 && (
+                                    <div className="mb-3">
+                                        <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                                            Vincular con proyecto Backend
+                                        </label>
+                                        <select
+                                            value={linkedBackend}
+                                            onChange={e => handleLinkBackend(e.target.value)}
+                                            className="w-full px-4 py-2.5 bg-slate-950 border border-slate-850 rounded-xl text-slate-200 focus:border-cyan-500 focus:ring-0 text-sm"
+                                        >
+                                            <option value="">-- Ninguno (ingresar manualmente) --</option>
+                                            {backendProjects.map(p => (
+                                                <option key={p.id} value={p.subdomain}>
+                                                    {p.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <p className="text-[10px] text-slate-500 mt-1">Selecciona un backend para que las URLs de la API se configuren automáticamente.</p>
+                                    </div>
+                                )}
+
                                 <textarea
                                     value={projectForm.data.env_vars}
                                     onChange={e => projectForm.setData('env_vars', e.target.value)}
@@ -501,7 +553,7 @@ export default function Dashboard({ auth, profile, projects }) {
                                         <li>Define una variable por cada línea en formato <code className="text-cyan-400 font-mono">CLAVE=VALOR</code>.</li>
                                         <li>Para conectar un frontend de React/Vite a una API backend, escribe:
                                             <div className="bg-slate-950 p-1.5 rounded border border-slate-850 mt-1 font-mono text-[9px] text-slate-400 select-all leading-relaxed">
-                                                VITE_API_URL=http://tu-subdominio-back.uleam-academic.software<br/>
+                                                VITE_API_URL=http://tu-subdominio-back.uleam-academic.software<br />
                                                 VITE_WS_URL=ws://tu-subdominio-back.uleam-academic.software
                                             </div>
                                         </li>
@@ -656,9 +708,10 @@ export default function Dashboard({ auth, profile, projects }) {
                             </button>
                             <button
                                 onClick={() => {
-                                    router.delete(route('projects.destroy', projectToDelete), {
-                                        onFinish: () => setProjectToDelete(null)
-                                    });
+                                    const toDelete = projectToDelete;
+                                    setProjectToDelete(null); // Cierra el modal inmediatamente
+                                    setDeletedProjectIds(prev => [...prev, toDelete]); // Oculta la tarjeta al instante (0ms)
+                                    router.delete(route('projects.destroy', toDelete));
                                 }}
                                 className="px-4 py-2 rounded-xl text-xs font-bold bg-red-600 hover:bg-red-500 text-white transition duration-150 shadow-lg shadow-red-600/10"
                             >

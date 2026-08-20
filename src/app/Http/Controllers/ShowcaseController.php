@@ -101,10 +101,10 @@ class ShowcaseController extends Controller
             
             // Esperar a que la aplicación interna esté lista y respondiendo en su puerto
             $containerIp = $this->getContainerIp($result['container_id']);
-            $port = $project->language === 'nodejs' ? 3000 : ($project->language === 'python' ? 5000 : 80);
+            $port = $this->getProjectPort($project, $projectPath);
             
             $isReady = false;
-            for ($i = 0; $i < 15; $i++) {
+            for ($i = 0; $i < 40; $i++) {
                 if ($this->checkPort($containerIp, $port)) {
                     $isReady = true;
                     break;
@@ -131,6 +131,37 @@ class ShowcaseController extends Controller
             return response()->json(['success' => true]);
         }
         return response()->json(['success' => false, 'error' => $result['output']], 500);
+    }
+
+    /**
+     * Obteer el puerto interno según el lenguaje del proyecto.
+     */
+    private function getProjectPort(\App\Models\Project $project, string $projectPath): int
+    {
+        switch ($project->language) {
+            case 'nodejs':
+                return 3000;
+            case 'python':
+                return 5000;
+            case 'java':
+                return 8080;
+            case 'dotnet':
+                return 80;
+            case 'dockerfile':
+                $dockerfilePath = \Illuminate\Support\Facades\File::exists($projectPath . '/Dockerfile')
+                    ? $projectPath . '/Dockerfile'
+                    : $projectPath . '/dockerfile';
+                if (\Illuminate\Support\Facades\File::exists($dockerfilePath)) {
+                    $content = \Illuminate\Support\Facades\File::get($dockerfilePath);
+                    if (preg_match('/^EXPOSE\s+(\d+)/mi', $content, $matches)) {
+                        return (int) $matches[1];
+                    }
+                }
+                return 8080;
+            case 'php':
+            default:
+                return 80;
+        }
     }
 
     /**

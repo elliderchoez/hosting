@@ -37,6 +37,12 @@ class BuildProjectAction
                 return $this->buildPhp($projectPath, $uid, $gid);
             case 'python':
                 return $this->buildPython($projectPath, $uid, $gid);
+            case 'java':
+                return $this->buildJava($projectPath, $uid, $gid);
+            case 'dotnet':
+                return $this->buildDotnet($projectPath, $uid, $gid);
+            case 'dockerfile':
+                return $this->buildDockerfile($project, $projectPath);
             default:
                 return [
                     'success' => false,
@@ -318,5 +324,117 @@ class BuildProjectAction
         $process = new Process(['id', '-g']);
         $process->run();
         return trim($process->getOutput()) ?: '1000';
+    }
+
+    /**
+     * Build Java application (Maven or Gradle → Fat JAR)
+     */
+    private function buildJava(string $path, string $uid, string $gid): array
+    {
+        $output = "";
+        $isMaven  = File::exists($path . '/pom.xml');
+        $isGradle = File::exists($path . '/build.gradle') || File::exists($path . '/build.gradle.kts');
+
+        if (!$isMaven && !$isGradle) {
+            return ['success' => false, 'output' => "No se encontró pom.xml ni build.gradle. No se puede compilar el proyecto Java."];
+        }
+
+        if ($isMaven) {
+            $output .= "Detectado proyecto Maven. Ejecutando mvn package...\n";
+            $command = [
+                'docker', 'run', '--rm',
+                '-v', "$path:/app",
+                '-w', '/app',
+                'maven:3.9-eclipse-temurin-17-alpine',
+                'mvn', '-q', 'package', '-DskipTests'
+            ];
+        } else {
+            $output .= "Detectado proyecto Gradle. Ejecutando gradle build...\n";
+            $wrapper = File::exists($path . '/gradlew') ? './gradlew' : 'gradle';
+            $command = [
+                'docker', 'run', '--rm',
+                '-v', "$path:/app",
+                '-w', '/app',
+                'gradle:8.5-jdk17-alpine',
+                'sh', '-c', "$wrapper build -x test"
+            ];
+        }
+
+        $result = $this->runCommand($command);
+        $output .= $result['output'];
+
+        // Fix file permissions on host for created build artifacts (target/ / build/)
+        $this->runCommand(['chown', '-R', "$uid:$gid", $path]);
+
+        if (!$result['success']) {
+            return ['success' => false, 'output' => $output];
+        }
+
+        $output .= "\nCompilación Java exitosa.\n";
+        return ['success' => true, 'output' => $output];
+    }
+
+    /**
+     * Build .NET application (ASP.NET Core → dotnet publish)
+     */
+    private function buildDotnet(string $path, string $uid, string $gid): array
+    {
+        $output = "Detectado proyecto .NET/C#. Ejecutando dotnet publish...\n";
+
+        // Find the .csproj file
+        $csprojFiles = glob($path . '/*.csproj');
+        if (empty($csprojFiles)) {
+            // Buscar en subdirectorios nivel 1
+            $csprojFiles = glob($path . '/*/*.csproj');
+        }
+
+        $publishCommand = 'dotnet publish -c Release -o /app/publish --nologo -v q';
+
+        $command = [
+            'docker', 'run', '--rm',
+            '-v', "$path:/app",
+            '-w', '/app',
+            'mcr.microsoft.com/dotnet/sdk:8.0-alpine',
+            'sh', '-c', $publishCommand
+        ];
+
+        $result = $this->runCommand($command);
+        $output .= $result['output'];
+
+        // Fix file permissions on host for published artifacts
+        $this->runCommand(['chown', '-R', "$uid:$gid", $path]);
+
+        if (!$result['success']) {
+            return ['success' => false, 'output' => $output];
+        }
+
+        $output .= "\nPublicación .NET exitosa. Artefactos en /app/publish.\n";
+        return ['success' => true, 'output' => $output];
+    }
+
+    /**
+     * Build using the project's own Dockerfile (universal language support)
+     */
+    private function buildDockerfile(Project $project, string $path): array
+    {
+        $imageName = 'project-' . $project->id . '-img';
+        $output = "Detectado Dockerfile personalizado. Construyendo imagen {$imageName}...\n";
+
+        $command = [
+            'env', 'TMPDIR=/var/tmp',
+            'docker', 'build',
+            '-t', $imageName,
+            $path
+        ];
+
+        $result = $this->runCommand($command);
+        $output .= $result['output'];
+
+        if (!$result['success']) {
+            return ['success' => false, 'output' => $output];
+        }
+
+        $output .= "\nImagen Docker construida exitosamente: {$imageName}\n";
+        return ['success' => true, 'output' => $output];
     }
 }

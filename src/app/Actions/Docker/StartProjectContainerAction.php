@@ -79,6 +79,27 @@ class StartProjectContainerAction
             $command[] = '--label';
             $command[] = "traefik.http.routers.{$project->id}-local.entrypoints=web";
 
+            // ── CORS Universal ──────────────────────────────────────────────────────────
+            // Inyectar encabezados CORS a nivel de proxy Traefik para que cualquier
+            // frontend pueda consumir este backend sin importar el lenguaje de programación.
+            $corsName = "{$project->id}-cors";
+            $command[] = '--label';
+            $command[] = "traefik.http.middlewares.{$corsName}.headers.accesscontrolalloworiginlist=*";
+            $command[] = '--label';
+            $command[] = "traefik.http.middlewares.{$corsName}.headers.accesscontrolallowmethods=GET,OPTIONS,PUT,PATCH,POST,DELETE";
+            $command[] = '--label';
+            $command[] = "traefik.http.middlewares.{$corsName}.headers.accesscontrolallowheaders=Content-Type,Authorization,X-Requested-With,Accept,Origin,X-CSRF-Token";
+            $command[] = '--label';
+            $command[] = "traefik.http.middlewares.{$corsName}.headers.accesscontrolmaxage=100";
+            $command[] = '--label';
+            $command[] = "traefik.http.middlewares.{$corsName}.headers.addvaryheader=true";
+            // Aplicar el middleware a ambos routers (producción y local)
+            $command[] = '--label';
+            $command[] = "traefik.http.routers.{$project->id}.middlewares={$corsName}";
+            $command[] = '--label';
+            $command[] = "traefik.http.routers.{$project->id}-local.middlewares={$corsName}";
+            // ───────────────────────────────────────────────────────────────────────────
+
             // Asociación al servicio balanceador de carga
             $command[] = '--label';
             $command[] = "traefik.http.services.{$project->id}-service.loadbalancer.server.port={$settings['port']}";
@@ -279,8 +300,58 @@ class StartProjectContainerAction
                     'command' => $command
                 ];
 
+            case 'java':
+                // Determine JAR location (Maven: target/, Gradle: build/libs/)
+                $jarDir = File::exists($projectPath . '/pom.xml') ? 'target' : 'build/libs';
+                return [
+                    'image'   => 'eclipse-temurin:17-jre-alpine',
+                    'port'    => 8080,
+                    'command' => ['sh', '-c', "java -jar /app/{$jarDir}/*.jar"]
+                ];
+
+            case 'dotnet':
+                // Run the pre-published binary from /app/publish/
+                return [
+                    'image'   => 'mcr.microsoft.com/dotnet/aspnet:8.0-alpine',
+                    'port'    => 80,
+                    'command' => ['sh', '-c', 'dotnet /app/publish/*.dll']
+                ];
+
+            case 'dockerfile':
+                // Use the image built by buildDockerfile().
+                // basename($projectPath) = 'project-{UUID}', so image = 'project-{UUID}-img'
+                // which matches what buildDockerfile() creates: 'project-' . $project->id . '-img'
+                $port = $this->detectDockerfilePort($projectPath);
+                return [
+                    'image'   => basename($projectPath) . '-img',
+                    'port'    => $port,
+                    'command' => []  // CMD is baked into the image
+                ];
+
             default:
                 return null;
         }
+    }
+
+    /**
+     * Detect the EXPOSE port from a project's Dockerfile.
+     * Falls back to 8080 if not found.
+     */
+    private function detectDockerfilePort(string $projectPath): int
+    {
+        $dockerfilePath = File::exists($projectPath . '/Dockerfile')
+            ? $projectPath . '/Dockerfile'
+            : $projectPath . '/dockerfile';
+
+        if (!File::exists($dockerfilePath)) {
+            return 8080;
+        }
+
+        $content = File::get($dockerfilePath);
+        if (preg_match('/^EXPOSE\s+(\d+)/mi', $content, $matches)) {
+            return (int) $matches[1];
+        }
+
+        return 8080;
     }
 }

@@ -10,7 +10,7 @@ class DetectLanguageAction
      * Detect the language of a project by analyzing files in its folder.
      *
      * @param string $projectPath
-     * @return string|null 'nodejs', 'php', 'python', or null if undetected
+     * @return string|null 'nodejs', 'php', 'python', 'java', 'dotnet', 'dockerfile', or null if undetected
      */
     public function execute(string $projectPath): ?string
     {
@@ -40,15 +40,42 @@ class DetectLanguageAction
             return 'python';
         }
 
-        // Default: scan recursively for typical extensions in root
-        $files = File::files($projectPath);
-        foreach ($files as $file) {
+        // 4. Detect Java (Maven or Gradle)
+        if (File::exists($projectPath . '/pom.xml') ||
+            File::exists($projectPath . '/build.gradle') ||
+            File::exists($projectPath . '/build.gradle.kts') ||
+            File::exists($projectPath . '/gradlew')
+        ) {
+            return 'java';
+        }
+
+        // 5. Detect .NET (ASP.NET Core / C#)
+        $rootFiles = File::files($projectPath);
+        foreach ($rootFiles as $file) {
+            $ext = $file->getExtension();
+            if ($ext === 'csproj' || $ext === 'sln' || $ext === 'fsproj') {
+                return 'dotnet';
+            }
+        }
+        if (File::exists($projectPath . '/Program.cs') || File::exists($projectPath . '/Startup.cs')) {
+            return 'dotnet';
+        }
+
+
+        // 7. Last resort: scan file extensions
+        foreach ($rootFiles as $file) {
             $extension = $file->getExtension();
             if ($extension === 'php') {
                 return 'php';
             }
             if ($extension === 'py') {
                 return 'python';
+            }
+            if ($extension === 'java') {
+                return 'java';
+            }
+            if ($extension === 'cs') {
+                return 'dotnet';
             }
             if ($extension === 'js' || $extension === 'ts' || $extension === 'jsx' || $extension === 'tsx') {
                 return 'nodejs';
