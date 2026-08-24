@@ -67,8 +67,12 @@ class ResetStudentDatabases extends Command
                 // 1. Recrear Base de Datos Limpia
                 if ($driver === 'mongodb') {
                     $this->info("Limpiando colecciones de MongoDB central para '{$dbname}'...");
+                    $checkCli = new Process(['docker', 'exec', 'uleam_mongodb_students', 'which', 'mongosh']);
+                    $checkCli->run();
+                    $mongoCli = $checkCli->isSuccessful() ? 'mongosh' : 'mongo';
+
                     $command = [
-                        'docker', 'exec', 'uleam_mongodb_students', 'mongosh',
+                        'docker', 'exec', 'uleam_mongodb_students', $mongoCli,
                         '-u', 'root', '-p', 'uleam_mongo_pass',
                         '--authenticationDatabase', 'admin',
                         '--eval', "
@@ -85,9 +89,18 @@ class ResetStudentDatabases extends Command
                     $process = new Process($command);
                     $process->run();
                     if (!$process->isSuccessful()) {
-                        throw new \Exception("Error reseteando MongoDB: " . $process->getErrorOutput());
+                        throw new \Exception("Error reseteando MongoDB con {$mongoCli}: " . $process->getErrorOutput());
                     }
                     $this->info("Base de datos MongoDB '{$dbname}' recreada limpia.");
+
+                    // Si el contenedor está activo, reiniciarlo rápidamente para que vuelva a sembrar el registro inicial
+                    $containerName = "project-{$project->id}";
+                    $checkRunning = new Process(['docker', 'inspect', '-f', '{{.State.Running}}', $containerName]);
+                    $checkRunning->run();
+                    if (trim($checkRunning->getOutput()) === 'true') {
+                        $restartProc = new Process(['docker', 'restart', '-t', '1', $containerName]);
+                        $restartProc->run();
+                    }
                 } elseif ($driver === 'mysql') {
                     \Illuminate\Support\Facades\DB::connection('students_mysql')->statement("DROP DATABASE IF EXISTS {$dbname};");
                     \Illuminate\Support\Facades\DB::connection('students_mysql')->statement("CREATE DATABASE {$dbname};");
@@ -120,58 +133,60 @@ class ResetStudentDatabases extends Command
                 }
 
                 if ($driver !== 'mongodb') {
-                    // 2. Buscar archivos .sql e importarlos
-                    $files = File::allFiles($projectPath);
-                    $sqlFiles = [];
-                    foreach ($files as $file) {
-                        if (Str::endsWith(Str::lower($file->getFilename()), '.sql')) {
-                            $relativePath = $file->getRelativePathname();
-                            if (!Str::contains($relativePath, ['node_modules', '.git', '.venv', 'vendor'])) {
-                                $sqlFiles[] = $file;
+                    // 2. Si es un proyecto con framework (Laravel/Django), ejecutar sus migraciones y seeders
+                    if (File::exists($projectPath . '/artisan') || File::exists($projectPath . '/manage.py') || File::exists($projectPath . '/package.json')) {
+                        $this->runFrameworkMigrations($project, $projectPath);
+                    }
+
+                    // 3. Buscar archivos .sql de respaldo legítimos e importarlos (si no fueron gestionados por framework)
+                    if (!File::exists($projectPath . '/artisan')) {
+                        $files = File::allFiles($projectPath);
+                        $sqlFiles = [];
+                        foreach ($files as $file) {
+                            if (Str::endsWith(Str::lower($file->getFilename()), '.sql')) {
+                                $relativePath = $file->getRelativePathname();
+                                if (!Str::contains($relativePath, ['node_modules', '.git', '.venv', 'vendor', 'scripts', 'sail'])) {
+                                    $sqlFiles[] = $file;
+                                }
+                            }
+                        }
+
+                        if (!empty($sqlFiles)) {
+                            foreach ($sqlFiles as $sqlFile) {
+                                $this->info("Importando respaldo original: {$sqlFile->getFilename()}...");
+                                
+                                if ($driver === 'mysql') {
+                                    $command = [
+                                        'docker', 'run', '--rm',
+                                        '--network', 'uleam_academic_network',
+                                        '-v', "{$projectPath}:/workspace:ro",
+                                        'mysql:8.0',
+                                        'sh', '-c',
+                                        "mysql -h uleam_mysql_students -u '{$dbuser}' -p'{$dbpass}' {$dbname} < /workspace/{$sqlFile->getRelativePathname()}"
+                                    ];
+                                } else {
+                                    $command = [
+                                        'docker', 'run', '--rm',
+                                        '--network', 'uleam_academic_network',
+                                        '-v', "{$projectPath}:/workspace:ro",
+                                        'postgres:15-alpine',
+                                        'sh', '-c',
+                                        "PGPASSWORD='{$dbpass}' psql -h uleam_postgres_students -U '{$dbuser}' -d '{$dbname}' -f /workspace/{$sqlFile->getRelativePathname()}"
+                                    ];
+                                }
+
+                                $process = new Process($command);
+                                $process->setTimeout(90);
+                                $process->run();
+
+                                if ($process->isSuccessful()) {
+                                    $this->info("Importación del archivo '{$sqlFile->getFilename()}' exitosa.");
+                                } else {
+                                    $this->error("Fallo al importar '{$sqlFile->getFilename()}': " . $process->getErrorOutput());
+                                }
                             }
                         }
                     }
-
-                    if (empty($sqlFiles)) {
-                        $this->info("No se encontraron archivos .sql para volver a importar.");
-                    } else {
-                        foreach ($sqlFiles as $sqlFile) {
-                            $this->info("Importando respaldo original: {$sqlFile->getFilename()}...");
-                            
-                            if ($driver === 'mysql') {
-                                $command = [
-                                    'docker', 'run', '--rm',
-                                    '--network', 'uleam_academic_network',
-                                    '-v', "{$projectPath}:/workspace:ro",
-                                    'mysql:8.0',
-                                    'sh', '-c',
-                                    "mysql -h uleam_mysql_students -u '{$dbuser}' -p'{$dbpass}' {$dbname} < /workspace/{$sqlFile->getRelativePathname()}"
-                                ];
-                            } else {
-                                $command = [
-                                    'docker', 'run', '--rm',
-                                    '--network', 'uleam_academic_network',
-                                    '-v', "{$projectPath}:/workspace:ro",
-                                    'postgres:15-alpine',
-                                    'sh', '-c',
-                                    "PGPASSWORD='{$dbpass}' psql -h uleam_postgres_students -U '{$dbuser}' -d '{$dbname}' -f /workspace/{$sqlFile->getRelativePathname()}"
-                                ];
-                            }
-
-                            $process = new Process($command);
-                            $process->setTimeout(90);
-                            $process->run();
-
-                            if ($process->isSuccessful()) {
-                                $this->info("Importación del archivo '{$sqlFile->getFilename()}' exitosa.");
-                            } else {
-                                $this->error("Fallo al importar '{$sqlFile->getFilename()}': " . $process->getErrorOutput());
-                            }
-                        }
-                    }
-
-                    // 3. Volver a correr las migraciones de los frameworks (Laravel, Django, Sequelize)
-                    $this->runFrameworkMigrations($project, $projectPath);
                 }
 
             } catch (\Exception $e) {

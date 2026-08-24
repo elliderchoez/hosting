@@ -76,6 +76,23 @@ export default function AuthenticatedLayout({ header, children }) {
                             >
                                 Perfil
                             </Link>
+
+                            <Link
+                                href={route('messages.index')}
+                                className={`relative px-3 py-1.5 rounded-lg text-xs font-bold transition duration-150 flex items-center space-x-1.5 ${
+                                    route().current('messages.*')
+                                        ? 'bg-slate-800 text-white'
+                                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
+                                }`}
+                            >
+                                <span>Mensajes</span>
+                                {usePage().props.auth?.unreadMessagesCount > 0 && (
+                                    <span className="flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-gradient-to-r from-cyan-500 to-indigo-500 px-1 text-[10px] font-extrabold text-slate-950 shadow-sm animate-pulse">
+                                        {usePage().props.auth.unreadMessagesCount}
+                                    </span>
+                                )}
+                            </Link>
+
                             <button
                                 onClick={() => setTheme(theme === 'spatial' ? 'academic' : 'spatial')}
                                 className="p-1.5 rounded-lg transition duration-150 bg-slate-900/60 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800/40 flex items-center justify-center"
@@ -191,6 +208,18 @@ export default function AuthenticatedLayout({ header, children }) {
                                 className="text-slate-300 hover:text-white"
                             >
                                 Perfil
+                            </ResponsiveNavLink>
+                            <ResponsiveNavLink 
+                                href={route('messages.index')}
+                                active={route().current('messages.*')}
+                                className="text-slate-300 hover:text-white flex items-center justify-between"
+                            >
+                                <span>Mensajes</span>
+                                {usePage().props.auth?.unreadMessagesCount > 0 && (
+                                    <span className="rounded-full bg-cyan-500 px-2 py-0.5 text-xs font-bold text-slate-950">
+                                        {usePage().props.auth.unreadMessagesCount} nuevos
+                                    </span>
+                                )}
                             </ResponsiveNavLink>
                             <ResponsiveNavLink
                                 method="post"

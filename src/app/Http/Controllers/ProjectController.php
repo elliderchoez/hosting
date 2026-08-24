@@ -30,11 +30,14 @@ class ProjectController extends Controller
             ['bio' => '', 'skills' => [], 'education' => []]
         );
 
-        // Load student's projects with their latest deployment
+        // Load student's projects with their latest deployment and backend relationship
         $projects = Project::where('user_id', $user->id)
-            ->with(['deployments' => function ($query) {
-                $query->latest()->limit(5);
-            }])
+            ->with([
+                'backendProject',
+                'deployments' => function ($query) {
+                    $query->latest()->limit(5);
+                }
+            ])
             ->get();
 
         // Sincronizar el estado físico de Docker con la Base de Datos
@@ -69,10 +72,18 @@ class ProjectController extends Controller
     {
         $user = $request->user();
 
-        // 1. Limitar a un máximo de 3 proyectos por estudiante
-        $projectCount = Project::where('user_id', $user->id)->count();
-        if ($projectCount >= 3) {
-            return redirect()->back()->withErrors(['error' => 'Has alcanzado el límite máximo de 3 proyectos.']);
+        $attachToProjectId = $request->input('attach_to_project_id');
+        $parentProject = null;
+        if ($attachToProjectId) {
+            $parentProject = Project::where('user_id', $user->id)->findOrFail($attachToProjectId);
+        }
+
+        // Si es un proyecto principal (no un backend satélite), validar límite de 3 aplicaciones
+        if (!$parentProject) {
+            $mainProjectCount = Project::where('user_id', $user->id)->where('is_backend_service', false)->count();
+            if ($mainProjectCount >= 3) {
+                return redirect()->back()->withErrors(['error' => 'Has alcanzado el límite máximo de 3 aplicaciones principales.']);
+            }
         }
 
         $isFolderUpload = $request->hasFile('folder_files');
@@ -83,6 +94,7 @@ class ProjectController extends Controller
             'subdomain' => 'required|string|max:63|alpha_dash|unique:projects,subdomain',
             'root_dir' => 'nullable|string|max:255',
             'env_vars' => 'nullable|string',
+            'attach_to_project_id' => 'nullable|uuid|exists:projects,id',
         ];
 
         if (!$isFolderUpload) {
@@ -104,8 +116,10 @@ class ProjectController extends Controller
         $subdomain = Str::lower($request->subdomain);
 
         // 3. Crear el registro del proyecto en la base de datos
+        $isBackendService = $parentProject !== null;
         $project = Project::create([
             'user_id' => $user->id,
+            'is_backend_service' => $isBackendService,
             'name' => $request->name,
             'subdomain' => $subdomain,
             'github_repo_url' => $isFolderUpload ? 'Subido localmente' : $request->github_repo_url,
@@ -114,6 +128,30 @@ class ProjectController extends Controller
             'env_vars' => $request->env_vars,
             'status' => 'building',
         ]);
+
+        // Si se desplegó como backend de una aplicación existente, vincularlo y recompilar frontend
+        if ($parentProject) {
+            $parentProject->backend_project_id = $project->id;
+            $scheme = request()->getScheme() ?: 'http';
+            $backendApiUrl = "{$scheme}://{$subdomain}.uleam-academic.software/api";
+            $vars = [
+                "VITE_API_URL={$backendApiUrl}",
+                "REACT_APP_API_URL={$backendApiUrl}",
+                "NEXT_PUBLIC_API_URL={$backendApiUrl}",
+                "API_URL={$backendApiUrl}",
+                "BACKEND_URL={$scheme}://{$subdomain}.uleam-academic.software"
+            ];
+            $parentProject->env_vars = implode("\n", $vars);
+            $parentProject->save();
+
+            // Recompilar el frontend automáticamente para que Vite integre las nuevas variables de entorno
+            $parentDeployment = Deployment::create([
+                'project_id' => $parentProject->id,
+                'status' => 'queued',
+                'build_log' => 'Recompilando frontend para integrar la URL del nuevo backend API...',
+            ]);
+            BuildProjectJob::dispatch($parentDeployment);
+        }
 
         // 4. Si es subida de carpeta local o archivo ZIP
         if ($isFolderUpload) {
@@ -190,7 +228,66 @@ class ProjectController extends Controller
         // 6. Despachar el trabajo de compilación en segundo plano
         BuildProjectJob::dispatch($deployment);
 
-        return redirect()->route('dashboard')->with('status', 'Proyecto registrado. Compilación iniciada en segundo plano.');
+        $msg = $parentProject 
+            ? "Servicio Backend '{$project->name}' registrado e integrado a '{$parentProject->name}'."
+            : "Proyecto registrado. Compilación iniciada en segundo plano.";
+
+        return redirect()->route('dashboard')->with('status', $msg);
+    }
+
+    /**
+     * Vincular o desvincular un servicio backend a una aplicación frontend.
+     */
+    public function linkBackend(Request $request, Project $project): RedirectResponse
+    {
+        if ($project->user_id !== Auth::id()) {
+            abort(403);
+        }
+
+        $request->validate([
+            'backend_project_id' => 'nullable|uuid|exists:projects,id'
+        ]);
+
+        $backendId = $request->input('backend_project_id');
+        if ($backendId) {
+            $backend = Project::where('user_id', Auth::id())->findOrFail($backendId);
+            $backend->is_backend_service = true;
+            $backend->save();
+
+            $project->backend_project_id = $backend->id;
+            $scheme = request()->getScheme() ?: 'http';
+            $backendApiUrl = "{$scheme}://{$backend->subdomain}.uleam-academic.software/api";
+            $vars = [
+                "VITE_API_URL={$backendApiUrl}",
+                "REACT_APP_API_URL={$backendApiUrl}",
+                "NEXT_PUBLIC_API_URL={$backendApiUrl}",
+                "API_URL={$backendApiUrl}",
+                "BACKEND_URL={$scheme}://{$backend->subdomain}.uleam-academic.software"
+            ];
+            $project->env_vars = implode("\n", $vars);
+            $project->save();
+
+            // Recompilar el frontend automáticamente para que Vite integre las nuevas variables de entorno
+            $parentDeployment = Deployment::create([
+                'project_id' => $project->id,
+                'status' => 'queued',
+                'build_log' => "Recompilando frontend para integrar la URL del backend '{$backend->name}'...",
+            ]);
+            BuildProjectJob::dispatch($parentDeployment);
+
+            return redirect()->back()->with('status', "Backend '{$backend->name}' vinculado exitosamente a '{$project->name}'.");
+        } else {
+            if ($project->backend_project_id) {
+                $oldBackend = Project::find($project->backend_project_id);
+                if ($oldBackend) {
+                    $oldBackend->is_backend_service = false;
+                    $oldBackend->save();
+                }
+            }
+            $project->backend_project_id = null;
+            $project->save();
+            return redirect()->back()->with('status', "Backend desvinculado.");
+        }
     }
 
     /**

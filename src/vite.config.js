@@ -10,4 +10,13 @@ export default defineConfig({
         }),
         react(),
     ],
+    server: {
+        watch: {
+            ignored: [
+                '**/storage/**',
+                '**/vendor/**',
+                '**/public/**',
+            ],
+        },
+    },
 });

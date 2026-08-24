@@ -87,12 +87,19 @@ export default function Welcome({ auth, projects }) {
         });
     }, [projects, search, selectedLanguage]);
 
+    const [isContactSent, setIsContactSent] = useState(false);
+
     const handleContactSubmit = (e) => {
         e.preventDefault();
         post(route('student.contact', contactStudent.user_id), {
+            preserveScroll: true,
             onSuccess: () => {
-                reset();
-                setTimeout(() => setContactStudent(null), 3000);
+                setIsContactSent(true);
+                setTimeout(() => {
+                    setContactStudent(null);
+                    setIsContactSent(false);
+                    reset();
+                }, 1600);
             }
         });
     };
@@ -150,6 +157,18 @@ export default function Welcome({ auth, projects }) {
                                     >
                                         Perfil
                                     </Link>
+                                    <Link
+                                        href={route('messages.index')}
+                                        className="relative px-3 py-1.5 rounded-lg text-xs font-bold transition duration-150 flex items-center space-x-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-900/40"
+                                    >
+
+                                        <span>Mensajes</span>
+                                        {auth?.unreadMessagesCount > 0 && (
+                                            <span className="flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-gradient-to-r from-cyan-500 to-indigo-500 px-1 text-[10px] font-extrabold text-slate-950 shadow-sm animate-pulse">
+                                                {auth.unreadMessagesCount}
+                                            </span>
+                                        )}
+                                    </Link>
                                     <button
                                         onClick={() => setTheme(theme === 'spatial' ? 'academic' : 'spatial')}
                                         className="p-1.5 rounded-lg transition duration-150 bg-slate-900/60 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800/40 flex items-center justify-center"
@@ -204,14 +223,14 @@ export default function Welcome({ auth, projects }) {
 
 
                         <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight text-white mb-6">
-                            El Talento de la ULEAM, <br />
+                            Proyectos y Aplicaciones <br />
                             <span className="bg-gradient-to-r from-cyan-400 via-sky-400 to-indigo-400 bg-clip-text text-transparent">
-                                Ejecutable en Tiempo Real
+                                de Estudiantes ULEAM
                             </span>
                         </h1>
 
-                        <p className="max-w-2xl mx-auto text-lg text-slate-400 mb-10">
-                            Descubre y ejecuta al instante los mejores proyectos de desarrollo de software creados por estudiantes de la carrera de TI y Software de la ULEAM.
+                        <p className="max-w-2xl mx-auto text-base sm:text-lg text-slate-400 mb-10">
+                            Explora y prueba en vivo las aplicaciones web creadas por los estudiantes. Puedes interactuar con ellas directamente en tu navegador.
                         </p>
 
                         {/* Search and Filters */}
@@ -249,11 +268,10 @@ export default function Welcome({ auth, projects }) {
                         <div className="max-w-3xl mx-auto mt-8 bg-indigo-500/10 border border-indigo-500/20 p-4 rounded-xl text-left flex items-start space-x-3 text-xs leading-relaxed text-slate-400">
                             <span className="text-base"></span>
                             <div>
-                                <p className="font-bold text-slate-200 mb-1">Guía Rápida para Evaluadores y Reclutadores:</p>
+                                <p className="font-bold text-slate-200 mb-1">¿Cómo probar los proyectos?</p>
                                 <ul className="list-disc list-inside space-y-1">
-                                    <li>Haz clic en <strong>"Ejecutar Demo"</strong> para abrir e interactuar con el proyecto del estudiante directamente en tu navegador.</li>
-                                    <li>Siéntete libre de ingresar datos, probar formularios o registrar información de prueba.</li>
-                                    <li>Al hacer clic en <strong>Cerrar</strong>, todos los datos ingresados se limpiarán automáticamente para el siguiente visitante.</li>
+                                    <li>Haz clic en <strong>"Ejecutar Demo"</strong> para abrir la aplicación y probarla en tiempo real.</li>
+                                    <li>Puedes interactuar con total libertad y llenar formularios de prueba.</li>
                                 </ul>
                             </div>
                         </div>
@@ -278,49 +296,38 @@ export default function Welcome({ auth, projects }) {
                             {filteredProjects.map((project) => (
                                 <div
                                     key={project.id}
-                                    className="group relative rounded-2xl border border-slate-900 bg-slate-900/20 hover:bg-slate-900/40 hover:border-slate-800 p-6 shadow-md transition-all duration-300 hover:-translate-y-1 flex flex-col justify-between"
+                                    className="group relative rounded-2xl bg-slate-900/60 hover:bg-slate-900/90 p-6 shadow-xl shadow-black/30 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 border-0 flex flex-col justify-between"
                                 >
                                     {/* Project Language Badge */}
-                                    <div className="flex justify-between items-start mb-4">
-                                        <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold uppercase tracking-wider ${project.language === 'nodejs' ? 'bg-green-500/10 text-green-400 border border-green-500/20' :
-                                            project.language === 'php' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' :
-                                                'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'
-                                            }`}>
+                                    <div className="flex justify-start items-center mb-4">
+                                        <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-mono font-semibold uppercase tracking-wider border-0 ${
+                                            project.language === 'nodejs'
+                                                ? 'bg-emerald-500/10 text-emerald-300'
+                                                : project.language === 'php'
+                                                    ? 'bg-violet-500/10 text-violet-300'
+                                                    : 'bg-amber-500/10 text-amber-300'
+                                        }`}>
                                             {project.language || 'Sin compilar'}
-                                        </span>
-
-                                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold ${project.status === 'running' ? 'bg-cyan-500/10 text-cyan-400' :
-                                            project.status === 'sleeping' ? 'bg-slate-800 text-slate-400' :
-                                                'bg-red-500/10 text-red-400'
-                                            }`}>
-                                            <span className={`w-1.5 h-1.5 rounded-full ${project.status === 'running' ? 'bg-cyan-400 animate-pulse' :
-                                                project.status === 'sleeping' ? 'bg-slate-500' :
-                                                    'bg-red-400'
-                                                }`} />
-                                            {project.status === 'running' ? 'Activo' :
-                                                project.status === 'sleeping' ? 'Suspendido' :
-                                                    project.status === 'building' ? 'Compilando' :
-                                                        'Apagado'}
                                         </span>
                                     </div>
 
                                     <div>
-                                        <h3 className="text-xl font-bold text-white group-hover:text-cyan-400 transition mb-2">
+                                        <h3 className="text-lg font-bold text-white group-hover:text-cyan-300 transition-colors mb-2">
                                             {project.name}
                                         </h3>
-                                        <p className="text-sm text-slate-400 line-clamp-2 mb-4">
-                                            Repositorio:{' '}
+                                        <p className="text-xs text-slate-400 line-clamp-2 mb-4 leading-relaxed">
+                                            <span className="text-slate-500">Repositorio: </span>
                                             {(!project.github_repo_url ||
                                                 project.github_repo_url === 'Subido localmente' ||
                                                 project.github_repo_url.toLowerCase().includes('local') ||
                                                 !project.github_repo_url.startsWith('http')) ? (
-                                                <span className="text-slate-500 font-medium">Subido localmente</span>
+                                                <span className="text-slate-400 font-medium">Subido localmente</span>
                                             ) : (
                                                 <a
                                                     href={project.github_repo_url}
                                                     target="_blank"
                                                     rel="noopener noreferrer"
-                                                    className="hover:underline text-indigo-400"
+                                                    className="hover:underline text-indigo-400 hover:text-indigo-300 font-mono text-[11px]"
                                                 >
                                                     {project.github_repo_url.replace('https://github.com/', '')}
                                                 </a>
@@ -329,14 +336,14 @@ export default function Welcome({ auth, projects }) {
                                     </div>
 
                                     {/* Student Info */}
-                                    <div className="border-t border-slate-900 pt-4 mt-4 flex items-center justify-between">
+                                    <div className="pt-4 mt-4 flex items-center justify-between border-0">
                                         <div className="flex items-center space-x-3">
-                                            <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-slate-300 text-xs">
+                                            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-600 to-cyan-500 text-white flex items-center justify-center font-bold text-xs shadow-sm uppercase border-0">
                                                 {project.user.name[0]}
                                             </div>
                                             <div>
-                                                <p className="text-xs text-slate-500">Desarrollado por</p>
-                                                <p className="text-sm font-semibold text-slate-300">{project.user.name}</p>
+                                                <p className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Desarrollado por</p>
+                                                <p className="text-xs font-semibold text-slate-200">{project.user.name}</p>
                                             </div>
                                         </div>
 
@@ -345,10 +352,10 @@ export default function Welcome({ auth, projects }) {
                                             {(!auth.user || auth.user.id !== project.user_id) && (
                                                 <button
                                                     onClick={() => setContactStudent(project)}
-                                                    className="p-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white transition text-xs font-semibold flex items-center gap-1.5"
+                                                    className="p-2 px-3 rounded-xl bg-slate-950/80 hover:bg-slate-800 text-slate-300 hover:text-white transition text-xs font-semibold flex items-center gap-1.5 cursor-pointer border-0"
                                                     title="Contactar Estudiante"
                                                 >
-                                                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                                    <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L22 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
                                                     </svg>
                                                     <span>Contacto</span>
@@ -359,7 +366,7 @@ export default function Welcome({ auth, projects }) {
                                             {(project.status === 'running' || project.status === 'sleeping') && (
                                                 <button
                                                     onClick={() => handleStartDemo(project)}
-                                                    className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-500 hover:from-cyan-400 hover:to-indigo-400 text-slate-950 font-bold text-xs shadow-md transition duration-200"
+                                                    className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 via-indigo-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-bold text-xs shadow-md shadow-cyan-500/10 hover:shadow-indigo-500/20 transition-all duration-200 cursor-pointer border-0"
                                                 >
                                                     Ejecutar demo
                                                 </button>
@@ -530,10 +537,15 @@ export default function Welcome({ auth, projects }) {
                                 </button>
                             </div>
 
-                            {recentlySuccessful ? (
-                                <div className="p-4 rounded-xl bg-green-500/10 border border-green-500/20 text-green-400 text-center">
-                                    <p className="font-semibold">¡Mensaje enviado con éxito!</p>
-                                    <p className="text-xs text-green-500/80 mt-1">El estudiante recibirá tu contacto a la brevedad.</p>
+                            {isContactSent ? (
+                                <div className="p-8 rounded-2xl bg-gradient-to-b from-green-500/10 to-slate-900 border border-green-500/30 text-green-400 text-center space-y-3 animate-fadeIn">
+                                    <div className="w-12 h-12 mx-auto rounded-full bg-green-500/20 border border-green-500/40 flex items-center justify-center text-green-400 shadow-lg shadow-green-500/10">
+                                        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    </div>
+                                    <p className="text-base font-bold text-white">¡Mensaje enviado con éxito!</p>
+                                    <p className="text-xs text-slate-400 max-w-xs mx-auto">El estudiante ha recibido tu mensaje y podrá responderte a tu correo.</p>
                                 </div>
                             ) : (
                                 <form onSubmit={handleContactSubmit} className="space-y-4">
@@ -584,7 +596,7 @@ export default function Welcome({ auth, projects }) {
                                             required
                                             rows="4"
                                             className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 focus:border-cyan-500 focus:ring-0 placeholder-slate-600 transition"
-                                            placeholder="Hola, nos llamó la atención tu proyecto y nos gustaría agendar una entrevista..."
+                                            placeholder="Hola, nos llamó la atención tu proyecto y nos gustaría agendar una entrevista técnica..."
                                         />
                                         {errors.message && <p className="text-xs text-red-400 mt-1">{errors.message}</p>}
                                     </div>
@@ -592,7 +604,7 @@ export default function Welcome({ auth, projects }) {
                                     <button
                                         type="submit"
                                         disabled={processing}
-                                        className="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-500 hover:from-cyan-400 hover:to-indigo-400 text-slate-950 font-bold shadow-lg shadow-cyan-500/10 transition"
+                                        className="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-500 hover:from-cyan-400 hover:to-indigo-400 text-slate-950 font-bold shadow-lg shadow-cyan-500/10 transition disabled:opacity-50"
                                     >
                                         {processing ? 'Enviando...' : 'Enviar Contacto'}
                                     </button>

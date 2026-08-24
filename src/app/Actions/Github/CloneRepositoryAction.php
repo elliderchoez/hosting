@@ -20,8 +20,12 @@ class CloneRepositoryAction
     public function execute(Project $project, string $destinationPath): array
     {
         // 1. Clean existing folder if it exists
-        if (File::exists($destinationPath)) {
-            File::deleteDirectory($destinationPath);
+        if (is_dir($destinationPath) || file_exists($destinationPath)) {
+            $rmProcess = Process::fromShellCommandLine('rm -rf ' . escapeshellarg($destinationPath));
+            $rmProcess->run();
+            if (is_dir($destinationPath)) {
+                File::deleteDirectory($destinationPath);
+            }
         }
 
         // Create directory structure if needed

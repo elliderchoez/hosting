@@ -17,7 +17,8 @@ class ShowcaseController extends Controller
      */
     public function index(): Response
     {
-        $projects = Project::with(['user.profile'])
+        $projects = Project::with(['user.profile', 'backendProject'])
+            ->where('is_backend_service', false)
             ->whereIn('status', ['running', 'sleeping'])
             ->orderByRaw("CASE 
                 WHEN status = 'running' THEN 1 
@@ -51,22 +52,24 @@ class ShowcaseController extends Controller
     public function contactStudent(Request $request, string $studentId): RedirectResponse
     {
         $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => 'required|email|max:255',
-            'company' => 'required|string|max:255',
-            'message' => 'required|string|min:10',
+            'name' => ['required', 'string', 'max:150', new \App\Rules\CleanContentRule(1, 'nombre')],
+            'email' => ['required', 'email', 'max:255'],
+            'company' => ['required', 'string', 'max:150', new \App\Rules\CleanContentRule(1, 'nombre de empresa')],
+            'message' => ['required', 'string', 'min:5', 'max:3000', new \App\Rules\CleanContentRule(1, 'mensaje')],
         ]);
 
-        // Simular o guardar el contacto (En producción se enviará correo)
-        // Para simplificar, si el reclutador no está logueado en una sesión especial,
-        // guardamos su contacto en la tabla contact_logs asociándolo con el estudiante
-        // y simulando un reclutador temporal si no existe.
-        
-        // Registrar en logs de auditoría de tesis
+        $cleanName = strip_tags(trim($request->name));
+        $cleanEmail = strip_tags(trim($request->email));
+        $cleanCompany = strip_tags(trim($request->company));
+        $cleanMessage = strip_tags(trim($request->message));
+
         ContactLog::create([
-            'recruiter_id' => null, // Opcional si es anónimo/formulario de contacto directo
+            'recruiter_id' => null,
             'student_id' => $studentId,
-            'message' => "De: {$request->name} ({$request->company}) - Email: {$request->email}\n\nMensaje:\n{$request->message}"
+            'sender_name' => $cleanName,
+            'sender_email' => $cleanEmail,
+            'sender_company' => $cleanCompany,
+            'message' => $cleanMessage,
         ]);
 
         return redirect()->back()->with('status', '¡Tu mensaje ha sido enviado exitosamente al estudiante!');
@@ -82,15 +85,36 @@ class ShowcaseController extends Controller
     ): \Illuminate\Http\JsonResponse {
         session_write_close();
         $containerName = "project-{$project->id}";
-        
-        // Si el estado en BD es 'running' y el contenedor en Docker está activo, abrimos al instante
+        $domain = env('APP_DOMAIN', 'uleam-academic.software');
+
+        // 1. Asegurar que los proyectos complementarios del mismo estudiante estén activos (ej: frontend + backend)
+        $siblingProjects = Project::where('user_id', $project->user_id)
+            ->where('id', '!=', $project->id)
+            ->get();
+
+        foreach ($siblingProjects as $sibling) {
+            $siblingContainer = "project-{$sibling->id}";
+            if (!$this->isContainerRunning($siblingContainer)) {
+                $siblingPath = storage_path("app/projects/project-{$sibling->id}");
+                $siblingResult = $startAction->execute($sibling, $siblingPath, $domain);
+                if ($siblingResult['success']) {
+                    $sibling->status = 'running';
+                    $sibling->container_id = $siblingResult['container_id'];
+                    $sibling->last_visited_at = now();
+                    $sibling->save();
+                }
+            }
+        }
+
+        // 2. Si el proyecto principal ya está corriendo, respondemos de inmediato
         if ($project->status === 'running' && $this->isContainerRunning($containerName)) {
+            $project->last_visited_at = now();
+            $project->save();
             return response()->json(['success' => true]);
         }
 
-        // Si está en sleeping/stopped o el contenedor no estaba activo, lo encendemos
+        // 3. Iniciar el proyecto principal si estaba detenido
         $projectPath = storage_path("app/projects/project-{$project->id}");
-        $domain = env('APP_DOMAIN', 'uleam-academic.software');
         $result = $startAction->execute($project, $projectPath, $domain);
         
         if ($result['success']) {
@@ -104,21 +128,19 @@ class ShowcaseController extends Controller
             $port = $this->getProjectPort($project, $projectPath);
             
             $isReady = false;
-            for ($i = 0; $i < 40; $i++) {
+            for ($i = 0; $i < 30; $i++) {
                 if ($this->checkPort($containerIp, $port)) {
                     $isReady = true;
                     break;
                 }
-                usleep(500000); // Esperar 500ms antes del siguiente intento
+                usleep(300000); // Esperar 300ms antes del siguiente intento
             }
             
             if (!$isReady) {
-                // Obtener los logs de error del contenedor
                 $logProcess = new \Symfony\Component\Process\Process(['docker', 'logs', '--tail', '50', $containerName]);
                 $logProcess->run();
                 $containerLogs = $logProcess->getOutput() . "\n" . $logProcess->getErrorOutput();
 
-                // Detener y eliminar el contenedor fallido
                 $stopAction->execute($project);
 
                 return response()->json([
@@ -201,25 +223,24 @@ class ShowcaseController extends Controller
     }
 
     /**
-     * Reset the demo database publicly when a recruiter clicks "Cerrar".
+     * Reset the demo database in background when a recruiter clicks "Cerrar".
      */
     public function stopDemo(Project $project): \Illuminate\Http\JsonResponse
     {
         session_write_close();
 
-        // Reset databases for ALL projects belonging to the same student/user
-        // to ensure frontend + backend/API projects are reset together.
+        // Restablecer la base de datos en segundo plano para los proyectos del estudiante
         $studentProjects = Project::where('user_id', $project->user_id)
             ->whereNotNull('db_name')
             ->get();
 
         foreach ($studentProjects as $p) {
             try {
-                \Illuminate\Support\Facades\Artisan::queue('projects:reset-databases', [
-                    '--project' => $p->id
-                ]);
+                $artisanPath = base_path('artisan');
+                $cmd = "nohup php " . escapeshellarg($artisanPath) . " projects:reset-databases --project=" . escapeshellarg($p->id) . " > /dev/null 2>&1 &";
+                exec($cmd);
             } catch (\Exception $e) {
-                \Illuminate\Support\Facades\Log::error("Error queuing database reset for project {$p->id}: " . $e->getMessage());
+                \Illuminate\Support\Facades\Log::error("Error lanzando reset en background {$p->id}: " . $e->getMessage());
             }
         }
 

@@ -11,6 +11,8 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 
 #[Fillable([
     'user_id', 
+    'backend_project_id',
+    'is_backend_service',
     'name', 
     'subdomain', 
     'github_repo_url', 
@@ -35,6 +37,7 @@ class Project extends Model
     protected $casts = [
         'last_visited_at' => 'datetime',
         'port' => 'integer',
+        'is_backend_service' => 'boolean',
     ];
 
     protected $hidden = [
@@ -47,6 +50,22 @@ class Project extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Get the backend project linked to this frontend project (if fullstack).
+     */
+    public function backendProject(): BelongsTo
+    {
+        return $this->belongsTo(Project::class, 'backend_project_id');
+    }
+
+    /**
+     * Get the frontend project that uses this backend service (if any).
+     */
+    public function frontendProject(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(Project::class, 'backend_project_id');
     }
 
     /**

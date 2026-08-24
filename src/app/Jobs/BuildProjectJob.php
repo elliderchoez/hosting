@@ -65,6 +65,10 @@ class BuildProjectJob implements ShouldQueue
         $projectPath = storage_path("app/projects/project-{$project->id}");
         $domain = env('APP_DOMAIN', 'uleam-academic.software');
 
+        // Detener cualquier contenedor previo para liberar locks de archivos montados
+        $containerName = "project-{$project->id}";
+        (new Process(['docker', 'rm', '-f', $containerName]))->run();
+
         try {
             // Paso 1: Clonar el repositorio de Git o verificar archivos subidos localmente
             if ($project->github_repo_url === 'Subido localmente') {
@@ -523,8 +527,14 @@ class BuildProjectJob implements ShouldQueue
         try {
             if ($driver === 'mongodb') {
                 $logs .= "Asegurando base de datos MongoDB central '{$dbname}'...\n";
+                
+                // Detectar binario disponible (mongo en v4.4/v5 o mongosh en v6+)
+                $checkCli = new \Symfony\Component\Process\Process(['docker', 'exec', 'uleam_mongodb_students', 'which', 'mongosh']);
+                $checkCli->run();
+                $mongoCli = $checkCli->isSuccessful() ? 'mongosh' : 'mongo';
+
                 $command = [
-                    'docker', 'exec', 'uleam_mongodb_students', 'mongosh',
+                    'docker', 'exec', 'uleam_mongodb_students', $mongoCli,
                     '-u', 'root', '-p', 'uleam_mongo_pass',
                     '--authenticationDatabase', 'admin',
                     '--eval', "
@@ -543,7 +553,7 @@ class BuildProjectJob implements ShouldQueue
                 $process->run();
                 
                 if (!$process->isSuccessful()) {
-                    throw new \Exception("Error en mongosh al aprovisionar: " . $process->getErrorOutput());
+                    throw new \Exception("Error en {$mongoCli} al aprovisionar MongoDB: " . $process->getErrorOutput());
                 }
                 
                 $logs .= "Base de datos MongoDB '{$dbname}' y usuario '{$dbuser}' recreados limpios con éxito.\n";

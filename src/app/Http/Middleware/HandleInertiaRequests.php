@@ -29,10 +29,22 @@ class HandleInertiaRequests extends Middleware
      */
     public function share(Request $request): array
     {
+        $user = $request->user();
+        $unreadMessagesCount = 0;
+        if ($user) {
+            $unreadMessagesCount = \App\Models\ContactLog::where('student_id', $user->id)
+                ->whereNull('read_at')
+                ->count();
+        }
+
         return [
             ...parent::share($request),
             'auth' => [
-                'user' => $request->user(),
+                'user' => $user,
+                'unreadMessagesCount' => $unreadMessagesCount,
+            ],
+            'flash' => [
+                'status' => fn () => $request->session()->get('status'),
             ],
         ];
     }
