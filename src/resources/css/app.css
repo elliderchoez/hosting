@@ -7,46 +7,45 @@
    ========================================================= */
 
 /* Activo en el elemento root <html> */
-.theme-academic {
-    background-color: #f8fafc !important;
+/* ========================================================= */
+/* 1. FONDO GENERAL DE LA PÁGINA (Gris Claro #eaedf3)        */
+/* ========================================================= */
+.theme-academic,
+.theme-academic body,
+.theme-academic .min-h-screen,
+.theme-academic .bg-slate-950,
+.theme-academic div.min-h-screen,
+.theme-academic div.bg-slate-950,
+.theme-academic section {
+    background-color: #eaedf3 !important;
+    background-image: none !important;
     color: #0f172a !important;
 }
 
-/* Fondo principal de las páginas */
-.theme-academic .min-h-screen,
-.theme-academic .bg-slate-950,
-.theme-academic div.bg-slate-950 {
-    background-color: #f8fafc !important;
+/* ========================================================= */
+/* 2. FONDO EXCLUSIVO DE LAS TARJETAS DE PROYECTOS          */
+/* ========================================================= */
+.theme-academic .grid div.group,
+.theme-academic .group.rounded-2xl,
+.theme-academic div.group[class*="rounded-2xl"],
+.theme-academic .rounded-2xl.bg-slate-900\/60,
+.theme-academic .rounded-2xl.bg-slate-900\/40,
+.theme-academic .rounded-xl.bg-slate-900\/40,
+.theme-academic .rounded-xl.bg-slate-900\/60 {
+    background-color: #f8f8f8 !important;
+    /* <--- AQUÍ SE CAMBIA EL COLOR DE FONDO DE LAS TARJETAS */
     background-image: none !important;
+    border: 1.5px solid #dcdcdc !important;
+    box-shadow: 0 4px 16px -2px rgba(37, 99, 235, 0.12), 0 2px 6px -1px rgba(37, 99, 235, 0.05) !important;
 }
 
-/* Tarjetas y paneles (Fondo Azul Claro con borde azul definido para todos los cuadros) */
-.theme-academic .bg-slate-900:not(nav):not(header),
-.theme-academic .bg-slate-900\/20:not(nav):not(header),
-.theme-academic .bg-slate-900\/30:not(nav):not(header),
-.theme-academic .bg-slate-900\/40:not(nav):not(header),
-.theme-academic .bg-slate-900\/60:not(nav):not(header),
-.theme-academic .bg-slate-900\/70:not(nav):not(header),
-.theme-academic .bg-slate-950\/90:not(nav):not(header),
-.theme-academic .bg-slate-950\/80:not(nav):not(header),
-.theme-academic .group.bg-slate-900\/20:not(nav):not(header),
-.theme-academic .group.bg-slate-900\/60:not(nav):not(header),
-.theme-academic .rounded-xl.bg-slate-950:not(nav):not(header),
-.theme-academic .rounded-2xl.bg-slate-900\/40:not(nav):not(header),
-.theme-academic div[class*="bg-slate-900"]:not(nav):not(header),
-.theme-academic div[class*="bg-slate-950"]:not(nav):not(header) {
-    background-color: #e0f2fe !important;
-    background-image: none !important;
-    border: 1px solid #93c5fd !important;
-    box-shadow: 0 4px 16px -2px rgba(37, 99, 235, 0.1), 0 2px 6px -1px rgba(37, 99, 235, 0.05) !important;
-}
-
-/* Hover de tarjetas en azul claro */
-.theme-academic .group:hover:not(nav):not(header),
-.theme-academic div[class*="hover:bg-slate-900"]:hover:not(nav):not(header) {
-    background-color: #bae6fd !important;
-    border-color: #3b82f6 !important;
-    box-shadow: 0 12px 26px -4px rgba(37, 99, 235, 0.22), 0 4px 8px -2px rgba(37, 99, 235, 0.08) !important;
+/* Hover de tarjetas */
+.theme-academic .grid div.group:hover,
+.theme-academic .group.rounded-2xl:hover,
+.theme-academic div.group[class*="rounded-2xl"]:hover {
+    background-color: #f8f8f8 !important;
+    border-color: #f8f8f8 !important;
+    box-shadow: 0 12px 26px -4px rgba(37, 99, 235, 0.25), 0 4px 8px -2px rgba(37, 99, 235, 0.08) !important;
 }
 
 /* Bordes en tarjetas, paneles y divisores */
@@ -221,60 +220,195 @@
 }
 
 /* =========================================================================
-   NAVBAR Y HEADER OSCURO INSTITUCIONAL (ELEGANTE Y DE ALTO CONTRASTE)
+   BARRA SUPERIOR (HEADER / NAVBAR) EN TEMA CLARO (#f8f8f8)
    ========================================================================= */
 .theme-academic nav,
+.theme-academic header,
 .theme-academic header.sticky,
 .theme-academic header.shadow {
-    background-color: #0b0f19 !important;
-    border-bottom: 1px solid #1e293b !important;
+    background-color: #eaedf3 !important;
+    border-bottom: 1px solid #f8f8f8 !important;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04) !important;
 }
 
 .theme-academic nav a,
-.theme-academic nav button,
 .theme-academic nav span,
-.theme-academic header.sticky a,
-.theme-academic header.sticky button,
-.theme-academic header.sticky span,
-.theme-academic header.shadow a,
-.theme-academic header.shadow button,
-.theme-academic header.shadow span {
-    color: #cbd5e1 !important;
+.theme-academic header a,
+.theme-academic header span {
+    color: #1e293b !important;
 }
 
 .theme-academic nav a:hover,
-.theme-academic nav button:hover,
-.theme-academic header.sticky a:hover,
-.theme-academic header.sticky button:hover,
-.theme-academic header.shadow a:hover,
-.theme-academic header.shadow button:hover {
-    color: #ffffff !important;
-    background-color: #1e293b !important;
+.theme-academic header a:hover {
+    color: #4f46e5 !important;
 }
 
-.theme-academic nav a.bg-slate-800,
-.theme-academic header.sticky a.bg-slate-800,
-.theme-academic header.shadow a.bg-slate-800 {
-    color: #ffffff !important;
-    background-color: #1e293b !important;
-}
-
-/* Botones secundarios oscuros convertidos a claros dentro de la cabecera */
-.theme-academic header.shadow a.bg-slate-900,
-.theme-academic header.shadow a.bg-slate-800,
-.theme-academic header.sticky a.bg-slate-900,
-.theme-academic header.sticky a.bg-slate-800 {
-    color: #334155 !important;
+/* Botón de tema en cabecera */
+.theme-academic header button[title="Cambiar tema"],
+.theme-academic nav button[title="Cambiar tema"] {
     background-color: #ffffff !important;
-    border-color: #cbd5e1 !important;
+    border: 1px solid #dcdcdc !important;
+    color: #1e293b !important;
 }
 
-.theme-academic header.shadow a.bg-slate-900:hover,
-.theme-academic header.shadow a.bg-slate-800:hover,
-.theme-academic header.sticky a.bg-slate-900:hover,
-.theme-academic header.sticky a.bg-slate-800:hover {
-    color: #0f172a !important;
+.theme-academic header button[title="Cambiar tema"]:hover,
+.theme-academic nav button[title="Cambiar tema"]:hover {
     background-color: #f1f5f9 !important;
+    border-color: #cbd5e1 !important;
+    color: #0f172a !important;
+}
+
+/* Enlaces de navegación activos / inactivos en barra superior */
+.theme-academic nav a.bg-slate-800,
+.theme-academic header a.bg-slate-800 {
+    color: #ffffff !important;
+    background-color: #4f46e5 !important;
+    box-shadow: 0 2px 6px rgba(79, 70, 229, 0.3) !important;
+}
+
+.theme-academic nav a.text-slate-400,
+.theme-academic header a.text-slate-400 {
+    color: #475569 !important;
+}
+
+.theme-academic nav a.text-slate-400:hover,
+.theme-academic header a.text-slate-400:hover {
+    color: #0f172a !important;
+    background-color: #eaedf3 !important;
+}
+
+/* Botón Registrarme en barra superior */
+.theme-academic header a[href*="register"],
+.theme-academic nav a[href*="register"] {
+    background-image: linear-gradient(135deg, #4f46e5, #0284c7) !important;
+    color: #ffffff !important;
+    font-weight: 700 !important;
+    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25) !important;
+}
+
+/* =========================================================================
+   PÁGINAS DE AUTENTICACIÓN (INICIAR SESIÓN Y REGISTRO) EN TEMA CLARO (#f8f8f8)
+   ========================================================================= */
+/* Contenedor del formulario de Login / Registro */
+.theme-academic .sm\:max-w-md,
+.theme-academic div.sm\:max-w-md,
+.theme-academic .sm\:max-w-md.bg-slate-900\/60,
+.theme-academic div[class*="sm:max-w-md"] {
+    background-color: #f8f8f8 !important;
+    border: 1.5px solid #dcdcdc !important;
+    box-shadow: 0 16px 40px -8px rgba(15, 23, 42, 0.12), 0 4px 12px -2px rgba(15, 23, 42, 0.05) !important;
+    backdrop-filter: none !important;
+}
+
+/* Títulos principales en Login y Registro */
+.theme-academic .sm\:max-w-md h2,
+.theme-academic div[class*="sm:max-w-md"] h2,
+.theme-academic .sm\:max-w-md .text-slate-100 {
+    color: #0f172a !important;
+    font-weight: 800 !important;
+}
+
+/* Subtítulos ("Ingresa a tu cuenta...", "Registra tu usuario...") */
+.theme-academic .sm\:max-w-md p,
+.theme-academic div[class*="sm:max-w-md"] p.text-slate-400 {
+    color: #475569 !important;
+    font-weight: 500 !important;
+}
+
+/* Etiquetas de los campos (Nombre, Correo, Contraseña, etc.) */
+.theme-academic .sm\:max-w-md label,
+.theme-academic .sm\:max-w-md label span,
+.theme-academic div[class*="sm:max-w-md"] label,
+.theme-academic div[class*="sm:max-w-md"] label span {
+    color: #1e293b !important;
+    font-weight: 600 !important;
+}
+
+/* Inputs en Login y Registro */
+.theme-academic .sm\:max-w-md input[type="text"],
+.theme-academic .sm\:max-w-md input[type="email"],
+.theme-academic .sm\:max-w-md input[type="password"],
+.theme-academic div[class*="sm:max-w-md"] input {
+    background-color: #ffffff !important;
+    border: 1.5px solid #cbd5e1 !important;
+    color: #0f172a !important;
+    font-weight: 500 !important;
+}
+
+.theme-academic .sm\:max-w-md input:focus,
+.theme-academic div[class*="sm:max-w-md"] input:focus {
+    border-color: #4f46e5 !important;
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2) !important;
+}
+
+.theme-academic .sm\:max-w-md input::placeholder,
+.theme-academic div[class*="sm:max-w-md"] input::placeholder {
+    color: #94a3b8 !important;
+}
+
+/* Botón de ver/ocultar contraseña (Ojo) */
+.theme-academic .sm\:max-w-md button svg,
+.theme-academic div[class*="sm:max-w-md"] button svg {
+    color: #64748b !important;
+}
+
+.theme-academic .sm\:max-w-md button:hover svg,
+.theme-academic div[class*="sm:max-w-md"] button:hover svg {
+    color: #0f172a !important;
+}
+
+/* Enlaces ("¿Olvidaste tu contraseña?", "Regístrate", "¿Ya tienes cuenta?") */
+.theme-academic .sm\:max-w-md a.underline,
+.theme-academic div[class*="sm:max-w-md"] a.underline,
+.theme-academic .sm\:max-w-md a.text-slate-400,
+.theme-academic div[class*="sm:max-w-md"] a.text-slate-400 {
+    color: #2563eb !important;
+    font-weight: 600 !important;
+    text-decoration: underline !important;
+}
+
+.theme-academic .sm\:max-w-md a:hover,
+.theme-academic div[class*="sm:max-w-md"] a:hover {
+    color: #1d4ed8 !important;
+}
+
+/* Cuadro de requisitos de seguridad de contraseña en Registro */
+.theme-academic div[class*="sm:max-w-md"] div.text-\[11px\].bg-slate-900\/40,
+.theme-academic .sm\:max-w-md div.bg-slate-900\/40 {
+    background-color: #ffffff !important;
+    border: 1px solid #dcdcdc !important;
+}
+
+.theme-academic div[class*="sm:max-w-md"] div.bg-slate-900\/40 p,
+.theme-academic .sm\:max-w-md div.bg-slate-900\/40 p {
+    color: #1e293b !important;
+    font-weight: 700 !important;
+}
+
+.theme-academic div[class*="sm:max-w-md"] li.text-slate-500,
+.theme-academic .sm\:max-w-md li.text-slate-500 {
+    color: #64748b !important;
+}
+
+.theme-academic div[class*="sm:max-w-md"] li.text-green-400,
+.theme-academic .sm\:max-w-md li.text-green-400 {
+    color: #15803d !important;
+    font-weight: 700 !important;
+}
+
+/* Botón principal de Iniciar Sesión / Registrarse */
+.theme-academic .sm\:max-w-md button[type="submit"],
+.theme-academic div[class*="sm:max-w-md"] button[type="submit"] {
+    background-image: linear-gradient(135deg, #4f46e5, #0284c7) !important;
+    color: #ffffff !important;
+    font-weight: 700 !important;
+    box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3) !important;
+}
+
+.theme-academic .sm\:max-w-md button[type="submit"]:hover,
+.theme-academic div[class*="sm:max-w-md"] button[type="submit"]:hover {
+    background-image: linear-gradient(135deg, #4338ca, #0369a1) !important;
+    box-shadow: 0 6px 18px rgba(79, 70, 229, 0.4) !important;
 }
 
 /* Ajustes de badges informativos */

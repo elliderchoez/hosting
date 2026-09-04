@@ -26,7 +26,7 @@ class BuildProjectJob implements ShouldQueue
      *
      * @var int
      */
-    public $timeout = 600; // 10 minutes timeout matching the thesis proposal limit
+    public $timeout = 900; // 15 minutes timeout to ensure ample headroom for complex fullstack apps
 
     protected Deployment $deployment;
 
@@ -113,6 +113,9 @@ class BuildProjectJob implements ShouldQueue
             // Aprovisionar base de datos
             $this->provisionDatabase($project, $projectPath, $logs);
 
+            // Sincronizar automáticamente credenciales de base de datos en archivos .env
+            $this->syncProjectEnvironmentVariables($project, $projectPath, $logs);
+
             $deployment->build_log = $logs;
             $deployment->save();
 
@@ -183,6 +186,28 @@ class BuildProjectJob implements ShouldQueue
             // Importar archivos SQL y correr migraciones si es necesario
             $this->importSqlFiles($project, $projectPath, $logs);
             $this->runFrameworkMigrations($project, $projectPath, $logs);
+
+            // Asegurar symlink de almacenamiento público (storage:link) para proyectos Laravel/PHP
+            if (\Illuminate\Support\Facades\File::exists($projectPath . '/storage/app/public') || \Illuminate\Support\Facades\File::exists($projectPath . '/artisan')) {
+                \Illuminate\Support\Facades\File::makeDirectory($projectPath . '/public', 0777, true, true);
+                \Illuminate\Support\Facades\File::makeDirectory($projectPath . '/storage/app/public', 0777, true, true);
+                if (!is_link($projectPath . '/public/storage') && !is_dir($projectPath . '/public/storage')) {
+                    @symlink('../storage/app/public', $projectPath . '/public/storage');
+                    $logs .= "Enlace simbólico de almacenamiento público (storage:link) creado exitosamente.\n";
+                }
+            }
+
+            // Asegurar permisos de escritura para proyectos PHP/Laravel
+            if (\Illuminate\Support\Facades\File::isDirectory($projectPath . '/storage')) {
+                @chmod($projectPath . '/storage', 0777);
+                $chmodCmd = new Process(['chmod', '-R', '777', $projectPath . '/storage']);
+                $chmodCmd->run();
+            }
+            if (\Illuminate\Support\Facades\File::isDirectory($projectPath . '/bootstrap/cache')) {
+                @chmod($projectPath . '/bootstrap/cache', 0777);
+                $chmodCmd2 = new Process(['chmod', '-R', '777', $projectPath . '/bootstrap/cache']);
+                $chmodCmd2->run();
+            }
 
             $deployment->build_log = $logs;
             $deployment->save();
@@ -443,60 +468,75 @@ class BuildProjectJob implements ShouldQueue
         $logs .= "Motor de base de datos detectado/seleccionado: " . strtoupper($driver) . "\n";
 
         // --- VALIDACIÓN DE BASE DE DATOS REQUERIDA (TESIS) ---
-        // Verificar si existen archivos .sql recursivamente
-        $files = \Illuminate\Support\Facades\File::allFiles($projectPath);
-        $hasSql = false;
-        foreach ($files as $file) {
-            if (\Illuminate\Support\Str::endsWith(\Illuminate\Support\Str::lower($file->getFilename()), '.sql')) {
-                $path = $file->getRelativePathname();
-                if (!\Illuminate\Support\Str::contains($path, ['node_modules', '.git', '.venv', 'vendor'])) {
-                    $hasSql = true;
-                    break;
-                }
-            }
-        }
+        // 1. Verificar si existen archivos .sql recursivamente (excluyendo vendor y node_modules)
+        $sqlFiles = $this->getProjectScanFiles($projectPath, '*.sql');
+        $hasSql = !empty($sqlFiles);
 
-        // Verificar si tiene migraciones de Laravel, Django o Sequelize
+        // 2. Verificar si tiene migraciones o auto-sincronización (Laravel, Django, TypeORM, Prisma, Sequelize, Knex, Drizzle, Mongoose, etc.)
         $hasMigrations = false;
         if (\Illuminate\Support\Facades\File::exists($projectPath . '/artisan') || 
             \Illuminate\Support\Facades\File::exists($projectPath . '/manage.py')) {
             $hasMigrations = true;
         }
-        
-        $packageJsonPath = $projectPath . '/package.json';
-        if (\Illuminate\Support\Facades\File::exists($packageJsonPath)) {
-            $packageJson = json_decode(\Illuminate\Support\Facades\File::get($packageJsonPath), true);
-            $deps = array_merge($packageJson['dependencies'] ?? [], $packageJson['devDependencies'] ?? []);
-            if (isset($deps['sequelize']) || \Illuminate\Support\Facades\File::exists($projectPath . '/.sequelizerc')) {
-                $hasMigrations = true;
+
+        // Buscar en todos los package.json (raíz y subcarpetas como api, client, backend, server)
+        $pkgFiles = $this->getProjectScanFiles($projectPath, 'package.json');
+        $requiresDb = false;
+
+        foreach ($pkgFiles as $pkgFile) {
+            $packageJson = json_decode(@file_get_contents($pkgFile->getRealPath()), true);
+            if ($packageJson) {
+                $deps = array_merge($packageJson['dependencies'] ?? [], $packageJson['devDependencies'] ?? []);
+                
+                // Si usa drivers de BD
+                if (isset($deps['pg']) || isset($deps['mysql']) || isset($deps['mysql2']) || isset($deps['mongoose']) || isset($deps['mongodb']) || isset($deps['sequelize']) || isset($deps['typeorm']) || isset($deps['prisma']) || isset($deps['@prisma/client']) || isset($deps['knex']) || isset($deps['drizzle-orm'])) {
+                    $requiresDb = true;
+                }
+
+                // Si usa ORMs con auto-sincronización o migraciones
+                if (
+                    isset($deps['typeorm']) || 
+                    isset($deps['prisma']) || 
+                    isset($deps['@prisma/client']) || 
+                    isset($deps['sequelize']) || 
+                    isset($deps['knex']) || 
+                    isset($deps['drizzle-orm']) || 
+                    isset($deps['mongoose']) || 
+                    isset($deps['mongodb']) || 
+                    isset($deps['mikro-orm']) || 
+                    isset($deps['@mikro-orm/core'])
+                ) {
+                    $hasMigrations = true;
+                }
             }
         }
 
-        // Comprobar si requiere base de datos leyendo dependencias
-        $requiresDb = false;
-        if (\Illuminate\Support\Facades\File::exists($packageJsonPath)) {
-            $packageJson = json_decode(\Illuminate\Support\Facades\File::get($packageJsonPath), true);
-            $deps = array_merge($packageJson['dependencies'] ?? [], $packageJson['devDependencies'] ?? []);
-            if (isset($deps['pg']) || isset($deps['mysql']) || isset($deps['mysql2']) || isset($deps['sequelize']) || isset($deps['mongoose']) || isset($deps['mongodb'])) {
-                $requiresDb = true;
-            }
+        // Archivos de configuración de ORMs comunes
+        if (
+            \Illuminate\Support\Facades\File::exists($projectPath . '/.sequelizerc') ||
+            \Illuminate\Support\Facades\File::exists($projectPath . '/ormconfig.json') ||
+            \Illuminate\Support\Facades\File::exists($projectPath . '/ormconfig.js') ||
+            \Illuminate\Support\Facades\File::exists($projectPath . '/prisma/schema.prisma') ||
+            \Illuminate\Support\Facades\File::exists($projectPath . '/knexfile.js') ||
+            \Illuminate\Support\Facades\File::exists($projectPath . '/drizzle.config.ts')
+        ) {
+            $hasMigrations = true;
         }
+
         $requirementsPath = $projectPath . '/requirements.txt';
         if (\Illuminate\Support\Facades\File::exists($requirementsPath)) {
             $reqs = \Illuminate\Support\Facades\File::get($requirementsPath);
-            if (stripos($reqs, 'psycopg2') !== false || stripos($reqs, 'mysqlclient') !== false || stripos($reqs, 'sqlalchemy') !== false || stripos($reqs, 'django') !== false || stripos($reqs, 'pymongo') !== false || stripos($reqs, 'mongoengine') !== false) {
+            if (stripos($reqs, 'psycopg2') !== false || stripos($reqs, 'mysqlclient') !== false || stripos($reqs, 'sqlalchemy') !== false || stripos($reqs, 'django') !== false || stripos($reqs, 'pymongo') !== false || stripos($reqs, 'mongoengine') !== false || stripos($reqs, 'tortoise') !== false || stripos($reqs, 'peewee') !== false) {
                 $requiresDb = true;
             }
         }
         if ($project->language === 'php') {
-            $phpFiles = \Illuminate\Support\Facades\File::allFiles($projectPath);
+            $phpFiles = $this->getProjectScanFiles($projectPath, '*.php');
             foreach ($phpFiles as $file) {
-                if (\Illuminate\Support\Str::endsWith(\Illuminate\Support\Str::lower($file->getFilename()), '.php')) {
-                    $content = @file_get_contents($file->getRealPath());
-                    if ($content && (stripos($content, 'new PDO') !== false || stripos($content, 'mysqli_connect') !== false || stripos($content, 'pg_connect') !== false || stripos($content, 'DB_CONNECTION') !== false)) {
-                        $requiresDb = true;
-                        break;
-                    }
+                $content = @file_get_contents($file->getRealPath());
+                if ($content && (stripos($content, 'new PDO') !== false || stripos($content, 'mysqli_connect') !== false || stripos($content, 'pg_connect') !== false || stripos($content, 'DB_CONNECTION') !== false)) {
+                    $requiresDb = true;
+                    break;
                 }
             }
         }
@@ -635,17 +675,8 @@ class BuildProjectJob implements ShouldQueue
             return;
         }
 
-        // Search for .sql files recursively
-        $files = \Illuminate\Support\Facades\File::allFiles($projectPath);
-        $sqlFiles = [];
-        foreach ($files as $file) {
-            if (Str::endsWith(Str::lower($file->getFilename()), '.sql')) {
-                $path = $file->getRelativePathname();
-                if (!Str::contains($path, ['node_modules', '.git', '.venv', 'vendor'])) {
-                    $sqlFiles[] = $file;
-                }
-            }
-        }
+        // Search for .sql files recursively (excluding vendor, node_modules, etc.)
+        $sqlFiles = $this->getProjectScanFiles($projectPath, '*.sql');
 
         if (empty($sqlFiles)) {
             $logs .= "No se encontraron archivos .sql para importar.\n\n";
@@ -653,7 +684,13 @@ class BuildProjectJob implements ShouldQueue
         }
 
         foreach ($sqlFiles as $sqlFile) {
-            $logs .= "Detectado archivo SQL: '{$sqlFile->getRelativePathname()}'. Importando...\n";
+            $relPath = $sqlFile->getRelativePathname();
+            // Omitir scripts SQL internos de configuración de Docker o CI de terceros
+            if (str_contains($relPath, 'docker/') || str_contains($relPath, '.github/')) {
+                continue;
+            }
+
+            $logs .= "Detectado archivo SQL: '{$relPath}'. Importando...\n";
             
             if ($project->db_driver === 'mysql') {
                 // Import into MySQL
@@ -701,6 +738,132 @@ class BuildProjectJob implements ShouldQueue
         // 1. Laravel (PHP)
         if (\Illuminate\Support\Facades\File::exists($projectPath . '/artisan')) {
             $logs .= "--- PASO 3.6: Framework Laravel Detectado: Ejecutando Migraciones ---\n";
+
+            // Soporte automatizado para Bagisto E-Commerce
+            if (\Illuminate\Support\Facades\File::exists($projectPath . '/packages/Webkul')) {
+                $envManager = $projectPath . '/packages/Webkul/Installer/src/Helpers/EnvironmentManager.php';
+                if (\Illuminate\Support\Facades\File::exists($envManager)) {
+                    $emContent = \Illuminate\Support\Facades\File::get($envManager);
+                    $emContent = str_replace(': string|bool', ': string|bool|null', $emContent);
+                    \Illuminate\Support\Facades\File::put($envManager, $emContent);
+                }
+
+                $templateSnapshot = storage_path('app/templates/bagisto_initial.sql');
+                $snapshotFile = $projectPath . '/.initial_db_snapshot.sql';
+
+                if (\Illuminate\Support\Facades\File::exists($templateSnapshot)) {
+                    $logs .= "Proyecto Bagisto E-Commerce detectado. Aprovisionando base de datos completa con catálogo de demostración desde plantilla precargada...\n";
+                    $importCmd = new Process([
+                        'docker', 'exec', '-i', 'uleam_mysql_students',
+                        'mysql', '-u', 'root', '-puleam_secure_pass', $project->db_name
+                    ]);
+                    $importCmd->setInput(\Illuminate\Support\Facades\File::get($templateSnapshot));
+                    $importCmd->run();
+
+                    if ($importCmd->isSuccessful()) {
+                        $logs .= "Base de datos de comercio electrónico y catálogo de productos importados instantáneamente (3 segundos).\n";
+                        @copy($templateSnapshot, $snapshotFile);
+
+                        // Sincronizar las imágenes de catálogo de muestra si existen en plantilla
+                        $templateStorage = storage_path('app/templates/bagisto_public_storage');
+                        if (\Illuminate\Support\Facades\File::exists($templateStorage)) {
+                            \Illuminate\Support\Facades\File::makeDirectory($projectPath . '/storage/app/public', 0777, true, true);
+                            $copyProcess = new Process(['cp', '-rn', $templateStorage . '/.', $projectPath . '/storage/app/public/']);
+                            $copyProcess->run();
+                            $logs .= "Imágenes de muestra de catálogo y categorías sincronizadas exitosamente.\n";
+                        }
+
+                        // Permitir incrustación en iframe (Showcase Modal de ULEAM Academic)
+                        $bagistoSecureHeaders = $projectPath . '/packages/Webkul/Core/src/Http/Middleware/SecureHeaders.php';
+                        if (\Illuminate\Support\Facades\File::exists($bagistoSecureHeaders)) {
+                            $shContent = \Illuminate\Support\Facades\File::get($bagistoSecureHeaders);
+                            $shContent = str_replace(
+                                "\$response->headers->set('X-Frame-Options', 'DENY');",
+                                "\$response->headers->remove('X-Frame-Options');\n        \$response->headers->set('Content-Security-Policy', 'frame-ancestors *');",
+                                $shContent
+                            );
+                            \Illuminate\Support\Facades\File::put($bagistoSecureHeaders, $shContent);
+                        }
+
+                        // Polyfill de localStorage para prevenir errores de navegador en iframes de diferente origen
+                        $bagistoLayout = $projectPath . '/packages/Webkul/Shop/src/Resources/views/components/layouts/index.blade.php';
+                        if (\Illuminate\Support\Facades\File::exists($bagistoLayout)) {
+                            $layoutContent = \Illuminate\Support\Facades\File::get($bagistoLayout);
+                            if (!str_contains($layoutContent, '__uleam_storage_test__')) {
+                                $poly = "<script>(function(){try{var t='__uleam_storage_test__';window.localStorage.setItem(t,'1');window.localStorage.removeItem(t);}catch(e){var s={};try{Object.defineProperty(window,'localStorage',{value:{getItem:function(k){return s.hasOwnProperty(k)?s[k]:null;},setItem:function(k,v){s[k]=String(v);},removeItem:function(k){delete s[k];},clear:function(){s={};},key:function(i){return Object.keys(s)[i]||null;},get length(){return Object.keys(s).length;}},configurable:true,enumerable:true,writable:true});}catch(err){}}})();</script>\n";
+                                $layoutContent = str_replace('<head>', "<head>\n        " . $poly, $layoutContent);
+                                \Illuminate\Support\Facades\File::put($bagistoLayout, $layoutContent);
+                            }
+                        }
+
+                        // Fallback para imágenes lazy cargadas dentro de un iframe
+                        $bagistoLazy = $projectPath . '/packages/Webkul/Shop/src/Resources/views/components/media/images/lazy.blade.php';
+                        if (\Illuminate\Support\Facades\File::exists($bagistoLazy)) {
+                            $lazyContent = \Illuminate\Support\Facades\File::get($bagistoLazy);
+                            if (!str_contains($lazyContent, 'Fallback de seguridad para iframes')) {
+                                $lazyPatch = "setTimeout(() => { let l = document.getElementById('image-' + self.$.uid); if (l && (!l.src || l.src === window.location.href) && l.dataset.src) { l.src = l.dataset.src; } }, 300);";
+                                $lazyContent = str_replace("lazyImageObserver.observe(document.getElementById('image-shimmer-' + this.$.uid));", "let shim = document.getElementById('image-shimmer-' + this.$.uid); if (shim) lazyImageObserver.observe(shim);\n                // Fallback de seguridad para iframes\n                " . $lazyPatch, $lazyContent);
+                                \Illuminate\Support\Facades\File::put($bagistoLazy, $lazyContent);
+                            }
+                        }
+                    } else {
+                        $logs .= "Aviso al importar plantilla SQL: " . $importCmd->getErrorOutput() . "\nEjecutando instalador estándar...\n";
+                        $command = [
+                            'docker', 'run', '--rm',
+                            '--network', 'uleam_academic_network',
+                            '-v', "{$projectPath}:/app",
+                            '-w', '/app',
+                            '-e', "DB_CONNECTION={$project->db_driver}",
+                            '-e', "DB_HOST={$dbHost}",
+                            '-e', "DB_PORT={$dbPort}",
+                            '-e', "DB_DATABASE={$project->db_name}",
+                            '-e', "DB_USERNAME={$project->db_user}",
+                            '-e', "DB_PASSWORD={$project->db_password}",
+                            'webdevops/php:8.4',
+                            'php', 'artisan', 'bagisto:install', '-n', '--demo-samples'
+                        ];
+                        $this->executeMigrationCommand($command, $logs);
+                    }
+                } else {
+                    $logs .= "Proyecto Bagisto E-Commerce detectado. Ejecutando instalador y sembrador de tienda...\n";
+                    $command = [
+                        'docker', 'run', '--rm',
+                        '--network', 'uleam_academic_network',
+                        '-v', "{$projectPath}:/app",
+                        '-w', '/app',
+                        '-e', "DB_CONNECTION={$project->db_driver}",
+                        '-e', "DB_HOST={$dbHost}",
+                        '-e', "DB_PORT={$dbPort}",
+                        '-e', "DB_DATABASE={$project->db_name}",
+                        '-e', "DB_USERNAME={$project->db_user}",
+                        '-e', "DB_PASSWORD={$project->db_password}",
+                        'webdevops/php:8.4',
+                        'php', 'artisan', 'bagisto:install', '-n', '--demo-samples'
+                    ];
+                    $this->executeMigrationCommand($command, $logs);
+
+                    // Generar snapshot inicial para futuros despliegues y reseteos
+                    if (!\Illuminate\Support\Facades\File::exists($snapshotFile)) {
+                        $dumpCmd = new Process([
+                            'docker', 'exec', 'uleam_mysql_students',
+                            'mysqldump', '--no-tablespaces', '-u', 'root', '-puleam_secure_pass', $project->db_name
+                        ]);
+                        $dumpCmd->run();
+                        if ($dumpCmd->isSuccessful() && strlen($dumpCmd->getOutput()) > 500) {
+                            \Illuminate\Support\Facades\File::put($snapshotFile, $dumpCmd->getOutput());
+                            \Illuminate\Support\Facades\File::put($templateSnapshot, $dumpCmd->getOutput());
+                        }
+                    }
+                }
+
+                if (empty($project->demo_instructions)) {
+                    $project->demo_instructions = "Acceso al Panel de Administración (http://{$project->subdomain}.localhost/admin):\nUsuario: admin@example.com\nClave: admin123\n\nLa tienda de comercio electrónico cuenta con categorías y productos de muestra precargados.";
+                    $project->save();
+                }
+
+                return;
+            }
+
             $command = [
                 'docker', 'run', '--rm',
                 '--network', 'uleam_academic_network',
@@ -716,6 +879,29 @@ class BuildProjectJob implements ShouldQueue
                 'php', 'artisan', 'migrate', '--force'
             ];
             $this->executeMigrationCommand($command, $logs);
+
+            // Si existen seeders de base de datos, ejecutarlos automáticamente para poblar catálogo/datos de prueba
+            if (\Illuminate\Support\Facades\File::exists($projectPath . '/database/seeders/DatabaseSeeder.php')) {
+                $logs .= "Seeder de base de datos detectado (DatabaseSeeder.php). Poblando catálogo/datos iniciales...\n";
+                $seedCommand = [
+                    'docker', 'run', '--rm',
+                    '--network', 'uleam_academic_network',
+                    '-v', "{$projectPath}:/app",
+                    '-w', '/app',
+                    '-e', "DB_CONNECTION={$project->db_driver}",
+                    '-e', "DB_HOST={$dbHost}",
+                    '-e', "DB_PORT={$dbPort}",
+                    '-e', "DB_DATABASE={$project->db_name}",
+                    '-e', "DB_USERNAME={$project->db_user}",
+                    '-e', "DB_PASSWORD={$project->db_password}",
+                    'webdevops/php:8.4',
+                    'php', 'artisan', 'db:seed', '--force'
+                ];
+                $this->executeMigrationCommand($seedCommand, $logs);
+            }
+
+            // Generar snapshot inicial de la base de datos para la función de reseteo del evaluador
+            $this->generateInitialDatabaseSnapshot($project, $projectPath);
             return;
         }
 
@@ -781,11 +967,17 @@ class BuildProjectJob implements ShouldQueue
     /**
      * Ejecutar comando de migración dentro del contenedor temporal de Docker.
      */
-    private function executeMigrationCommand(array $command, &$logs): void
+    private function executeMigrationCommand(array $command, &$logs, int $timeout = 300): void
     {
         $process = new Process($command);
-        $process->setTimeout(90);
-        $process->run();
+        $process->setTimeout($timeout);
+        
+        try {
+            $process->run();
+        } catch (\Symfony\Component\Process\Exception\ProcessTimedOutException $e) {
+            $logs .= "Aviso: Se alcanzó el límite de tiempo ({$timeout}s) durante las migraciones del framework.\n";
+            return;
+        }
 
         $output = $process->getOutput() . $process->getErrorOutput();
         $logs .= $output . "\n";
@@ -864,31 +1056,204 @@ class BuildProjectJob implements ShouldQueue
             }
         }
 
-        // 3. Check .env if exists in project
-        $envPath = $projectPath . '/.env';
-        if (\Illuminate\Support\Facades\File::exists($envPath)) {
-            $envContent = \Illuminate\Support\Facades\File::get($envPath);
-            if (stripos($envContent, 'DB_CONNECTION=mongodb') !== false || stripos($envContent, 'MONGODB_URI') !== false || stripos($envContent, 'MONGO_URL') !== false) {
-                return 'mongodb';
-            }
-            if (stripos($envContent, 'DB_CONNECTION=mysql') !== false) {
-                return 'mysql';
-            }
-        }
-
-        // 4. Check .sql files
-        $files = \Illuminate\Support\Facades\File::allFiles($projectPath);
-        foreach ($files as $file) {
-            if (Str::endsWith(Str::lower($file->getFilename()), '.sql')) {
-                $path = $file->getRelativePathname();
-                if (!Str::contains($path, ['node_modules', '.git', '.venv', 'vendor'])) {
-                    if ($this->isMysqlSyntax($file->getRealPath())) {
-                        return 'mysql';
-                    }
+        // 3. Check .env, .env.example, .env.dist if exists in project
+        $envFiles = ['.env', '.env.example', '.env.dist', '.env.local'];
+        foreach ($envFiles as $eFile) {
+            $ePath = $projectPath . '/' . $eFile;
+            if (\Illuminate\Support\Facades\File::exists($ePath)) {
+                $envContent = \Illuminate\Support\Facades\File::get($ePath);
+                if (stripos($envContent, 'DB_CONNECTION=mongodb') !== false || stripos($envContent, 'MONGODB_URI') !== false || stripos($envContent, 'MONGO_URL') !== false) {
+                    return 'mongodb';
+                }
+                if (stripos($envContent, 'DB_CONNECTION=mysql') !== false || stripos($envContent, 'DB_DRIVER=mysql') !== false) {
+                    return 'mysql';
+                }
+                if (stripos($envContent, 'DB_CONNECTION=pgsql') !== false || stripos($envContent, 'DB_DRIVER=pgsql') !== false) {
+                    return 'pgsql';
                 }
             }
         }
 
+        // 4. Check config/database.php in PHP / Laravel
+        $configDb = $projectPath . '/config/database.php';
+        if (\Illuminate\Support\Facades\File::exists($configDb)) {
+            $configContent = \Illuminate\Support\Facades\File::get($configDb);
+            if (str_contains($configContent, "'default' => env('DB_CONNECTION', 'mysql')") || str_contains($configContent, "'default' => 'mysql'")) {
+                return 'mysql';
+            }
+            if (str_contains($configContent, "'default' => env('DB_CONNECTION', 'pgsql')") || str_contains($configContent, "'default' => 'pgsql'")) {
+                return 'pgsql';
+            }
+        }
+
+        // 5. Check .sql files (excluding vendor, node_modules, etc.)
+        $sqlFiles = $this->getProjectScanFiles($projectPath, '*.sql');
+        foreach ($sqlFiles as $file) {
+            if ($this->isMysqlSyntax($file->getRealPath())) {
+                return 'mysql';
+            }
+        }
+
+        // 6. Proyectos PHP / Laravel convencionales usan MySQL por defecto
+        if (\Illuminate\Support\Facades\File::exists($projectPath . '/artisan') || \Illuminate\Support\Facades\File::exists($projectPath . '/composer.json')) {
+            return 'mysql';
+        }
+
         return 'pgsql';
+    }
+
+    /**
+     * Get project files safely excluding heavy directories (vendor, node_modules, .git, etc.)
+     * to prevent PHP memory exhaustion.
+     */
+    private function getProjectScanFiles(string $path, ?string $namePattern = null): array
+    {
+        if (!is_dir($path)) {
+            return [];
+        }
+
+        try {
+            $finder = new \Symfony\Component\Finder\Finder();
+            $finder->files()
+                ->in($path)
+                ->ignoreDotFiles(true)
+                ->ignoreVCS(true)
+                ->exclude(['vendor', 'node_modules', '.git', '.venv', 'storage', 'dist', '.next', 'build', 'tests', 'test', 'cache']);
+            
+            if ($namePattern) {
+                $finder->name($namePattern);
+            }
+            
+            return iterator_to_array($finder, false);
+        } catch (\Exception $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Sincronizar de manera universal y automática las credenciales de base de datos
+     * y URL de aplicación en todos los archivos .env del proyecto.
+     */
+    private function syncProjectEnvironmentVariables(Project $project, string $projectPath, string &$logs): void
+    {
+        if (empty($project->db_name)) {
+            return;
+        }
+
+        $logs .= "--- PASO 2.5: Sincronizando Variables de Entorno de Base de Datos (.env) ---\n";
+
+        $dbHost = $project->db_driver === 'mysql' ? 'uleam_mysql_students' : ($project->db_driver === 'mongodb' ? 'uleam_mongodb_students' : 'uleam_postgres_students');
+        $dbPort = $project->db_driver === 'mysql' ? '3306' : ($project->db_driver === 'mongodb' ? '27017' : '5432');
+        $appUrl = "http://{$project->subdomain}.localhost";
+        $dbPrefix = $project->db_driver === 'mysql' ? 'mysql' : ($project->db_driver === 'mongodb' ? 'mongodb' : 'postgresql');
+        $dbUrl = "{$dbPrefix}://{$project->db_user}:{$project->db_password}@{$dbHost}:{$dbPort}/{$project->db_name}";
+        if ($project->db_driver === 'mongodb') {
+            $dbUrl .= "?authSource=admin";
+        }
+
+        $commonEnvVars = [
+            'APP_URL' => $appUrl,
+            'DB_CONNECTION' => $project->db_driver ?: 'mysql',
+            'DB_HOST' => $dbHost,
+            'DB_PORT' => $dbPort,
+            'DB_DATABASE' => $project->db_name,
+            'DB_USERNAME' => $project->db_user,
+            'DB_PASSWORD' => $project->db_password,
+            'DATABASE_URL' => $dbUrl,
+            'MONGODB_URI' => $dbUrl,
+            'MONGO_URI' => $dbUrl,
+            'DB_URI' => $dbUrl,
+            'PGHOST' => $dbHost,
+            'PGPORT' => $dbPort,
+            'PGDATABASE' => $project->db_name,
+            'PGUSER' => $project->db_user,
+            'PGPASSWORD' => $project->db_password,
+            'APP_DEBUG' => 'false',
+            'DEBUGBAR_ENABLED' => 'false',
+            'SESSION_DRIVER' => 'file',
+            'CACHE_DRIVER' => 'file',
+            'CACHE_STORE' => 'file',
+            'QUEUE_CONNECTION' => 'sync',
+            'MAIL_MAILER' => 'log',
+            'FILESYSTEM_DISK' => 'public',
+        ];
+
+        // Buscar posibles ubicaciones de .env (.env en raíz, en backend, api, server)
+        $potentialDirs = [
+            $projectPath,
+            $projectPath . '/backend',
+            $projectPath . '/api',
+            $projectPath . '/server',
+        ];
+
+        foreach ($potentialDirs as $dir) {
+            if (!\Illuminate\Support\Facades\File::isDirectory($dir)) {
+                continue;
+            }
+
+            $envPath = $dir . '/.env';
+            // Si no existe .env, buscar plantillas de ejemplo (.env.example, .env.sample, etc.)
+            if (!\Illuminate\Support\Facades\File::exists($envPath)) {
+                foreach (['/.env.example', '/.env.sample', '/.env.local', '/.env.dist'] as $sample) {
+                    if (\Illuminate\Support\Facades\File::exists($dir . $sample)) {
+                        \Illuminate\Support\Facades\File::copy($dir . $sample, $envPath);
+                        $logs .= "Creado '{$dir}/.env' a partir de plantilla '{$sample}'.\n";
+                        break;
+                    }
+                }
+            }
+
+            if (!\Illuminate\Support\Facades\File::exists($envPath)) {
+                \Illuminate\Support\Facades\File::put($envPath, "");
+            }
+
+            $content = \Illuminate\Support\Facades\File::get($envPath);
+
+            // Reemplazar cualquier clave existente o agregarla si no existe en el archivo
+            foreach ($commonEnvVars as $k => $v) {
+                if (preg_match("/^{$k}=.*/m", $content)) {
+                    $content = preg_replace("/^{$k}=.*/m", "{$k}={$v}", $content);
+                } else {
+                    $content .= "\n{$k}={$v}";
+                }
+            }
+
+            \Illuminate\Support\Facades\File::put($envPath, $content);
+            $rel = str_replace($projectPath, '', $envPath);
+            $logs .= "Variables de conexión a base de datos inyectadas automáticamente en: {$rel}\n";
+        }
+        $logs .= "\n";
+    }
+
+    /**
+     * Generar un snapshot SQL inicial para permitir que el evaluador pueda
+     * restablecer la base de datos de cualquier proyecto a su estado de fábrica en segundos.
+     */
+    private function generateInitialDatabaseSnapshot(Project $project, string $projectPath): void
+    {
+        $snapshotFile = $projectPath . '/.initial_db_snapshot.sql';
+        if (\Illuminate\Support\Facades\File::exists($snapshotFile)) {
+            return;
+        }
+
+        if ($project->db_driver === 'mysql') {
+            $dumpCmd = new Process([
+                'docker', 'exec', 'uleam_mysql_students',
+                'mysqldump', '--no-tablespaces', '-u', 'root', '-puleam_secure_pass', $project->db_name
+            ]);
+            $dumpCmd->run();
+            if ($dumpCmd->isSuccessful() && strlen($dumpCmd->getOutput()) > 500) {
+                \Illuminate\Support\Facades\File::put($snapshotFile, $dumpCmd->getOutput());
+            }
+        } elseif ($project->db_driver === 'pgsql') {
+            $dumpCmd = new Process([
+                'docker', 'exec', 'uleam_postgres_students',
+                'pg_dump', '-U', 'root', '-d', $project->db_name
+            ]);
+            $dumpCmd->run();
+            if ($dumpCmd->isSuccessful() && strlen($dumpCmd->getOutput()) > 500) {
+                \Illuminate\Support\Facades\File::put($snapshotFile, $dumpCmd->getOutput());
+            }
+        }
     }
 }

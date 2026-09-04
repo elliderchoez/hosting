@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Head, Link, useForm } from '@inertiajs/react';
 import ApplicationLogo from '@/Components/ApplicationLogo';
+import DemoLoadingAnimation from '@/Components/DemoLoadingAnimation';
 
 export default function Welcome({ auth, projects }) {
     const [search, setSearch] = useState('');
@@ -300,13 +301,12 @@ export default function Welcome({ auth, projects }) {
                                 >
                                     {/* Project Language Badge */}
                                     <div className="flex justify-start items-center mb-4">
-                                        <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-mono font-semibold uppercase tracking-wider border-0 ${
-                                            project.language === 'nodejs'
-                                                ? 'bg-emerald-500/10 text-emerald-300'
-                                                : project.language === 'php'
-                                                    ? 'bg-violet-500/10 text-violet-300'
-                                                    : 'bg-amber-500/10 text-amber-300'
-                                        }`}>
+                                        <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-mono font-semibold uppercase tracking-wider border-0 ${project.language === 'nodejs'
+                                            ? 'bg-emerald-500/10 text-emerald-300'
+                                            : project.language === 'php'
+                                                ? 'bg-violet-500/10 text-violet-300'
+                                                : 'bg-amber-500/10 text-amber-300'
+                                            }`}>
                                             {project.language || 'Sin compilar'}
                                         </span>
                                     </div>
@@ -398,16 +398,40 @@ export default function Welcome({ auth, projects }) {
                                         <p className="text-xs text-slate-400 flex items-center gap-1.5">
                                             <span>Estudiante: {activeDemo.user.name}</span>
                                             <span>•</span>
-                                            <span className="text-cyan-400 font-mono">https://{activeDemo.subdomain}.uleam-academic.software</span>
+                                            <a
+                                                href={`http://${activeDemo.subdomain}.localhost`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-cyan-400 font-mono underline hover:text-cyan-300 flex items-center gap-1"
+                                                title="Abrir en pestaña nueva"
+                                            >
+                                                <span>http://{activeDemo.subdomain}.localhost</span>
+                                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                                </svg>
+                                            </a>
                                         </p>
                                     </div>
                                 </div>
-                                <button
-                                    onClick={() => handleCloseDemo(activeDemo)}
-                                    className="px-4 py-2 hover:bg-slate-800 rounded-xl text-slate-400 hover:text-white transition text-sm font-semibold"
-                                >
-                                    Cerrar
-                                </button>
+                                <div className="flex items-center space-x-2">
+                                    <a
+                                        href={`http://${activeDemo.subdomain}.localhost`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/25 transition duration-150 flex items-center gap-1.5"
+                                    >
+                                        <span>Abrir en nueva pestaña</span>
+                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                        </svg>
+                                    </a>
+                                    <button
+                                        onClick={() => handleCloseDemo(activeDemo)}
+                                        className="px-4 py-2 hover:bg-slate-800 rounded-xl text-slate-400 hover:text-white transition text-sm font-semibold"
+                                    >
+                                        Cerrar
+                                    </button>
+                                </div>
                             </div>
 
                             {/* Sandbox Warning Banner */}
@@ -420,11 +444,10 @@ export default function Welcome({ auth, projects }) {
                                 {/* Left side: Iframe or spinner or error */}
                                 <div className="flex-1 min-w-0 h-full relative">
                                     {wakingUp ? (
-                                        <div className="absolute inset-0 flex flex-col items-center justify-center text-center space-y-4">
-                                            <div className="w-12 h-12 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-                                            <p className="text-sm font-medium text-slate-300">Preparando contenedor y base de datos aislada...</p>
-                                            <p className="text-xs text-slate-500 font-mono">Cargando base de datos limpia de fábrica...</p>
-                                        </div>
+                                        <DemoLoadingAnimation
+                                            projectName={activeDemo?.name}
+                                            subdomain={activeDemo?.subdomain}
+                                        />
                                     ) : demoError ? (
                                         <div className="w-full h-full flex flex-col p-8 bg-slate-950 text-slate-300 font-mono overflow-y-auto">
                                             <div className="flex items-center space-x-2 text-red-500 font-bold text-lg mb-4 border-b border-red-950/40 pb-2">
@@ -502,7 +525,27 @@ export default function Welcome({ auth, projects }) {
                                                             <p className="text-[11px] text-slate-400">{creds.note}</p>
                                                         </div>
 
-                                                        <div className="text-[10px] text-slate-500 leading-relaxed bg-slate-950 p-2.5 rounded-lg border border-slate-850">
+                                                        {/* Botón de apertura en nueva pestaña / Pantalla completa */}
+                                                        <a
+                                                            href={`http://${activeDemo.subdomain}.localhost`}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="w-full py-2.5 px-3 rounded-xl text-xs font-bold text-center flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-slate-950 shadow-md shadow-cyan-500/20 transition duration-200 cursor-pointer"
+                                                        >
+                                                            <span>Abrir en Pantalla Completa</span>
+                                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                                            </svg>
+                                                        </a>
+
+                                                        <div className="text-[10px] text-slate-400 leading-relaxed bg-slate-950 p-2.5 rounded-lg border border-slate-800 space-y-1">
+                                                            <p className="text-indigo-300 font-semibold flex items-center gap-1">
+                                                                <span></span> <span>Tip de Autenticación</span>
+                                                            </p>
+                                                            <p>Para iniciar sesión y navegar con total compatibilidad de cookies, recomendamos usar el botón <strong>Abrir en Pantalla Completa</strong>.</p>
+                                                        </div>
+
+                                                        <div className="text-[10px] text-slate-500 leading-relaxed bg-slate-950/60 p-2 rounded-lg border border-slate-900">
                                                             Los datos agregados se eliminarán automáticamente al hacer clic en <strong>Cerrar</strong>.
                                                         </div>
                                                     </div>

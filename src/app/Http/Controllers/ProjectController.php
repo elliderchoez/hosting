@@ -40,14 +40,15 @@ class ProjectController extends Controller
             ])
             ->get();
 
-        // Sincronizar el estado físico de Docker con la Base de Datos
+        // Sincronizar el estado físico de Docker con la Base de Datos en lote (1 sola llamada CLI)
+        $runningContainers = $this->getRunningContainerNames();
         foreach ($projects as $project) {
             if ($project->status === 'building') {
                 continue;
             }
             
             $containerName = "project-{$project->id}";
-            $isPhysicalRunning = $this->isContainerRunning($containerName);
+            $isPhysicalRunning = in_array($containerName, $runningContainers, true);
             
             if ($isPhysicalRunning && $project->status !== 'running') {
                 $project->status = 'running';
@@ -356,6 +357,24 @@ class ProjectController extends Controller
         $project->delete();
 
         return redirect()->route('dashboard')->with('status', 'Proyecto eliminado exitosamente.');
+    }
+
+    /**
+     * Obtener los nombres de todos los contenedores Docker que están corriendo actualmente.
+     * Realiza una sola llamada CLI en lugar de N llamadas secuenciales.
+     */
+    private function getRunningContainerNames(): array
+    {
+        try {
+            $process = new \Symfony\Component\Process\Process(['docker', 'ps', '--format', '{{.Names}}']);
+            $process->run();
+            if ($process->isSuccessful()) {
+                return array_filter(array_map('trim', explode("\n", $process->getOutput())));
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Error obteniendo contenedores Docker: " . $e->getMessage());
+        }
+        return [];
     }
 
     /**

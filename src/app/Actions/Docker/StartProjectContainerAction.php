@@ -79,9 +79,8 @@ class StartProjectContainerAction
             $command[] = '--label';
             $command[] = "traefik.http.routers.{$project->id}-local.entrypoints=web";
 
-            // ── CORS Universal ──────────────────────────────────────────────────────────
-            // Inyectar encabezados CORS a nivel de proxy Traefik para que cualquier
-            // frontend pueda consumir este backend sin importar el lenguaje de programación.
+            // ── CORS & Iframe Embedding Universal ─────────────────────────────────────────
+            // Inyectar encabezados CORS y permitir visualización en iframe para el evaluador
             $corsName = "{$project->id}-cors";
             $command[] = '--label';
             $command[] = "traefik.http.middlewares.{$corsName}.headers.accesscontrolalloworiginlist=*";
@@ -93,6 +92,10 @@ class StartProjectContainerAction
             $command[] = "traefik.http.middlewares.{$corsName}.headers.accesscontrolmaxage=100";
             $command[] = '--label';
             $command[] = "traefik.http.middlewares.{$corsName}.headers.addvaryheader=true";
+            $command[] = '--label';
+            $command[] = "traefik.http.middlewares.{$corsName}.headers.customresponseheaders.X-Frame-Options=";
+            $command[] = '--label';
+            $command[] = "traefik.http.middlewares.{$corsName}.headers.customresponseheaders.Content-Security-Policy=frame-ancestors *";
             // Aplicar el middleware a ambos routers (producción y local)
             $command[] = '--label';
             $command[] = "traefik.http.routers.{$project->id}.middlewares={$corsName}";
@@ -166,6 +169,23 @@ class StartProjectContainerAction
                     $command[] = '-e';
                     $command[] = 'DATABASE_URL=' . $dbUrlScheme . '://' . $project->db_user . ':' . $project->db_password . '@' . $dbHost . ':' . $dbPort . '/' . $project->db_name;
                 }
+            }
+
+            // Para proyectos Node.js asegurar compatibilidad con OpenSSL 3.0, Webpack y secretos comunes
+            if ($project->language === 'nodejs') {
+                $command[] = '-e';
+                $command[] = 'NODE_OPTIONS=--openssl-legacy-provider';
+                $command[] = '-e';
+                $command[] = 'JWT_SECRET=uleam_secret_jwt_token_' . md5($project->id);
+                $command[] = '-e';
+                $command[] = 'SECRET_KEY=uleam_secret_key_' . md5($project->id);
+                $command[] = '-e';
+                $command[] = 'SESSION_SECRET=uleam_session_secret_' . md5($project->id);
+            }
+
+            if ($project->language === 'php') {
+                $command[] = '-e';
+                $command[] = 'PHP_CLI_SERVER_WORKERS=4';
             }
 
             // Append base image
@@ -243,15 +263,42 @@ class StartProjectContainerAction
     {
         switch ($language) {
             case 'nodejs':
-                // Check if index.js, server.js, app.js exists, or fallback to scripts in package.json
                 $command = ['node', 'index.js'];
-                if (File::exists($projectPath . '/server.js')) {
+                // Monorepos con client y api integrados
+                if (File::exists($projectPath . '/client/server.js') && File::exists($projectPath . '/api')) {
+                    $runnerContent = <<<'JS'
+const { spawn } = require('child_process');
+
+console.log('[Runner] Iniciando backend API en puerto 5000...');
+const api = spawn('node', ['build/index.js'], {
+    cwd: '/app/api',
+    env: { ...process.env, PORT: '5000', NODE_PATH: '/app/api/build:/app/api/node_modules' },
+    stdio: 'inherit'
+});
+
+console.log('[Runner] Iniciando frontend Client en puerto 3000...');
+const client = spawn('node', ['server.js'], {
+    cwd: '/app/client',
+    env: { ...process.env, PORT: '3000' },
+    stdio: 'inherit'
+});
+
+api.on('exit', code => console.log('[Runner] API finalizó con código:', code));
+client.on('exit', code => console.log('[Runner] Client finalizó con código:', code));
+JS;
+                    File::put($projectPath . '/_monorepo_runner.js', $runnerContent);
+                    $command = ['node', '_monorepo_runner.js'];
+                } elseif (File::exists($projectPath . '/server.js')) {
                     $command = ['node', 'server.js'];
                 } elseif (File::exists($projectPath . '/app.js')) {
                     $command = ['node', 'app.js'];
+                } elseif (File::exists($projectPath . '/client/server.js')) {
+                    $command = ['node', 'client/server.js'];
                 } elseif (File::exists($projectPath . '/package.json')) {
                     $packageJson = json_decode(File::get($projectPath . '/package.json'), true);
-                    if (isset($packageJson['scripts']['start'])) {
+                    if (isset($packageJson['scripts']['start:production']) && !str_contains($packageJson['scripts']['start:production'], 'pm2')) {
+                        $command = ['npm', 'run', 'start:production'];
+                    } elseif (isset($packageJson['scripts']['start']) && !str_contains($packageJson['scripts']['start'], 'pm2')) {
                         $command = ['npm', 'start'];
                     } elseif (isset($packageJson['scripts']['preview'])) {
                         // Proyecto frontend estático (como Vite): Servimos el build en el puerto 3000
@@ -263,16 +310,16 @@ class StartProjectContainerAction
                 }
 
                 return [
-                    'image' => 'node:18-alpine',
+                    'image' => 'node:20-alpine',
                     'port' => 3000,
                     'command' => $command
                 ];
 
             case 'php':
-                // Built-in PHP server is light and suitable for students
-                $command = ['php', '-S', '0.0.0.0:80'];
+                // Built-in PHP server con supresion de avisos deprecated y multi-workers
+                $command = ['php', '-d', 'error_reporting=E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED', '-S', '0.0.0.0:80'];
                 if (File::exists($projectPath . '/public/index.php')) {
-                    $command = ['php', '-S', '0.0.0.0:80', '-t', 'public'];
+                    $command = ['php', '-d', 'error_reporting=E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED', '-S', '0.0.0.0:80', '-t', 'public'];
                 }
                 return [
                     'image' => 'webdevops/php:8.4',

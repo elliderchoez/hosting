@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\File;
 
 class ShowcaseController extends Controller
 {
@@ -87,22 +88,34 @@ class ShowcaseController extends Controller
         $containerName = "project-{$project->id}";
         $domain = env('APP_DOMAIN', 'uleam-academic.software');
 
-        // 1. Asegurar que los proyectos complementarios del mismo estudiante estén activos (ej: frontend + backend)
-        $siblingProjects = Project::where('user_id', $project->user_id)
-            ->where('id', '!=', $project->id)
-            ->get();
-
-        foreach ($siblingProjects as $sibling) {
-            $siblingContainer = "project-{$sibling->id}";
-            if (!$this->isContainerRunning($siblingContainer)) {
-                $siblingPath = storage_path("app/projects/project-{$sibling->id}");
-                $siblingResult = $startAction->execute($sibling, $siblingPath, $domain);
-                if ($siblingResult['success']) {
-                    $sibling->status = 'running';
-                    $sibling->container_id = $siblingResult['container_id'];
-                    $sibling->last_visited_at = now();
-                    $sibling->save();
+        // 1. Si el proyecto tiene un backend enlazado (ej: suite frontend + backend), asegurar que esté activo
+        if ($project->backend_project_id) {
+            $backend = Project::find($project->backend_project_id);
+            if ($backend) {
+                $backendContainer = "project-{$backend->id}";
+                if (!$this->isContainerRunning($backendContainer)) {
+                    $backendPath = storage_path("app/projects/project-{$backend->id}");
+                    $backendResult = $startAction->execute($backend, $backendPath, $domain);
+                    if ($backendResult['success']) {
+                        $backend->status = 'running';
+                        $backend->container_id = $backendResult['container_id'];
+                        $backend->last_visited_at = now();
+                        $backend->save();
+                    }
                 }
+            }
+        }
+
+        $projectPath = storage_path("app/projects/project-{$project->id}");
+        $resetLock = $projectPath . '/.resetting';
+
+        // Si se estaba ejecutando una limpieza de base de datos en segundo plano, esperar a que culmine
+        if (File::exists($resetLock)) {
+            for ($i = 0; $i < 30; $i++) {
+                if (!File::exists($resetLock)) {
+                    break;
+                }
+                usleep(500000);
             }
         }
 
@@ -114,7 +127,6 @@ class ShowcaseController extends Controller
         }
 
         // 3. Iniciar el proyecto principal si estaba detenido
-        $projectPath = storage_path("app/projects/project-{$project->id}");
         $result = $startAction->execute($project, $projectPath, $domain);
         
         if ($result['success']) {
@@ -128,12 +140,12 @@ class ShowcaseController extends Controller
             $port = $this->getProjectPort($project, $projectPath);
             
             $isReady = false;
-            for ($i = 0; $i < 30; $i++) {
+            for ($i = 0; $i < 60; $i++) {
                 if ($this->checkPort($containerIp, $port)) {
                     $isReady = true;
                     break;
                 }
-                usleep(300000); // Esperar 300ms antes del siguiente intento
+                usleep(500000); // Esperar 500ms antes del siguiente intento (hasta 30 segundos)
             }
             
             if (!$isReady) {
@@ -229,12 +241,19 @@ class ShowcaseController extends Controller
     {
         session_write_close();
 
-        // Restablecer la base de datos en segundo plano para los proyectos del estudiante
-        $studentProjects = Project::where('user_id', $project->user_id)
-            ->whereNotNull('db_name')
-            ->get();
+        // Restablecer únicamente el proyecto actual y su backend enlazado (si aplica)
+        $projectsToReset = collect([$project]);
+        if ($project->backend_project_id) {
+            $backend = Project::find($project->backend_project_id);
+            if ($backend) {
+                $projectsToReset->push($backend);
+            }
+        }
 
-        foreach ($studentProjects as $p) {
+        foreach ($projectsToReset as $p) {
+            if (!$p->db_name) {
+                continue;
+            }
             try {
                 $artisanPath = base_path('artisan');
                 $cmd = "nohup php " . escapeshellarg($artisanPath) . " projects:reset-databases --project=" . escapeshellarg($p->id) . " > /dev/null 2>&1 &";

@@ -31,18 +31,18 @@ class CloneRepositoryAction
         // Create directory structure if needed
         File::makeDirectory(dirname($destinationPath), 0755, true, true);
 
-        // 2. Prepare git clone command (shallow clone depth 1 for speed and disk conservation)
+        $branch = $project->branch ?: 'main';
         $command = [
             'git', 
             'clone', 
             '--depth', '1', 
-            '-b', $project->branch, 
+            '-b', $branch, 
             $project->github_repo_url, 
             $destinationPath
         ];
 
         $process = new Process($command);
-        $process->setTimeout(120); // 2 minutes timeout for cloning
+        $process->setTimeout(180); // 3 minutes timeout for cloning
 
         try {
             $process->mustRun();
@@ -52,6 +52,35 @@ class CloneRepositoryAction
                 'output' => "Repositorio clonado con éxito.\n" . $process->getOutput() . "\n" . $process->getErrorOutput()
             ];
         } catch (ProcessFailedException $exception) {
+            $errorOutput = $process->getErrorOutput() . ' ' . $process->getOutput();
+            
+            // Si la rama no existe (ej: se indicó 'main' pero el repositorio usa 'master' o viceversa)
+            if (str_contains(strtolower($errorOutput), 'not found') || str_contains(strtolower($errorOutput), 'no encontrada')) {
+                // Limpiar la carpeta antes del reintento
+                if (is_dir($destinationPath)) {
+                    File::deleteDirectory($destinationPath);
+                }
+                
+                $fallbackCmd = [
+                    'git', 
+                    'clone', 
+                    '--depth', '1', 
+                    $project->github_repo_url, 
+                    $destinationPath
+                ];
+                
+                $fallbackProc = new Process($fallbackCmd);
+                $fallbackProc->setTimeout(180);
+                $fallbackProc->run();
+                
+                if ($fallbackProc->isSuccessful()) {
+                    return [
+                        'success' => true,
+                        'output' => "Aviso: Rama '{$branch}' no encontrada. Se clonó exitosamente la rama principal por defecto del repositorio.\n" . $fallbackProc->getOutput()
+                    ];
+                }
+            }
+
             return [
                 'success' => false,
                 'output' => "Error al clonar el repositorio: " . $exception->getMessage() . "\n" . $process->getErrorOutput()

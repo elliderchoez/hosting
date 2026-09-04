@@ -215,10 +215,15 @@ export default function Dashboard({ auth, profile, projects }) {
     // Handle project creation
     const handleProjectSubmit = (e) => {
         e.preventDefault();
+        const targetSubdomain = projectForm.data.subdomain;
         projectForm.post(route('projects.store'), {
-            onSuccess: () => {
+            onSuccess: (page) => {
                 projectForm.reset();
                 setIsAddProjectOpen(false);
+                const newProj = page?.props?.projects?.find(p => p.subdomain === targetSubdomain);
+                if (newProj) {
+                    fetchLogs(newProj);
+                }
             }
         });
     };
@@ -886,7 +891,7 @@ export default function Dashboard({ auth, profile, projects }) {
                                 ) : (
                                     <div>
                                         <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Subdominio</label>
-                                        <div className="flex bg-slate-950 rounded-xl overflow-hidden">
+                                        <div className={`flex bg-slate-950 rounded-xl overflow-hidden ${projectForm.errors.subdomain ? 'border border-red-500/60' : 'border-0'}`}>
                                             <input
                                                 type="text"
                                                 value={projectForm.data.subdomain}
@@ -899,7 +904,11 @@ export default function Dashboard({ auth, profile, projects }) {
                                                 .uleam-academic.software
                                             </span>
                                         </div>
-                                        {projectForm.errors.subdomain && <p className="text-xs text-red-400 mt-1">{projectForm.errors.subdomain}</p>}
+                                        {projectForm.errors.subdomain && (
+                                            <p className="text-xs text-red-400 mt-1 font-medium flex items-center gap-1">
+                                                <span>✕</span> {projectForm.errors.subdomain}
+                                            </p>
+                                        )}
                                     </div>
                                 )}
                             </div>

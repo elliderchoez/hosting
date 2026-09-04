@@ -62,6 +62,9 @@ class ResetStudentDatabases extends Command
                 continue;
             }
 
+            $resetLock = $projectPath . '/.resetting';
+            File::put($resetLock, (string)time());
+
             try {
                 // 1. Recrear Base de Datos Limpia
                 // 1. Recrear Base de Datos Limpia
@@ -140,15 +143,20 @@ class ResetStudentDatabases extends Command
 
                     // 3. Buscar archivos .sql de respaldo legítimos e importarlos (si no fueron gestionados por framework)
                     if (!File::exists($projectPath . '/artisan')) {
-                        $files = File::allFiles($projectPath);
                         $sqlFiles = [];
-                        foreach ($files as $file) {
-                            if (Str::endsWith(Str::lower($file->getFilename()), '.sql')) {
-                                $relativePath = $file->getRelativePathname();
-                                if (!Str::contains($relativePath, ['node_modules', '.git', '.venv', 'vendor', 'scripts', 'sail'])) {
-                                    $sqlFiles[] = $file;
-                                }
+                        try {
+                            $finder = new \Symfony\Component\Finder\Finder();
+                            $finder->files()
+                                ->in($projectPath)
+                                ->name('*.sql')
+                                ->ignoreDotFiles(true)
+                                ->ignoreVCS(true)
+                                ->exclude(['node_modules', 'vendor', '.git', '.venv', 'dist', 'build', 'cache', 'scripts', 'sail']);
+                            foreach ($finder as $file) {
+                                $sqlFiles[] = $file;
                             }
+                        } catch (\Exception $e) {
+                            $sqlFiles = [];
                         }
 
                         if (!empty($sqlFiles)) {
@@ -189,8 +197,22 @@ class ResetStudentDatabases extends Command
                     }
                 }
 
+                // Si el contenedor está activo, reiniciarlo para que reconecte a la base de datos limpia y regenere esquemas/conexiones
+                $containerName = "project-{$project->id}";
+                $checkRunning = new Process(['docker', 'inspect', '-f', '{{.State.Running}}', $containerName]);
+                $checkRunning->run();
+                if (trim($checkRunning->getOutput()) === 'true') {
+                    $restartProc = new Process(['docker', 'restart', '-t', '2', $containerName]);
+                    $restartProc->run();
+                    $this->info("Contenedor '{$containerName}' reiniciado tras restablecer la base de datos.");
+                }
+
             } catch (\Exception $e) {
                 $this->error("Error al restablecer proyecto {$project->name}: " . $e->getMessage());
+            } finally {
+                if (isset($resetLock)) {
+                    @unlink($resetLock);
+                }
             }
         }
 
@@ -214,6 +236,40 @@ class ResetStudentDatabases extends Command
         $check = new Process(['docker', 'inspect', '-f', '{{.State.Running}}', $containerName]);
         $check->run();
         $isRunning = trim($check->getOutput()) === 'true';
+
+        // 0. Si existe un snapshot inicial (.initial_db_snapshot.sql), restaurarlo directamente en segundos
+        $snapshotFile = $projectPath . '/.initial_db_snapshot.sql';
+        if (File::exists($snapshotFile)) {
+            $this->info("Snapshot inicial detectado. Restaurando réplica exacta en segundos...");
+            if ($driver === 'mysql') {
+                $command = [
+                    'docker', 'run', '--rm',
+                    '--network', 'uleam_academic_network',
+                    '-v', "{$projectPath}:/workspace:ro",
+                    'mysql:8.0',
+                    'sh', '-c',
+                    "mysql -h uleam_mysql_students -u '{$dbuser}' -p'{$dbpass}' {$dbname} < /workspace/.initial_db_snapshot.sql"
+                ];
+            } else {
+                $command = [
+                    'docker', 'run', '--rm',
+                    '--network', 'uleam_academic_network',
+                    '-v', "{$projectPath}:/workspace:ro",
+                    'postgres:15-alpine',
+                    'sh', '-c',
+                    "PGPASSWORD='{$dbpass}' psql -h uleam_postgres_students -U '{$dbuser}' -d '{$dbname}' -f /workspace/.initial_db_snapshot.sql"
+                ];
+            }
+            $proc = new Process($command);
+            $proc->setTimeout(60);
+            $proc->run();
+            if ($proc->isSuccessful()) {
+                $this->info("Snapshot inicial restaurado con éxito.");
+                return;
+            } else {
+                $this->warn("Aviso al restaurar snapshot: " . $proc->getErrorOutput() . " - Reintentando con migraciones estándar.");
+            }
+        }
 
         // 1. Laravel (PHP)
         if (File::exists($projectPath . '/artisan')) {
@@ -241,6 +297,27 @@ class ResetStudentDatabases extends Command
                 ];
             }
             $this->executeMigrationCommand($command);
+
+            // Generar snapshot inicial para futuros reseteos ultrarrápidos
+            if (!File::exists($snapshotFile)) {
+                $this->info("Generando snapshot inicial para acelerar futuros reseteos...");
+                if ($driver === 'mysql') {
+                    $dumpCmd = new Process([
+                        'docker', 'exec', 'uleam_mysql_students',
+                        'mysqldump', '-u', $dbuser, "-p{$dbpass}", $dbname
+                    ]);
+                } else {
+                    $dumpCmd = new Process([
+                        'docker', 'exec', '-e', "PGPASSWORD={$dbpass}", 'uleam_postgres_students',
+                        'pg_dump', '-U', $dbuser, '-d', $dbname
+                    ]);
+                }
+                $dumpCmd->run();
+                if ($dumpCmd->isSuccessful() && strlen($dumpCmd->getOutput()) > 500) {
+                    File::put($snapshotFile, $dumpCmd->getOutput());
+                    $this->info("Snapshot guardado correctamente.");
+                }
+            }
             return;
         }
 
