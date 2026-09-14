@@ -88,14 +88,155 @@ class ProjectController extends Controller
         }
 
         $isFolderUpload = $request->hasFile('folder_files');
+        $isFullstack = $request->input('deployment_mode') === 'fullstack' && !$parentProject;
 
-        // 2. Validar entrada según el tipo de subida
+        // Si es despliegue de Suite Fullstack (Frontend + Backend en un solo paso)
+        if ($isFullstack) {
+            $backendSubdomainCandidate = Str::lower($request->input('backend_subdomain'));
+
+            // Auto-limpieza de seguridad: si existe un backend huérfano con este subdominio sin frontend asociado, limpiarlo
+            if ($backendSubdomainCandidate) {
+                $orphanedBackend = Project::where('user_id', $user->id)
+                    ->where('subdomain', $backendSubdomainCandidate)
+                    ->where('is_backend_service', true)
+                    ->first();
+                if ($orphanedBackend) {
+                    $isLinked = Project::where('backend_project_id', $orphanedBackend->id)->exists();
+                    if (!$isLinked) {
+                        $this->cleanupProjectResources($orphanedBackend, app(StopProjectContainerAction::class));
+                        $orphanedBackend->delete();
+                    }
+                }
+            }
+
+            $fullstackSource = $request->input('fullstack_source', 'monorepo');
+            $rules = [
+                'name' => 'required|string|max:100',
+                'subdomain' => 'required|string|max:63|alpha_dash|unique:projects,subdomain',
+                'backend_subdomain' => 'required|string|max:63|alpha_dash|unique:projects,subdomain|different:subdomain',
+                'frontend_dir' => 'nullable|string|max:255',
+                'backend_dir' => 'nullable|string|max:255',
+                'category' => 'required|string|max:100',
+            ];
+
+            if (!$isFolderUpload) {
+                $rules['github_repo_url'] = [
+                    'required', 
+                    'string', 
+                    'url',
+                    'regex:/^https:\/\/github\.com\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+$/i'
+                ];
+                $rules['branch'] = 'required|string|max:50';
+
+                if ($fullstackSource === 'separate') {
+                    $rules['backend_github_repo_url'] = [
+                        'required', 
+                        'string', 
+                        'url',
+                        'regex:/^https:\/\/github\.com\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+$/i'
+                    ];
+                    $rules['backend_branch'] = 'nullable|string|max:50';
+                }
+            } else {
+                $rules['folder_files'] = 'required|array';
+                $rules['folder_paths'] = 'required|array';
+            }
+
+            $request->validate($rules, [
+                'category.required' => 'Elige una categoría para el proyecto.',
+                'name.required' => 'El nombre del proyecto es obligatorio.',
+                'subdomain.required' => 'El subdominio es obligatorio.',
+                'subdomain.unique' => 'Este subdominio ya está en uso.',
+                'backend_subdomain.required' => 'El subdominio del backend es obligatorio.',
+                'backend_subdomain.unique' => 'Este subdominio de backend ya está en uso.',
+            ]);
+
+            $frontendSubdomain = Str::lower($request->subdomain);
+            $backendSubdomain = Str::lower($request->backend_subdomain);
+            $scheme = request()->getScheme() ?: 'http';
+            $baseDomain = config('app.env') === 'production' ? env('APP_DOMAIN', 'nexus-academic.software') : 'localhost';
+            $backendApiUrl = "{$scheme}://{$backendSubdomain}.{$baseDomain}/api";
+
+            // 1. Crear el Backend (Servicio API satélite)
+            $backendRepo = ($fullstackSource === 'separate' && !$isFolderUpload)
+                ? $request->backend_github_repo_url
+                : ($isFolderUpload ? 'Subido localmente' : $request->github_repo_url);
+            $backendBranch = ($fullstackSource === 'separate' && !$isFolderUpload)
+                ? ($request->backend_branch ?: 'main')
+                : ($isFolderUpload ? 'local' : $request->branch);
+            $backendRootDir = $request->input('backend_dir') ?: 'backend';
+
+            $backendProject = Project::create([
+                'user_id' => $user->id,
+                'is_backend_service' => true,
+                'name' => "{$request->name} (API Backend)",
+                'subdomain' => $backendSubdomain,
+                'github_repo_url' => $backendRepo,
+                'branch' => $backendBranch,
+                'root_dir' => $backendRootDir,
+                'env_vars' => null,
+                'category' => $request->input('category', 'Herramientas y Calculadoras'),
+                'status' => 'building',
+            ]);
+
+            // 2. Crear el Frontend (Aplicación principal enlazada al Backend)
+            $vars = [
+                "VITE_API_URL={$backendApiUrl}",
+                "REACT_APP_API_URL={$backendApiUrl}",
+                "NEXT_PUBLIC_API_URL={$backendApiUrl}",
+                "API_URL={$backendApiUrl}",
+                "BACKEND_URL={$scheme}://{$backendSubdomain}.{$baseDomain}"
+            ];
+            $frontendRootDir = $request->input('frontend_dir') ?: 'frontend';
+
+            $frontendProject = Project::create([
+                'user_id' => $user->id,
+                'is_backend_service' => false,
+                'backend_project_id' => $backendProject->id,
+                'name' => $request->name,
+                'subdomain' => $frontendSubdomain,
+                'github_repo_url' => $isFolderUpload ? 'Subido localmente' : $request->github_repo_url,
+                'branch' => $isFolderUpload ? 'local' : $request->branch,
+                'root_dir' => $frontendRootDir,
+                'env_vars' => implode("\n", $vars),
+                'category' => $request->input('category', 'Herramientas y Calculadoras'),
+                'status' => 'building',
+            ]);
+
+            // Si es subida local o archivo ZIP, replicar archivos a ambos proyectos
+            if ($isFolderUpload) {
+                $backendPath = storage_path("app/projects/project-{$backendProject->id}");
+                $frontendPath = storage_path("app/projects/project-{$frontendProject->id}");
+                $this->saveUploadedFiles($request, $backendProject, $backendPath);
+                $this->saveUploadedFiles($request, $frontendProject, $frontendPath);
+            }
+
+            // Despachar builds de ambos componentes
+            $backendDeployment = Deployment::create([
+                'project_id' => $backendProject->id,
+                'status' => 'queued',
+                'build_log' => $isFolderUpload ? 'Archivos locales guardados. Iniciando análisis y compilación de Backend...' : 'Build de Backend encolado. Esperando clonación de Git...',
+            ]);
+            BuildProjectJob::dispatch($backendDeployment);
+
+            $frontendDeployment = Deployment::create([
+                'project_id' => $frontendProject->id,
+                'status' => 'queued',
+                'build_log' => $isFolderUpload ? 'Archivos locales guardados. Iniciando análisis y compilación de Frontend...' : 'Build de Frontend encolado. Esperando clonación de Git...',
+            ]);
+            BuildProjectJob::dispatch($frontendDeployment);
+
+            return redirect()->route('dashboard')->with('status', "Suite Fullstack '{$request->name}' registrada con éxito. Compilación de Frontend y Backend iniciada en segundo plano.");
+        }
+
+        // 2. Despliegue Estándar (Monolito o Aplicación Individual)
         $rules = [
             'name' => 'required|string|max:100',
             'subdomain' => 'required|string|max:63|alpha_dash|unique:projects,subdomain',
             'root_dir' => 'nullable|string|max:255',
             'env_vars' => 'nullable|string',
             'attach_to_project_id' => 'nullable|uuid|exists:projects,id',
+            'category' => 'required|string|max:100',
         ];
 
         if (!$isFolderUpload) {
@@ -111,7 +252,12 @@ class ProjectController extends Controller
             $rules['folder_paths'] = 'required|array';
         }
 
-        $request->validate($rules);
+        $request->validate($rules, [
+            'category.required' => 'Elige una categoría para el proyecto.',
+            'name.required' => 'El nombre del proyecto es obligatorio.',
+            'subdomain.required' => 'El subdominio es obligatorio.',
+            'subdomain.unique' => 'Este subdominio ya está en uso.',
+        ]);
 
         // Limpiar el formato del subdominio (minúsculas)
         $subdomain = Str::lower($request->subdomain);
@@ -127,6 +273,7 @@ class ProjectController extends Controller
             'branch' => $isFolderUpload ? 'local' : $request->branch,
             'root_dir' => $request->root_dir,
             'env_vars' => $request->env_vars,
+            'category' => $request->input('category', 'Herramientas y Calculadoras'),
             'status' => 'building',
         ]);
 
@@ -134,13 +281,14 @@ class ProjectController extends Controller
         if ($parentProject) {
             $parentProject->backend_project_id = $project->id;
             $scheme = request()->getScheme() ?: 'http';
-            $backendApiUrl = "{$scheme}://{$subdomain}.uleam-academic.software/api";
+            $baseDomain = config('app.env') === 'production' ? env('APP_DOMAIN', 'nexus-academic.software') : 'localhost';
+            $backendApiUrl = "{$scheme}://{$subdomain}.{$baseDomain}/api";
             $vars = [
                 "VITE_API_URL={$backendApiUrl}",
                 "REACT_APP_API_URL={$backendApiUrl}",
                 "NEXT_PUBLIC_API_URL={$backendApiUrl}",
                 "API_URL={$backendApiUrl}",
-                "BACKEND_URL={$scheme}://{$subdomain}.uleam-academic.software"
+                "BACKEND_URL={$scheme}://{$subdomain}.{$baseDomain}"
             ];
             $parentProject->env_vars = implode("\n", $vars);
             $parentProject->save();
@@ -157,66 +305,7 @@ class ProjectController extends Controller
         // 4. Si es subida de carpeta local o archivo ZIP
         if ($isFolderUpload) {
             $projectPath = storage_path("app/projects/project-{$project->id}");
-
-            // Crear el directorio limpio
-            if (File::exists($projectPath)) {
-                File::deleteDirectory($projectPath);
-            }
-            File::makeDirectory($projectPath, 0755, true, true);
-
-            $files = $request->file('folder_files');
-            $paths = $request->input('folder_paths');
-
-            // Verificar si es un archivo .zip único
-            if (count($files) === 1 && strtolower($files[0]->getClientOriginalExtension()) === 'zip') {
-                $zipFile = $files[0];
-                
-                // Validar tamaño del archivo ZIP (máximo 50MB)
-                if ($zipFile->getSize() > 52428800) {
-                    $project->delete();
-                    return redirect()->back()->withErrors(['error' => 'El archivo ZIP supera el límite permitido de 50MB.']);
-                }
-
-                $zip = new \ZipArchive;
-                if ($zip->open($zipFile->getRealPath()) === true) {
-                    $zip->extractTo($projectPath);
-                    $zip->close();
-                } else {
-                    $project->delete();
-                    return redirect()->back()->withErrors(['error' => 'No se pudo descomprimir el archivo ZIP. Asegúrate de que no esté dañado o encriptado con contraseña.']);
-                }
-            } else {
-                // Estructura de directorio convencional
-                // Validar tamaño acumulado (máximo 50MB = 52428800 bytes)
-                $totalSize = 0;
-                foreach ($files as $file) {
-                    $totalSize += $file->getSize();
-                }
-                if ($totalSize > 52428800) {
-                    $project->delete();
-                    return redirect()->back()->withErrors(['error' => 'El tamaño total de los archivos del proyecto supera el límite permitido de 50MB.']);
-                }
-
-                foreach ($files as $index => $file) {
-                    $relativePath = $paths[$index] ?? null;
-                    if (!$relativePath) {
-                        continue;
-                    }
-
-                    // Sanitizar la ruta relativa para prevenir ataques de Directory Traversal
-                    $relativePath = preg_replace('#\.\.[\\/]#', '', $relativePath);
-                    $relativePath = ltrim($relativePath, './\\ ');
-                    $relativePath = str_replace('\\', '/', $relativePath);
-
-                    $fullFilePath = $projectPath . '/' . $relativePath;
-
-                    // Crear los directorios padres si no existen
-                    File::makeDirectory(dirname($fullFilePath), 0755, true, true);
-
-                    // Mover el archivo a su ubicación correcta
-                    $file->move(dirname($fullFilePath), basename($fullFilePath));
-                }
-            }
+            $this->saveUploadedFiles($request, $project, $projectPath);
         }
 
         // 5. Crear el despliegue inicial en cola
@@ -234,6 +323,44 @@ class ProjectController extends Controller
             : "Proyecto registrado. Compilación iniciada en segundo plano.";
 
         return redirect()->route('dashboard')->with('status', $msg);
+    }
+
+    /**
+     * Guardar archivos subidos mediante carpeta local o archivo ZIP.
+     */
+    private function saveUploadedFiles(Request $request, Project $project, string $projectPath): void
+    {
+        // Crear el directorio limpio
+        if (File::exists($projectPath)) {
+            File::deleteDirectory($projectPath);
+        }
+        File::makeDirectory($projectPath, 0755, true, true);
+
+        $files = $request->file('folder_files');
+        $paths = $request->input('folder_paths');
+
+        if (count($files) === 1 && strtolower($files[0]->getClientOriginalExtension()) === 'zip') {
+            $zipFile = $files[0];
+            $zip = new \ZipArchive;
+            if ($zip->open($zipFile->getRealPath()) === true) {
+                $zip->extractTo($projectPath);
+                $zip->close();
+            }
+        } else {
+            foreach ($files as $index => $file) {
+                $relativePath = $paths[$index] ?? null;
+                if (!$relativePath) {
+                    continue;
+                }
+                $relativePath = preg_replace('#\.\.[\\/]#', '', $relativePath);
+                $relativePath = ltrim($relativePath, './\\ ');
+                $relativePath = str_replace('\\', '/', $relativePath);
+
+                $fullFilePath = $projectPath . '/' . $relativePath;
+                File::makeDirectory(dirname($fullFilePath), 0755, true, true);
+                $file->move(dirname($fullFilePath), basename($fullFilePath));
+            }
+        }
     }
 
     /**
@@ -257,13 +384,14 @@ class ProjectController extends Controller
 
             $project->backend_project_id = $backend->id;
             $scheme = request()->getScheme() ?: 'http';
-            $backendApiUrl = "{$scheme}://{$backend->subdomain}.uleam-academic.software/api";
+            $baseDomain = config('app.env') === 'production' ? env('APP_DOMAIN', 'nexus-academic.software') : 'localhost';
+            $backendApiUrl = "{$scheme}://{$backend->subdomain}.{$baseDomain}/api";
             $vars = [
                 "VITE_API_URL={$backendApiUrl}",
                 "REACT_APP_API_URL={$backendApiUrl}",
                 "NEXT_PUBLIC_API_URL={$backendApiUrl}",
                 "API_URL={$backendApiUrl}",
-                "BACKEND_URL={$scheme}://{$backend->subdomain}.uleam-academic.software"
+                "BACKEND_URL={$scheme}://{$backend->subdomain}.{$baseDomain}"
             ];
             $project->env_vars = implode("\n", $vars);
             $project->save();
@@ -327,6 +455,27 @@ class ProjectController extends Controller
             abort(403);
         }
 
+        // 1. Si el proyecto tiene un backend enlazado (servicio satélite), eliminarlo en cascada
+        if ($project->backend_project_id) {
+            $backend = Project::where('user_id', Auth::id())->find($project->backend_project_id);
+            if ($backend && $backend->is_backend_service) {
+                $this->cleanupProjectResources($backend, $stopAction);
+                $backend->delete();
+            }
+        }
+
+        // 2. Limpiar recursos del proyecto principal
+        $this->cleanupProjectResources($project, $stopAction);
+        $project->delete();
+
+        return redirect()->route('dashboard')->with('status', 'Proyecto eliminado exitosamente.');
+    }
+
+    /**
+     * Detener contenedor, limpiar archivos y eliminar base de datos de un proyecto.
+     */
+    private function cleanupProjectResources(Project $project, StopProjectContainerAction $stopAction): void
+    {
         // 1. Stop and remove Docker container
         $stopAction->execute($project);
 
@@ -352,11 +501,6 @@ class ProjectController extends Controller
                 \Illuminate\Support\Facades\Log::warning("Error dropping student database {$project->db_name}: " . $e->getMessage());
             }
         }
-
-        // 3. Delete from database
-        $project->delete();
-
-        return redirect()->route('dashboard')->with('status', 'Proyecto eliminado exitosamente.');
     }
 
     /**

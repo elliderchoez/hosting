@@ -3,133 +3,268 @@
 @tailwind utilities;
 
 /* =========================================================
-   TEMA ACADÉMICO / CORPORATIVO (LIGHT THEME CON ALTO CONTRASTE)
+   1. BRANDING / LOGO (NEXUS AZUL, ACADEMIC NEGRO EN TEMA CLARO)
+   ========================================================= */
+.theme-academic .brand-nexus {
+    color: #1534e8 !important;
+}
+
+.theme-academic .brand-academic {
+    color: #000000 !important;
+}
+
+.dark .brand-nexus {
+    color: #3b82f6 !important;
+}
+
+.dark .brand-academic {
+    color: #ffffff !important;
+}
+
+/* =========================================================
+   2. TEMA CLARO - NEXUS ACADEMIC (IDÉNTICO A LA CAPTURA)
    ========================================================= */
 
-/* Activo en el elemento root <html> */
-/* ========================================================= */
-/* 1. FONDO GENERAL DE LA PÁGINA (Gris Claro #eaedf3)        */
-/* ========================================================= */
+/* Activo en el elemento root <html> con clase .theme-academic */
 .theme-academic,
 .theme-academic body,
 .theme-academic .min-h-screen,
 .theme-academic .bg-slate-950,
 .theme-academic div.min-h-screen,
-.theme-academic div.bg-slate-950,
-.theme-academic section {
-    background-color: #eaedf3 !important;
+.theme-academic div.bg-slate-950 {
+    background-color: #f3f5f9 !important;
     background-image: none !important;
-    color: #0f172a !important;
+    color: #1e293b !important;
 }
 
-/* ========================================================= */
-/* 2. FONDO EXCLUSIVO DE LAS TARJETAS DE PROYECTOS          */
-/* ========================================================= */
+.theme-academic section,
+.theme-academic form,
+.theme-academic .rounded-2xl section,
+.theme-academic .bg-white section {
+    background-color: transparent !important;
+}
+
+/* 2.1 Tarjetas de proyectos, paneles y contenedores */
+.theme-academic .bg-white,
 .theme-academic .grid div.group,
 .theme-academic .group.rounded-2xl,
 .theme-academic div.group[class*="rounded-2xl"],
-.theme-academic .rounded-2xl.bg-slate-900\/60,
-.theme-academic .rounded-2xl.bg-slate-900\/40,
+.theme-academic .rounded-2xl.bg-slate-900\/60:not(.messages-container),
+.theme-academic .rounded-2xl.bg-slate-900\/40:not(.profile-card):not(.messages-container),
 .theme-academic .rounded-xl.bg-slate-900\/40,
-.theme-academic .rounded-xl.bg-slate-900\/60 {
-    background-color: #f8f8f8 !important;
-    /* <--- AQUÍ SE CAMBIA EL COLOR DE FONDO DE LAS TARJETAS */
+.theme-academic .rounded-xl.bg-slate-900\/60,
+.theme-academic .rounded-2xl.bg-slate-950:not(.my-application-card):not(.profile-card):not(.messages-container),
+.theme-academic div.bg-slate-900\/40:not(.profile-card):not(.messages-container),
+.theme-academic div.bg-slate-900\/60:not(.messages-container),
+.theme-academic div.bg-slate-900\/50:not(.messages-container),
+.theme-academic div.bg-slate-950:not(.my-application-card):not(.profile-card):not(.messages-container) {
+    background-color: #ffffff !important;
     background-image: none !important;
-    border: 1.5px solid #dcdcdc !important;
-    box-shadow: 0 4px 16px -2px rgba(37, 99, 235, 0.12), 0 2px 6px -1px rgba(37, 99, 235, 0.05) !important;
+    border-color: #e2e8f0 !important;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05) !important;
 }
 
 /* Hover de tarjetas */
 .theme-academic .grid div.group:hover,
 .theme-academic .group.rounded-2xl:hover,
 .theme-academic div.group[class*="rounded-2xl"]:hover {
-    background-color: #f8f8f8 !important;
-    border-color: #f8f8f8 !important;
-    box-shadow: 0 12px 26px -4px rgba(37, 99, 235, 0.25), 0 4px 8px -2px rgba(37, 99, 235, 0.08) !important;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04) !important;
 }
 
-/* Bordes en tarjetas, paneles y divisores */
+/* Bordes y divisores en tema claro */
 .theme-academic .border-slate-900:not(nav):not(header),
 .theme-academic .border-slate-850:not(nav):not(header),
 .theme-academic .border-slate-800:not(nav):not(header),
 .theme-academic .border-slate-700:not(nav):not(header),
+.theme-academic .border-slate-300,
+.theme-academic .border-slate-200,
 .theme-academic .border-dashed {
-    border-color: #d1d9e2 !important;
+    border-color: #e2e8f0 !important;
 }
 
-/* Tipografía de alta legibilidad */
+/* Tipografía de alta legibilidad en tema claro */
 .theme-academic .text-slate-100,
 .theme-academic .text-slate-200,
-.theme-academic .text-white,
+.theme-academic .text-white:not(button):not(a[class*="bg-"]):not(button[class*="bg-"]):not(span.bg-blue-600),
 .theme-academic h1,
 .theme-academic h2,
 .theme-academic h3,
 .theme-academic h4,
-.theme-academic .font-bold,
-.theme-academic strong {
+.theme-academic strong:not(button):not(a) {
     color: #0f172a !important;
 }
 
 .theme-academic .text-slate-300,
 .theme-academic .text-slate-400,
 .theme-academic .text-slate-500,
-.theme-academic p,
-.theme-academic span.text-slate-400 {
+.theme-academic p:not(button):not(a) {
     color: #475569 !important;
 }
 
-/* Badges de Lenguajes en Tema Claro */
-.theme-academic .bg-emerald-500\/10 {
+/* Barra superior (Navbar / Header) en tema claro */
+.theme-academic nav,
+.theme-academic header,
+.theme-academic header.sticky {
     background-color: #ffffff !important;
-    color: #065f46 !important;
-    border: 1px solid #6ee7b7 !important;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+    border-bottom: 1px solid #e2e8f0 !important;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03) !important;
 }
 
-.theme-academic .bg-violet-500\/10,
-.theme-academic .bg-indigo-500\/10 {
-    background-color: #ffffff !important;
-    color: #5b21b6 !important;
-    border: 1px solid #c4b5fd !important;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+.theme-academic nav a:not([class*="bg-"]),
+.theme-academic header a:not([class*="bg-"]) {
+    color: #1e293b !important;
 }
 
-.theme-academic .bg-amber-500\/10,
-.theme-academic .bg-yellow-500\/10 {
-    background-color: #ffffff !important;
-    color: #92400e !important;
-    border: 1px solid #fcd34d !important;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+.theme-academic nav a:not([class*="bg-"]):hover,
+.theme-academic header a:not([class*="bg-"]):hover {
+    color: #1534e8 !important;
 }
 
-/* Banner de Información en Tema Claro */
+/* Botón de tema en cabecera */
+.theme-academic header button[title*="tema"],
+.theme-academic nav button[title*="tema"] {
+    background-color: #f1f5f9 !important;
+    border: 1px solid #e2e8f0 !important;
+    color: #475569 !important;
+}
+
+.theme-academic header button[title*="tema"]:hover,
+.theme-academic nav button[title*="tema"]:hover {
+    background-color: #e2e8f0 !important;
+    color: #0f172a !important;
+}
+
+/* 2.2 BOTÓN "INGRESAR" Y BOTONES AZUL REY (Mantiene texto blanco siempre, incluso en hover) */
+.theme-academic a[class*="bg-[#1534e8]"],
+.theme-academic a[class*="bg-blue-600"],
+.theme-academic button[class*="bg-[#1534e8]"],
+.theme-academic button[class*="bg-blue-600"],
+.theme-academic button.bg-gradient-to-r:not(.message-gradient) {
+    background-color: #1534e8 !important;
+    background-image: none !important;
+    color: #ffffff !important;
+    box-shadow: 0 2px 8px -1px rgba(21, 52, 232, 0.3) !important;
+}
+
+.theme-academic a[class*="bg-[#1534e8]"]:hover,
+.theme-academic a[class*="bg-blue-600"]:hover,
+.theme-academic button[class*="bg-[#1534e8]"]:hover,
+.theme-academic button[class*="bg-blue-600"]:hover,
+.theme-academic button.bg-gradient-to-r:hover:not(.message-gradient) {
+    background-color: #122bc7 !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 12px -1px rgba(21, 52, 232, 0.4) !important;
+}
+
+/* 2.3 BANNER INFORMATIVO Y CUPO EN DASHBOARD (IMAGEN 2) */
 .theme-academic div.bg-indigo-500\/10 {
-    background-color: #e0e7ff !important;
-    border: 1px solid #c7d2fe !important;
-    box-shadow: 0 2px 8px rgba(79, 70, 229, 0.08) !important;
+    background-color: #eff6ff !important;
+    border: 1px solid #dbeafe !important;
+    box-shadow: 0 1px 3px rgba(37, 99, 235, 0.05) !important;
 }
 
-.theme-academic div.bg-indigo-500\/10 h4,
-.theme-academic div.bg-indigo-500\/10 p.font-bold {
-    color: #1e1b4b !important;
+.theme-academic div.bg-indigo-500\/10 h4 {
+    color: #1e40af !important;
 }
 
-.theme-academic div.bg-indigo-500\/10 p,
-.theme-academic div.bg-indigo-500\/10 li {
-    color: #334155 !important;
+.theme-academic div.bg-indigo-500\/10 p {
+    color: #3b82f6 !important;
 }
 
-/* Contador de Cupo de Proyectos */
+.theme-academic div.bg-indigo-500\/10 div.bg-slate-900,
 .theme-academic div.bg-slate-900.border-slate-800 {
     background-color: #ffffff !important;
-    border: 1px solid #c7d2fe !important;
+    border: 1.5px solid #bfdbfe !important;
+    box-shadow: 0 1px 4px rgba(37, 99, 235, 0.08) !important;
 }
 
-.theme-academic .text-cyan-400 {
-    color: #4338ca !important;
+.theme-academic div.bg-indigo-500\/10 div.bg-slate-900 span.text-cyan-400,
+.theme-academic div.bg-slate-900.border-slate-800 span.text-cyan-400 {
+    color: #1534e8 !important;
 }
 
-/* Inputs y Selectores de formularios */
+.theme-academic div.bg-indigo-500\/10 div.bg-slate-900 span.text-slate-500,
+.theme-academic div.bg-slate-900.border-slate-800 span.text-slate-500 {
+    color: #64748b !important;
+}
+
+/* 2.4 ESTADO "APAGADO" Y BOTONES DE TARJETAS EN DASHBOARD (IMAGEN 2) */
+.theme-academic span.bg-slate-800,
+.theme-academic span.bg-slate-800.text-slate-400 {
+    background-color: #f1f5f9 !important;
+    color: #64748b !important;
+    border: 1px solid #e2e8f0 !important;
+}
+
+.theme-academic button.bg-slate-900.border-slate-800,
+.theme-academic button.bg-slate-900:not(nav):not(header) {
+    background-color: #ffffff !important;
+    color: #334155 !important;
+    border: 1px solid #cbd5e1 !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+}
+
+.theme-academic button.bg-slate-900.border-slate-800:hover,
+.theme-academic button.bg-slate-900:hover:not(nav):not(header) {
+    background-color: #f8fafc !important;
+    border-color: #94a3b8 !important;
+    color: #0f172a !important;
+}
+
+.theme-academic button.bg-indigo-950\/20 {
+    background-color: #eff6ff !important;
+    color: #1d4ed8 !important;
+    border: 1px solid #bfdbfe !important;
+}
+
+.theme-academic button.bg-indigo-950\/20:hover {
+    background-color: #dbeafe !important;
+    color: #1e40af !important;
+}
+
+.theme-academic button.bg-red-950\/20 {
+    background-color: #fef2f2 !important;
+    border: 1px solid #fecaca !important;
+    color: #dc2626 !important;
+}
+
+.theme-academic button.bg-red-950\/20:hover {
+    background-color: #fee2e2 !important;
+}
+
+/* 2.5 PERFIL ACADÉMICO (IMAGEN 3) */
+.theme-academic span.bg-cyan-950\/40 {
+    background-color: #eff6ff !important;
+    color: #1d4ed8 !important;
+    border: 1px solid #bfdbfe !important;
+}
+
+.theme-academic button.bg-cyan-500 {
+    background-color: #1534e8 !important;
+    color: #ffffff !important;
+    box-shadow: 0 2px 8px rgba(21, 52, 232, 0.25) !important;
+}
+
+.theme-academic button.bg-cyan-500:hover {
+    background-color: #122bc7 !important;
+}
+
+.theme-academic a.bg-slate-800,
+.theme-academic a.bg-slate-800.text-slate-200 {
+    background-color: #ffffff !important;
+    color: #1e293b !important;
+    border: 1px solid #cbd5e1 !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+}
+
+.theme-academic a.bg-slate-800:hover {
+    background-color: #f8fafc !important;
+    border-color: #94a3b8 !important;
+    color: #0f172a !important;
+}
+
+
+/* Formulario e inputs en tema claro */
 .theme-academic input,
 .theme-academic textarea,
 .theme-academic select {
@@ -146,353 +281,278 @@
 .theme-academic input:focus,
 .theme-academic textarea:focus,
 .theme-academic select:focus {
-    border-color: #4f46e5 !important;
-    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2) !important;
+    border-color: #1534e8 !important;
+    box-shadow: 0 0 0 2px rgba(21, 52, 232, 0.15) !important;
 }
 
-/* Botón Principal Gradiente (Ejecutar demo, Desplegar proyecto, Guardar) */
-.theme-academic button.bg-gradient-to-r,
-.theme-academic a.bg-gradient-to-r {
-    background-image: linear-gradient(135deg, #4f46e5, #0284c7) !important;
-    color: #ffffff !important;
-    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25) !important;
-}
-
-.theme-academic button.bg-gradient-to-r:hover,
-.theme-academic a.bg-gradient-to-r:hover {
-    background-image: linear-gradient(135deg, #4338ca, #0369a1) !important;
-    box-shadow: 0 6px 16px rgba(79, 70, 229, 0.35) !important;
-}
-
-/* Botón "Contacto" y secundarios oscuros con fondo blanco para resaltar sobre la tarjeta */
-.theme-academic button.bg-slate-950\/80,
-.theme-academic button.bg-slate-950\/60,
-.theme-academic button.bg-slate-900:not(nav):not(header),
-.theme-academic a.bg-slate-900:not(nav):not(header) {
+/* Modales en tema claro */
+.theme-academic .fixed .bg-slate-900:not([class*="demo-"]),
+.theme-academic .fixed .bg-slate-900\/85,
+.theme-academic .fixed .bg-slate-950 {
     background-color: #ffffff !important;
-    color: #1e293b !important;
-    border: 1px solid #cbd5e1 !important;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+    border-color: #e2e8f0 !important;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15) !important;
 }
 
-.theme-academic button.bg-slate-950\/80:hover,
-.theme-academic button.bg-slate-900:hover:not(nav):not(header),
-.theme-academic a.bg-slate-900:hover:not(nav):not(header) {
+.theme-academic .fixed .text-white:not([class*="demo-"]):not(button):not(a) {
+    color: #0f172a !important;
+}
+
+/* 2.7 BARRA LATERAL DE CATEGORÍAS (TEMA CLARO) */
+.theme-academic .category-sidebar-card {
+    background-color: #ffffff !important;
+    border-color: #e2e8f0 !important;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05) !important;
+}
+
+.theme-academic .category-sidebar-card .category-header-title {
+    color: #0f172a !important;
+    border-bottom-color: #f1f5f9 !important;
+}
+
+.theme-academic .category-sidebar-card .category-item-inactive {
+    color: #475569 !important;
+}
+
+.theme-academic .category-sidebar-card .category-item-inactive:hover {
+    background-color: #f8fafc !important;
+    color: #0f172a !important;
+}
+
+.theme-academic .category-sidebar-card .category-item-active {
+    background-color: #eff6ff !important;
+    border: 1px solid #bfdbfe !important;
+    color: #1534e8 !important;
+}
+
+.theme-academic .category-sidebar-card .category-badge-inactive {
+    background-color: #f1f5f9 !important;
+    color: #64748b !important;
+}
+
+.theme-academic .category-sidebar-card .category-badge-active {
+    background-color: #dbeafe !important;
+    color: #1d4ed8 !important;
+}
+
+/* 2.8 TARJETAS DESTACADAS COMPACTAS (TEMA CLARO) */
+.theme-academic .featured-project-card {
+    background-color: #ffffff !important;
+    border-color: #e2e8f0 !important;
+}
+
+.theme-academic .featured-project-card .featured-logo-box {
+    background-color: #ffffff !important;
+    border-color: #e2e8f0 !important;
+}
+
+.theme-academic .featured-project-card .featured-logo-box span {
+    color: #0f172a !important;
+}
+
+/* 2.9 MODAL DE DEMO Y GUÍA DEL EVALUADOR (TEMA CLARO) */
+.theme-academic .demo-modal-container {
+    background-color: #ffffff !important;
+    border-color: #e2e8f0 !important;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15) !important;
+}
+
+.theme-academic .demo-modal-header {
+    background-color: #ffffff !important;
+    border-bottom-color: #e2e8f0 !important;
+}
+
+.theme-academic .demo-modal-title {
+    color: #0f172a !important;
+}
+
+.theme-academic .demo-modal-badge {
+    background-color: #eff6ff !important;
+    color: #1534e8 !important;
+    border: 1px solid #bfdbfe !important;
+}
+
+.theme-academic .demo-modal-subtitle {
+    color: #64748b !important;
+}
+
+.theme-academic .demo-modal-subtitle strong {
+    color: #0f172a !important;
+}
+
+.theme-academic .demo-btn-secondary {
+    background-color: #ffffff !important;
+    color: #334155 !important;
+    border: 1px solid #cbd5e1 !important;
+}
+
+.theme-academic .demo-btn-secondary:hover {
     background-color: #f8fafc !important;
     border-color: #94a3b8 !important;
     color: #0f172a !important;
 }
 
-/* Botones de acción del Dashboard */
-.theme-academic button.bg-slate-800:not(nav):not(header) {
-    background-color: #f1f5f9 !important;
-    color: #334155 !important;
+.theme-academic .demo-btn-close {
+    background-color: #ffffff !important;
+    color: #475569 !important;
     border: 1px solid #cbd5e1 !important;
 }
 
-.theme-academic button.bg-indigo-950\/20 {
-    background-color: #eef2ff !important;
-    color: #4338ca !important;
-    border: 1px solid #c7d2fe !important;
-}
-
-.theme-academic button.bg-indigo-950\/20:hover {
-    background-color: #e0e7ff !important;
-    color: #3730a3 !important;
-}
-
-/* Botón "Apagar" */
-.theme-academic button.bg-slate-800:not(nav):not(header):hover {
-    background-color: #fee2e2 !important;
-    color: #b91c1c !important;
+.theme-academic .demo-btn-close:hover {
+    background-color: #fef2f2 !important;
     border-color: #fca5a5 !important;
-}
-
-/* Botón "Eliminar" */
-.theme-academic .bg-red-950\/20 {
-    background-color: #fee2e2 !important;
-    border: 1px solid #fca5a5 !important;
     color: #dc2626 !important;
 }
 
-.theme-academic .bg-red-950\/20:hover {
-    background-color: #fecaca !important;
+.theme-academic .demo-modal-security-banner {
+    background-color: #f8fafc !important;
+    border-bottom-color: #e2e8f0 !important;
+    color: #475569 !important;
 }
 
-/* =========================================================================
-   BARRA SUPERIOR (HEADER / NAVBAR) EN TEMA CLARO (#f8f8f8)
-   ========================================================================= */
-.theme-academic nav,
-.theme-academic header,
-.theme-academic header.sticky,
-.theme-academic header.shadow {
-    background-color: #eaedf3 !important;
-    border-bottom: 1px solid #f8f8f8 !important;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04) !important;
-}
-
-.theme-academic nav a,
-.theme-academic nav span,
-.theme-academic header a,
-.theme-academic header span {
-    color: #1e293b !important;
-}
-
-.theme-academic nav a:hover,
-.theme-academic header a:hover {
-    color: #4f46e5 !important;
-}
-
-/* Botón de tema en cabecera */
-.theme-academic header button[title="Cambiar tema"],
-.theme-academic nav button[title="Cambiar tema"] {
+/* Guía del Evaluador en Tema Claro */
+.theme-academic .demo-evaluator-sidebar {
     background-color: #ffffff !important;
-    border: 1px solid #dcdcdc !important;
+    border-left-color: #e2e8f0 !important;
     color: #1e293b !important;
 }
 
-.theme-academic header button[title="Cambiar tema"]:hover,
-.theme-academic nav button[title="Cambiar tema"]:hover {
-    background-color: #f1f5f9 !important;
+.theme-academic .demo-evaluator-header {
+    color: #1534e8 !important;
+}
+
+.theme-academic .demo-evaluator-credentials-card {
+    background-color: #f8fafc !important;
+    border-color: #e2e8f0 !important;
+}
+
+.theme-academic .demo-evaluator-credentials-title {
+    color: #64748b !important;
+}
+
+.theme-academic .demo-evaluator-label {
+    color: #475569 !important;
+}
+
+.theme-academic .demo-evaluator-value {
+    background-color: #ffffff !important;
+    color: #1534e8 !important;
     border-color: #cbd5e1 !important;
+}
+
+.theme-academic .demo-evaluator-note-card {
+    background-color: #eff6ff !important;
+    border-color: #bfdbfe !important;
+}
+
+.theme-academic .demo-evaluator-note-title {
+    color: #1e40af !important;
+}
+
+.theme-academic .demo-evaluator-note-text {
+    color: #334155 !important;
+}
+
+.theme-academic .demo-evaluator-warning-card {
+    background-color: #f8fafc !important;
+    border-color: #e2e8f0 !important;
+    color: #64748b !important;
+}
+
+.theme-academic .demo-evaluator-warning-card strong {
     color: #0f172a !important;
 }
 
-/* Enlaces de navegación activos / inactivos en barra superior */
-.theme-academic nav a.bg-slate-800,
-.theme-academic header a.bg-slate-800 {
-    color: #ffffff !important;
-    background-color: #4f46e5 !important;
-    box-shadow: 0 2px 6px rgba(79, 70, 229, 0.3) !important;
-}
-
-.theme-academic nav a.text-slate-400,
-.theme-academic header a.text-slate-400 {
-    color: #475569 !important;
-}
-
-.theme-academic nav a.text-slate-400:hover,
-.theme-academic header a.text-slate-400:hover {
-    color: #0f172a !important;
-    background-color: #eaedf3 !important;
-}
-
-/* Botón Registrarme en barra superior */
-.theme-academic header a[href*="register"],
-.theme-academic nav a[href*="register"] {
-    background-image: linear-gradient(135deg, #4f46e5, #0284c7) !important;
-    color: #ffffff !important;
-    font-weight: 700 !important;
-    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25) !important;
-}
-
-/* =========================================================================
-   PÁGINAS DE AUTENTICACIÓN (INICIAR SESIÓN Y REGISTRO) EN TEMA CLARO (#f8f8f8)
-   ========================================================================= */
-/* Contenedor del formulario de Login / Registro */
-.theme-academic .sm\:max-w-md,
-.theme-academic div.sm\:max-w-md,
-.theme-academic .sm\:max-w-md.bg-slate-900\/60,
-.theme-academic div[class*="sm:max-w-md"] {
-    background-color: #f8f8f8 !important;
-    border: 1.5px solid #dcdcdc !important;
-    box-shadow: 0 16px 40px -8px rgba(15, 23, 42, 0.12), 0 4px 12px -2px rgba(15, 23, 42, 0.05) !important;
-    backdrop-filter: none !important;
-}
-
-/* Títulos principales en Login y Registro */
-.theme-academic .sm\:max-w-md h2,
-.theme-academic div[class*="sm:max-w-md"] h2,
-.theme-academic .sm\:max-w-md .text-slate-100 {
-    color: #0f172a !important;
-    font-weight: 800 !important;
-}
-
-/* Subtítulos ("Ingresa a tu cuenta...", "Registra tu usuario...") */
-.theme-academic .sm\:max-w-md p,
-.theme-academic div[class*="sm:max-w-md"] p.text-slate-400 {
-    color: #475569 !important;
-    font-weight: 500 !important;
-}
-
-/* Etiquetas de los campos (Nombre, Correo, Contraseña, etc.) */
-.theme-academic .sm\:max-w-md label,
-.theme-academic .sm\:max-w-md label span,
-.theme-academic div[class*="sm:max-w-md"] label,
-.theme-academic div[class*="sm:max-w-md"] label span {
-    color: #1e293b !important;
-    font-weight: 600 !important;
-}
-
-/* Inputs en Login y Registro */
-.theme-academic .sm\:max-w-md input[type="text"],
-.theme-academic .sm\:max-w-md input[type="email"],
-.theme-academic .sm\:max-w-md input[type="password"],
-.theme-academic div[class*="sm:max-w-md"] input {
-    background-color: #ffffff !important;
-    border: 1.5px solid #cbd5e1 !important;
-    color: #0f172a !important;
-    font-weight: 500 !important;
-}
-
-.theme-academic .sm\:max-w-md input:focus,
-.theme-academic div[class*="sm:max-w-md"] input:focus {
-    border-color: #4f46e5 !important;
-    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2) !important;
-}
-
-.theme-academic .sm\:max-w-md input::placeholder,
-.theme-academic div[class*="sm:max-w-md"] input::placeholder {
+.theme-academic .demo-evaluator-footer {
+    border-top-color: #e2e8f0 !important;
     color: #94a3b8 !important;
 }
 
-/* Botón de ver/ocultar contraseña (Ojo) */
-.theme-academic .sm\:max-w-md button svg,
-.theme-academic div[class*="sm:max-w-md"] button svg {
-    color: #64748b !important;
+/* 2.10 CUADROS DE MIS APLICACIONES (TEMA CLARO - CONTRASTE GRIS ELEGANTE) */
+.theme-academic .my-application-card {
+    background-color: #eef2f7 !important;
+    border-color: #cbd5e1 !important;
+    box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06) !important;
 }
 
-.theme-academic .sm\:max-w-md button:hover svg,
-.theme-academic div[class*="sm:max-w-md"] button:hover svg {
+.theme-academic .my-application-card:hover {
+    background-color: #e9edf4 !important;
+    border-color: #94a3b8 !important;
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08) !important;
+}
+
+.theme-academic .my-application-card h4 span {
     color: #0f172a !important;
 }
 
-/* Enlaces ("¿Olvidaste tu contraseña?", "Regístrate", "¿Ya tienes cuenta?") */
-.theme-academic .sm\:max-w-md a.underline,
-.theme-academic div[class*="sm:max-w-md"] a.underline,
-.theme-academic .sm\:max-w-md a.text-slate-400,
-.theme-academic div[class*="sm:max-w-md"] a.text-slate-400 {
-    color: #2563eb !important;
-    font-weight: 600 !important;
-    text-decoration: underline !important;
-}
-
-.theme-academic .sm\:max-w-md a:hover,
-.theme-academic div[class*="sm:max-w-md"] a:hover {
-    color: #1d4ed8 !important;
-}
-
-/* Cuadro de requisitos de seguridad de contraseña en Registro */
-.theme-academic div[class*="sm:max-w-md"] div.text-\[11px\].bg-slate-900\/40,
-.theme-academic .sm\:max-w-md div.bg-slate-900\/40 {
-    background-color: #ffffff !important;
-    border: 1px solid #dcdcdc !important;
-}
-
-.theme-academic div[class*="sm:max-w-md"] div.bg-slate-900\/40 p,
-.theme-academic .sm\:max-w-md div.bg-slate-900\/40 p {
-    color: #1e293b !important;
-    font-weight: 700 !important;
-}
-
-.theme-academic div[class*="sm:max-w-md"] li.text-slate-500,
-.theme-academic .sm\:max-w-md li.text-slate-500 {
-    color: #64748b !important;
-}
-
-.theme-academic div[class*="sm:max-w-md"] li.text-green-400,
-.theme-academic .sm\:max-w-md li.text-green-400 {
-    color: #15803d !important;
-    font-weight: 700 !important;
-}
-
-/* Botón principal de Iniciar Sesión / Registrarse */
-.theme-academic .sm\:max-w-md button[type="submit"],
-.theme-academic div[class*="sm:max-w-md"] button[type="submit"] {
-    background-image: linear-gradient(135deg, #4f46e5, #0284c7) !important;
-    color: #ffffff !important;
-    font-weight: 700 !important;
-    box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3) !important;
-}
-
-.theme-academic .sm\:max-w-md button[type="submit"]:hover,
-.theme-academic div[class*="sm:max-w-md"] button[type="submit"]:hover {
-    background-image: linear-gradient(135deg, #4338ca, #0369a1) !important;
-    box-shadow: 0 6px 18px rgba(79, 70, 229, 0.4) !important;
-}
-
-/* Ajustes de badges informativos */
-.theme-academic .bg-indigo-500\/10 {
-    background-color: #e0e7ff !important;
-    color: #3730a3 !important;
-    border: 1px solid #c7d2fe !important;
-}
-
-.theme-academic .bg-cyan-500\/15 {
-    background-color: #ecfeff !important;
-    color: #0369a1 !important;
-}
-
-.theme-academic .bg-yellow-500\/15 {
-    background-color: #fef9c3 !important;
-    color: #854d0e !important;
-}
-
-/* Modales */
-.theme-academic .fixed .bg-slate-900,
-.theme-academic .fixed .bg-slate-900\/85 {
-    background-color: rgba(255, 255, 255, 0.85) !important;
-    border: 1px solid #cbd5e1 !important;
-    box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1) !important;
-    backdrop-filter: blur(12px) !important;
-    -webkit-backdrop-filter: blur(12px) !important;
-}
-
-.theme-academic .fixed .text-white {
-    color: #0f172a !important;
-}
-
-.theme-academic .fixed .text-slate-400 {
+.theme-academic .my-application-card p.font-mono {
     color: #475569 !important;
 }
 
-/* Badges de habilidades y estudiante en el tema claro */
-.theme-academic .bg-cyan-950\/30,
-.theme-academic .bg-cyan-950\/40 {
-    background-color: #ecfeff !important;
-    /* Fondo cian muy suave */
-    border-color: #cffafe !important;
-}
-
-.theme-academic .text-cyan-400 {
-    color: #0891b2 !important;
-    /* Texto cian oscuro profesional */
-}
-
-.theme-academic .border-cyan-900\/30,
-.theme-academic .border-cyan-800\/30 {
-    border-color: #cffafe !important;
-}
-
-/* =========================================================
-   BANDEJA DE MENSAJES EN TEMA ACADÉMICO / CLARO
-   ========================================================= */
-.theme-academic .messages-container {
+.theme-academic .my-application-card .backend-link-box {
     background-color: #ffffff !important;
-    border-color: #e2e8f0 !important;
-    box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.05) !important;
+    border-color: #cbd5e1 !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) !important;
+}
+
+.theme-academic .my-application-card .backend-link-box span {
+    color: #475569 !important;
+}
+
+.theme-academic .my-application-card .backend-link-box button {
+    background-color: #eff6ff !important;
+    color: #1534e8 !important;
+    border-color: #bfdbfe !important;
+}
+
+.theme-academic .my-application-card .backend-link-box button:hover {
+    background-color: #dbeafe !important;
+    color: #1e40af !important;
+}
+
+.theme-academic .my-application-card div.border-t {
+    border-top-color: #cbd5e1 !important;
+}
+
+/* 2.11 CUADROS DEL PERFIL ACADÉMICO Y PROFESIONAL (TEMA CLARO - FONDO GRIS CLARO ELEGANTE) */
+.theme-academic .profile-card {
+    background-color: #f6f8fa !important;
+    border-color: #dbe2ec !important;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05) !important;
+}
+
+.theme-academic .profile-card:hover {
+    border-color: #cbd5e1 !important;
+}
+
+.theme-academic .profile-card div.border-t {
+    border-top-color: #e2e8f0 !important;
+}
+
+/* 2.12 BANDEJA DE MENSAJES (TEMA CLARO - FONDO GRIS CLARO ELEGANTE) */
+/* 2.12 BANDEJA DE MENSAJES (TEMA CLARO - CONTRASTE GRIS ELEGANTE) */
+.theme-academic .messages-container {
+    background-color: #eef2f7 !important;
+    border-color: #cbd5e1 !important;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06) !important;
 }
 
 .theme-academic .messages-search-input {
-    background-color: #f8fafc !important;
+    background-color: #ffffff !important;
     border-color: #cbd5e1 !important;
     color: #0f172a !important;
 }
 
-.theme-academic .messages-search-input::placeholder {
-    color: #94a3b8 !important;
-}
-
 .theme-academic .messages-tabs-wrapper {
-    background-color: #f1f5f9 !important;
-    border-color: #e2e8f0 !important;
+    background-color: #e2e8f0 !important;
+    border-color: #cbd5e1 !important;
 }
 
 .theme-academic .messages-tab-active {
     background-color: #ffffff !important;
-    color: #0891b2 !important;
+    color: #1534e8 !important;
     border-color: #cbd5e1 !important;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06) !important;
 }
 
 .theme-academic .messages-tab-inactive {
@@ -503,66 +563,486 @@
     color: #0f172a !important;
 }
 
-.theme-academic .message-item-selected {
-    background-color: #ecfeff !important;
-    border-color: #06b6d4 !important;
-    box-shadow: 0 2px 8px -2px rgba(6, 182, 212, 0.15) !important;
-}
-
-.theme-academic .message-item-unread {
-    background-color: #f8fafc !important;
-    border-color: #bae6fd !important;
-}
-
-.theme-academic .message-item-unread:hover {
-    background-color: #f0f9ff !important;
-    border-color: #7dd3fc !important;
-}
-
+.theme-academic .message-item-unread,
 .theme-academic .message-item-read {
     background-color: #ffffff !important;
-    border-color: #f1f5f9 !important;
+    border-color: #cbd5e1 !important;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04) !important;
 }
 
+.theme-academic .message-item-unread:hover,
 .theme-academic .message-item-read:hover {
-    background-color: #f8fafc !important;
-    border-color: #e2e8f0 !important;
+    background-color: #ffffff !important;
+    border-color: #94a3b8 !important;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08) !important;
+}
+
+.theme-academic .message-item-selected {
+    background-color: #ffffff !important;
+    border-color: #1534e8 !important;
+    box-shadow: 0 0 0 2px rgba(21, 52, 232, 0.25), 0 4px 12px rgba(21, 52, 232, 0.08) !important;
 }
 
 .theme-academic .message-body-card {
-    background-color: #f8fafc !important;
-    border-color: #e2e8f0 !important;
-    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02) !important;
+    background-color: #ffffff !important;
+    border-color: #cbd5e1 !important;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04) !important;
 }
 
-.theme-academic .message-body-card p {
+.theme-academic .message-body-card span,
+.theme-academic .message-body-card p,
+.theme-academic .message-body-card div {
     color: #1e293b !important;
 }
 
-.theme-academic .message-dropdown-menu {
-    background-color: #ffffff !important;
-    border-color: #e2e8f0 !important;
-    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
-}
-
-.theme-academic .message-dropdown-menu a:hover,
-.theme-academic .message-dropdown-menu button:hover {
-    background-color: #f1f5f9 !important;
-}
-
 .theme-academic .message-action-btn {
-    background-color: #f1f5f9 !important;
-    border-color: #e2e8f0 !important;
-    color: #475569 !important;
+    background-color: #ffffff !important;
+    border-color: #cbd5e1 !important;
+    color: #64748b !important;
 }
 
 .theme-academic .message-action-btn:hover {
-    background-color: #fee2e2 !important;
+    background-color: #fef2f2 !important;
     border-color: #fca5a5 !important;
     color: #dc2626 !important;
 }
 
-/* Custom scrollbar to match the modern dark/light page style */
+.theme-academic .message-dropdown-menu {
+    background-color: #ffffff !important;
+    border-color: #cbd5e1 !important;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* =========================================================
+   3. TEMA OSCURO - NEXUS ACADEMIC (ELEGANTE Y DE ALTO RENDIMIENTO)
+   ========================================================= */
+
+/* Activo en el elemento root <html> con clase .dark */
+.dark,
+.dark body,
+.dark .min-h-screen,
+.dark div.min-h-screen {
+    background-color: #090d16 !important;
+    color: #f1f5f9 !important;
+}
+
+.dark section,
+.dark form,
+.dark .rounded-2xl section {
+    background-color: transparent !important;
+}
+
+/* 3.1 Tarjetas de proyectos, paneles y contenedores oscuros */
+.dark .bg-white,
+.dark .grid div.group,
+.dark .group.rounded-2xl,
+.dark div.group[class*="rounded-2xl"],
+.dark .rounded-2xl.bg-slate-900\/60,
+.dark .rounded-2xl.bg-slate-900\/40,
+.dark .rounded-xl.bg-slate-900\/40,
+.dark .rounded-xl.bg-slate-900\/60,
+.dark .rounded-2xl.bg-slate-950,
+.dark div.bg-slate-900\/40,
+.dark div.bg-slate-900\/60,
+.dark div.bg-slate-900\/50,
+.dark div.bg-slate-950,
+.dark aside div.bg-white:not(.category-sidebar-card),
+.dark main div.bg-white,
+.dark .messages-container {
+    background-color: #0f172a !important;
+    border-color: #1e293b !important;
+    box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Hover de tarjetas en modo oscuro */
+.dark .grid div.group:hover,
+.dark .group.rounded-2xl:hover,
+.dark div.group[class*="rounded-2xl"]:hover {
+    border-color: #334155 !important;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 0 15px rgba(37, 99, 235, 0.15) !important;
+}
+
+/* Bordes en tema oscuro */
+.dark .border-slate-900,
+.dark .border-slate-850,
+.dark .border-slate-800,
+.dark .border-slate-700,
+.dark .border-slate-300,
+.dark .border-slate-200,
+.dark .border-dashed {
+    border-color: #1e293b !important;
+}
+
+/* Tipografía en modo oscuro */
+.dark h1,
+.dark h2,
+.dark h3,
+.dark h4,
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-slate-700,
+.dark strong {
+    color: #f8fafc !important;
+}
+
+.dark p,
+.dark .text-slate-600,
+.dark .text-slate-500,
+.dark span.text-slate-500 {
+    color: #94a3b8 !important;
+}
+
+/* Barra superior (Navbar / Header) en tema oscuro */
+.dark nav,
+.dark header,
+.dark header.sticky {
+    background-color: #0b0f19 !important;
+    border-bottom: 1px solid #1e293b !important;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3) !important;
+}
+
+.dark nav a,
+.dark nav span,
+.dark header a,
+.dark header span {
+    color: #cbd5e1 !important;
+}
+
+.dark nav a:hover,
+.dark header a:hover {
+    color: #60a5fa !important;
+}
+
+/* Botón de tema en cabecera en modo oscuro */
+.dark header button[title*="tema"],
+.dark nav button[title*="tema"] {
+    background-color: #1e293b !important;
+    border: 1px solid #334155 !important;
+    color: #f1f5f9 !important;
+}
+
+.dark header button[title*="tema"]:hover,
+.dark nav button[title*="tema"]:hover {
+    background-color: #334155 !important;
+    color: #ffffff !important;
+}
+
+/* Botón Principal en Modo Oscuro */
+.dark a[class*="bg-[#1534e8]"],
+.dark a[class*="bg-blue-600"],
+.dark button[class*="bg-[#1534e8]"],
+.dark button[class*="bg-blue-600"],
+.dark button.bg-gradient-to-r,
+.dark a.bg-gradient-to-r {
+    background-color: #2563eb !important;
+    background-image: linear-gradient(135deg, #2563eb, #1d4ed8) !important;
+    color: #ffffff !important;
+    box-shadow: 0 2px 10px rgba(37, 99, 235, 0.35) !important;
+}
+
+.dark a[class*="bg-[#1534e8]"]:hover,
+.dark a[class*="bg-blue-600"]:hover,
+.dark button[class*="bg-[#1534e8]"]:hover,
+.dark button[class*="bg-blue-600"]:hover {
+    background-color: #1d4ed8 !important;
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.45) !important;
+}
+
+/* Botones secundarios en modo oscuro */
+.dark button.bg-slate-950\/80,
+.dark button.bg-slate-950\/60,
+.dark button.bg-slate-900:not(nav):not(header),
+.dark a.bg-slate-900:not(nav):not(header),
+.dark button.bg-slate-800:not(nav):not(header) {
+    background-color: #1e293b !important;
+    color: #cbd5e1 !important;
+    border: 1px solid #334155 !important;
+}
+
+.dark button.bg-slate-950\/80:hover,
+.dark button.bg-slate-900:hover:not(nav):not(header),
+.dark a.bg-slate-900:hover:not(nav):not(header),
+.dark button.bg-slate-800:hover:not(nav):not(header) {
+    background-color: #334155 !important;
+    color: #ffffff !important;
+}
+
+/* Badges en modo oscuro */
+.dark .bg-blue-50,
+.dark .bg-indigo-500\/10,
+.dark .bg-indigo-500\/15 {
+    background-color: rgba(30, 58, 138, 0.3) !important;
+    color: #93c5fd !important;
+    border: 1px solid rgba(59, 130, 246, 0.3) !important;
+}
+
+/* Formulario e inputs en modo oscuro */
+.dark input,
+.dark textarea,
+.dark select {
+    background-color: #0b0f19 !important;
+    border: 1px solid #334155 !important;
+    color: #f1f5f9 !important;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+    color: #64748b !important;
+}
+
+.dark input:focus,
+.dark textarea:focus,
+.dark select:focus {
+    border-color: #3b82f6 !important;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25) !important;
+}
+
+/* Modales en modo oscuro */
+.dark .fixed .bg-white:not([class*="demo-"]):not(.demo-iframe),
+.dark .fixed .bg-slate-900:not([class*="demo-"]),
+.dark .fixed .bg-slate-900\/85,
+.dark .fixed .bg-slate-950 {
+    background-color: #0f172a !important;
+    border: 1px solid #1e293b !important;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7) !important;
+}
+
+.dark .fixed .text-white:not([class*="demo-"]):not(button):not(a) {
+    color: #f8fafc !important;
+}
+
+/* Footer institucional en modo oscuro */
+.dark footer {
+    background-color: #0b0f19 !important;
+    border-top: 1px solid #1e293b !important;
+    color: #94a3b8 !important;
+}
+
+.dark .messages-search-input {
+    background-color: #0b0f19 !important;
+    border-color: #1e293b !important;
+    color: #f8fafc !important;
+}
+
+.dark .messages-tabs-wrapper {
+    background-color: #0b0f19 !important;
+    border-color: #1e293b !important;
+}
+
+.dark .messages-tab-active {
+    background-color: #1e293b !important;
+    color: #60a5fa !important;
+    border-color: #3b82f6 !important;
+}
+
+.dark .message-item-selected {
+    background-color: rgba(30, 58, 138, 0.25) !important;
+    border-color: #3b82f6 !important;
+}
+
+/* 3.4 BARRA LATERAL DE CATEGORÍAS (TEMA OSCURO) */
+.dark .category-sidebar-card {
+    background-color: #0b101b !important;
+    border-color: #1e2638 !important;
+    box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.4) !important;
+}
+
+.dark .category-sidebar-card .category-header-title {
+    color: #f1f5f9 !important;
+    border-bottom-color: #1e2638 !important;
+}
+
+.dark .category-sidebar-card .category-item-inactive {
+    color: #cbd5e1 !important;
+}
+
+.dark .category-sidebar-card .category-item-inactive:hover {
+    background-color: rgba(255, 255, 255, 0.06) !important;
+    color: #ffffff !important;
+}
+
+.dark .category-sidebar-card .category-item-active {
+    background-color: rgba(37, 99, 235, 0.18) !important;
+    border: 1px solid rgba(59, 130, 246, 0.45) !important;
+    color: #60a5fa !important;
+}
+
+.dark .category-sidebar-card .category-badge-inactive {
+    background-color: #161f30 !important;
+    color: #94a3b8 !important;
+    border: 1px solid #233047 !important;
+}
+
+.dark .category-sidebar-card .category-badge-active {
+    background-color: rgba(37, 99, 235, 0.35) !important;
+    color: #bfdbfe !important;
+}
+
+/* 3.5 TARJETAS DESTACADAS COMPACTAS (TEMA OSCURO) */
+.dark .featured-project-card {
+    background-color: #0f172a !important;
+    border-color: #1e293b !important;
+}
+
+.dark .featured-project-card .featured-logo-box {
+    background-color: #0b0f19 !important;
+    border-color: #1e293b !important;
+}
+
+.dark .featured-project-card .featured-logo-box span {
+    color: #f8fafc !important;
+}
+
+/* 3.6 MODAL DE DEMO Y GUÍA DEL EVALUADOR (TEMA OSCURO) */
+.dark .demo-modal-container {
+    background-color: #0b101b !important;
+    border-color: #1e2638 !important;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7) !important;
+}
+
+.dark .demo-modal-header {
+    background-color: #0e1422 !important;
+    border-bottom-color: #1e2638 !important;
+}
+
+.dark .demo-modal-title {
+    color: #ffffff !important;
+}
+
+.dark .demo-modal-badge {
+    background-color: rgba(37, 99, 235, 0.25) !important;
+    color: #93c5fd !important;
+    border: 1px solid rgba(59, 130, 246, 0.4) !important;
+}
+
+.dark .demo-modal-subtitle {
+    color: #94a3b8 !important;
+}
+
+.dark .demo-modal-subtitle strong {
+    color: #f1f5f9 !important;
+}
+
+.dark .demo-btn-secondary {
+    background-color: #1e293b !important;
+    color: #cbd5e1 !important;
+    border: 1px solid #334155 !important;
+}
+
+.dark .demo-btn-secondary:hover {
+    background-color: #334155 !important;
+    color: #ffffff !important;
+}
+
+.dark .demo-btn-close {
+    background-color: #1e293b !important;
+    color: #cbd5e1 !important;
+    border: 1px solid #334155 !important;
+}
+
+.dark .demo-btn-close:hover {
+    background-color: #dc2626 !important;
+    border-color: #ef4444 !important;
+    color: #ffffff !important;
+}
+
+.dark .demo-modal-security-banner {
+    background-color: #0d131f !important;
+    border-bottom-color: #1e2638 !important;
+    color: #94a3b8 !important;
+}
+
+/* Guía del Evaluador en Tema Oscuro */
+.dark .demo-evaluator-sidebar {
+    background-color: #0b101b !important;
+    border-left-color: #1e2638 !important;
+    color: #f1f5f9 !important;
+}
+
+.dark .demo-evaluator-header {
+    color: #60a5fa !important;
+}
+
+.dark .demo-evaluator-credentials-card {
+    background-color: #111726 !important;
+    border-color: #1e2638 !important;
+}
+
+.dark .demo-evaluator-credentials-title {
+    color: #94a3b8 !important;
+}
+
+.dark .demo-evaluator-label {
+    color: #cbd5e1 !important;
+}
+
+.dark .demo-evaluator-value {
+    background-color: #070a12 !important;
+    color: #60a5fa !important;
+    border-color: #1e2638 !important;
+}
+
+.dark .demo-evaluator-note-card {
+    background-color: rgba(30, 58, 138, 0.2) !important;
+    border-color: rgba(59, 130, 246, 0.3) !important;
+}
+
+.dark .demo-evaluator-note-title {
+    color: #93c5fd !important;
+}
+
+.dark .demo-evaluator-note-text {
+    color: #cbd5e1 !important;
+}
+
+.dark .demo-evaluator-warning-card {
+    background-color: #111726 !important;
+    border-color: #1e2638 !important;
+    color: #94a3b8 !important;
+}
+
+.dark .demo-evaluator-warning-card strong {
+    color: #f1f5f9 !important;
+}
+
+.dark .demo-evaluator-footer {
+    border-top-color: #1e2638 !important;
+    color: #64748b !important;
+}
+
+/* 3.8 CUADROS DE MIS APLICACIONES (TEMA OSCURO) */
+.dark .my-application-card {
+    background-color: #0d131f !important;
+    border-color: #1e2638 !important;
+}
+
+.dark .my-application-card .backend-link-box {
+    background-color: #111726 !important;
+    border-color: #1e2638 !important;
+}
+
+/* 3.9 CUADROS DEL PERFIL ACADÉMICO Y PROFESIONAL (TEMA OSCURO) */
+.dark .profile-card {
+    background-color: #0d131f !important;
+    border-color: #1e2638 !important;
+}
+
+.dark .profile-card div.border-t {
+    border-top-color: #1e2638 !important;
+}
+
+/* =========================================================
+   3.7 AISLAMIENTO TOTAL DEL PROYECTO DESPLEGADO (IFRAME)
+   ========================================================= */
+iframe.demo-iframe {
+    background-color: #ffffff !important;
+    color-scheme: light !important;
+    border: none !important;
+}
+
+/* =========================================================
+   4. SCROLLBAR ESTILIZADO
+   ========================================================= */
 ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -573,10 +1053,173 @@
 }
 
 ::-webkit-scrollbar-thumb {
-    background: #334155;
+    background: #cbd5e1;
     border-radius: 9999px;
 }
 
+.dark ::-webkit-scrollbar-thumb {
+    background: #334155;
+}
+
 ::-webkit-scrollbar-thumb:hover {
-    background: #06b6d4;
+    background: #94a3b8;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+    background: #475569;
+}
+
+/* ==========================================================================
+   5. BOTONES DE CONFIGURACIÓN DE DESPLIEGUE Y GUÍA DE DESPLIEGUE
+   ========================================================================== */
+
+/* Contenedor de botones toggle en modal */
+.deploy-config-track {
+    background-color: #f1f5f9 !important;
+    border: 1px solid #e2e8f0 !important;
+    padding: 4px !important;
+    border-radius: 0.75rem !important;
+}
+.dark .deploy-config-track {
+    background-color: #0b0f19 !important;
+    border-color: #1e293b !important;
+}
+
+/* Botón toggle activo */
+.deploy-config-btn-active {
+    background-color: #1534e8 !important;
+    color: #ffffff !important;
+    font-weight: 700 !important;
+    box-shadow: 0 1px 4px rgba(21, 52, 232, 0.35) !important;
+}
+.dark .deploy-config-btn-active {
+    background-color: #2563eb !important;
+    color: #ffffff !important;
+    box-shadow: 0 1px 4px rgba(37, 99, 235, 0.45) !important;
+}
+
+/* Botón toggle inactivo */
+.deploy-config-btn-inactive {
+    background-color: transparent !important;
+    color: #475569 !important;
+    font-weight: 600 !important;
+}
+.deploy-config-btn-inactive:hover {
+    background-color: rgba(255, 255, 255, 0.8) !important;
+    color: #0f172a !important;
+}
+.dark .deploy-config-btn-inactive {
+    color: #94a3b8 !important;
+}
+.dark .deploy-config-btn-inactive:hover {
+    background-color: rgba(255, 255, 255, 0.06) !important;
+    color: #f8fafc !important;
+}
+
+/* Tarjetas de la Guía de Despliegue */
+.deploy-guide-card {
+    border-radius: 0.75rem !important;
+    padding: 0.75rem 0.875rem !important;
+    text-align: left !important;
+    width: 100% !important;
+    transition: all 0.2s ease !important;
+    cursor: pointer !important;
+    display: block !important;
+}
+
+/* Guía activa */
+.deploy-guide-card-active {
+    background-color: #eff6ff !important;
+    border: 2px solid #1534e8 !important;
+    box-shadow: 0 4px 12px rgba(21, 52, 232, 0.15) !important;
+}
+.deploy-guide-card-active .guide-card-title {
+    color: #1534e8 !important;
+    font-weight: 700 !important;
+}
+.deploy-guide-card-active .guide-card-badge {
+    background-color: #1534e8 !important;
+    color: #ffffff !important;
+}
+.deploy-guide-card-active .guide-card-desc {
+    color: #334155 !important;
+}
+.deploy-guide-card-active code {
+    background-color: #dbeafe !important;
+    color: #1e40af !important;
+    padding: 0.125rem 0.375rem !important;
+    border-radius: 0.25rem !important;
+    font-family: monospace !important;
+    font-weight: 600 !important;
+}
+
+.dark .deploy-guide-card-active {
+    background-color: rgba(21, 52, 232, 0.2) !important;
+    border: 2px solid #3b82f6 !important;
+    box-shadow: 0 4px 14px rgba(59, 130, 246, 0.25) !important;
+}
+.dark .deploy-guide-card-active .guide-card-title {
+    color: #60a5fa !important;
+}
+.dark .deploy-guide-card-active .guide-card-badge {
+    background-color: #2563eb !important;
+    color: #ffffff !important;
+}
+.dark .deploy-guide-card-active .guide-card-desc {
+    color: #cbd5e1 !important;
+}
+.dark .deploy-guide-card-active code {
+    background-color: rgba(30, 58, 138, 0.5) !important;
+    color: #93c5fd !important;
+}
+
+/* Guía inactiva */
+.deploy-guide-card-inactive {
+    background-color: #f8fafc !important;
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+}
+.deploy-guide-card-inactive:hover {
+    background-color: #f1f5f9 !important;
+    border-color: #cbd5e1 !important;
+}
+.deploy-guide-card-inactive .guide-card-title {
+    color: #1e293b !important;
+    font-weight: 700 !important;
+}
+.deploy-guide-card-inactive:hover .guide-card-title {
+    color: #1534e8 !important;
+}
+.deploy-guide-card-inactive .guide-card-desc {
+    color: #64748b !important;
+}
+.deploy-guide-card-inactive code {
+    background-color: #e2e8f0 !important;
+    color: #334155 !important;
+    padding: 0.125rem 0.375rem !important;
+    border-radius: 0.25rem !important;
+    font-family: monospace !important;
+    font-weight: 600 !important;
+}
+
+.dark .deploy-guide-card-inactive {
+    background-color: #0b0f19 !important;
+    border: 1px solid #1e293b !important;
+}
+.dark .deploy-guide-card-inactive:hover {
+    background-color: #131b2e !important;
+    border-color: #334155 !important;
+}
+.dark .deploy-guide-card-inactive .guide-card-title {
+    color: #e2e8f0 !important;
+}
+.dark .deploy-guide-card-inactive:hover .guide-card-title {
+    color: #60a5fa !important;
+}
+.dark .deploy-guide-card-inactive .guide-card-desc {
+    color: #94a3b8 !important;
+}
+.dark .deploy-guide-card-inactive code {
+    background-color: #1e293b !important;
+    color: #94a3b8 !important;
 }

@@ -17,10 +17,14 @@ export default defineConfig({
             host: '127.0.0.1',
         },
         watch: {
+            usePolling: true,
+            interval: 500,
             ignored: [
                 '**/storage/**',
                 '**/vendor/**',
                 '**/public/**',
+                '**/.git/**',
+                '**/node_modules/**',
             ],
         },
     },

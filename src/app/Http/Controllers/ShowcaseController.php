@@ -20,10 +20,11 @@ class ShowcaseController extends Controller
     {
         $projects = Project::with(['user.profile', 'backendProject'])
             ->where('is_backend_service', false)
-            ->whereIn('status', ['running', 'sleeping'])
+            ->whereIn('status', ['running', 'sleeping', 'stopped'])
             ->orderByRaw("CASE 
                 WHEN status = 'running' THEN 1 
-                ELSE 2 
+                WHEN status = 'sleeping' THEN 2 
+                ELSE 3 
             END")
             ->orderBy('updated_at', 'desc')
             ->get();
@@ -86,7 +87,7 @@ class ShowcaseController extends Controller
     ): \Illuminate\Http\JsonResponse {
         session_write_close();
         $containerName = "project-{$project->id}";
-        $domain = env('APP_DOMAIN', 'uleam-academic.software');
+        $domain = env('APP_DOMAIN', 'nexus-academic.software');
 
         // 1. Si el proyecto tiene un backend enlazado (ej: suite frontend + backend), asegurar que esté activo
         if ($project->backend_project_id) {
@@ -102,6 +103,15 @@ class ShowcaseController extends Controller
                         $backend->last_visited_at = now();
                         $backend->save();
                     }
+                }
+
+                // Pre-calentar el backend enlazado en Traefik para que el frontend no encuentre errores 502 al conectar
+                $backendHost = "{$backend->subdomain}.localhost";
+                for ($k = 0; $k < 15; $k++) {
+                    if ($this->checkTraefikRouting($backendHost)) {
+                        break;
+                    }
+                    usleep(300000);
                 }
             }
         }
@@ -119,10 +129,19 @@ class ShowcaseController extends Controller
             }
         }
 
-        // 2. Si el proyecto principal ya está corriendo, respondemos de inmediato
+        // 2. Si el proyecto principal ya está corriendo, verificar que Traefik responda HTTP 200 (no 502)
         if ($project->status === 'running' && $this->isContainerRunning($containerName)) {
             $project->last_visited_at = now();
             $project->save();
+
+            $host = "{$project->subdomain}.localhost";
+            for ($j = 0; $j < 15; $j++) {
+                if ($this->checkTraefikRouting($host)) {
+                    break;
+                }
+                usleep(400000);
+            }
+
             return response()->json(['success' => true]);
         }
 
@@ -160,6 +179,15 @@ class ShowcaseController extends Controller
                     'error' => "El contenedor inició, pero la aplicación interna no abrió el puerto {$port} a tiempo. Posible error de inicialización o base de datos.",
                     'logs' => $containerLogs
                 ], 500);
+            }
+
+            // Esperar a que el proxy inverso Traefik sincronice las etiquetas del contenedor y enrute el host con respuesta HTTP exitosa
+            $host = "{$project->subdomain}.localhost";
+            for ($j = 0; $j < 25; $j++) {
+                if ($this->checkTraefikRouting($host)) {
+                    break;
+                }
+                usleep(500000); // 500ms entre intentos (hasta 12.5 segundos máx)
             }
             
             return response()->json(['success' => true]);
@@ -232,6 +260,45 @@ class ShowcaseController extends Controller
             return true;
         }
         return false;
+    }
+
+    /**
+     * Comprobar si el proxy inverso Traefik ya resolvió y enrutó el subdominio y el servicio responde HTTP exitoso (no 404 ni 502 Bad Gateway).
+     */
+    private function checkTraefikRouting(string $host): bool
+    {
+        $ch = curl_init("http://127.0.0.1/");
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ["Host: {$host}"]);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT_MS, 1500);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, 1000);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+        // Si la ruta raíz devuelve error (404 o 502/503), aún no está listo
+        if ($httpCode < 200 || $httpCode >= 400) {
+            return false;
+        }
+
+        // Si la aplicación posee un backend API interno en proxy (monorepos como Jira o suites),
+        // verificar que las rutas de API no respondan 502 Bad Gateway mientras el backend inicia
+        foreach (['/currentUser', '/api', '/authentication/guest'] as $endpoint) {
+            $chApi = curl_init("http://127.0.0.1{$endpoint}");
+            curl_setopt($chApi, CURLOPT_HTTPHEADER, ["Host: {$host}"]);
+            curl_setopt($chApi, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($chApi, CURLOPT_TIMEOUT_MS, 1000);
+            curl_setopt($chApi, CURLOPT_CONNECTTIMEOUT_MS, 800);
+            $apiRes = curl_exec($chApi);
+            $apiCode = curl_getinfo($chApi, CURLINFO_HTTP_CODE);
+
+            if ($apiCode === 502 || $apiCode === 503 || $apiCode === 504) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

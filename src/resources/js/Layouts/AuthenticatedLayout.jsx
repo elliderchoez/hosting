@@ -11,14 +11,16 @@ export default function AuthenticatedLayout({ header, children }) {
     const [showingNavigationDropdown, setShowingNavigationDropdown] =
         useState(false);
 
-    const [theme, setTheme] = useState(localStorage.getItem('theme') || 'spatial');
+    const [theme, setTheme] = useState(localStorage.getItem('theme') || 'academic');
 
     useEffect(() => {
         localStorage.setItem('theme', theme);
-        if (theme === 'academic') {
-            document.documentElement.classList.add('theme-academic');
-        } else {
+        if (theme === 'dark' || theme === 'spatial') {
+            document.documentElement.classList.add('dark');
             document.documentElement.classList.remove('theme-academic');
+        } else {
+            document.documentElement.classList.add('theme-academic');
+            document.documentElement.classList.remove('dark');
         }
     }, [theme]);
 
@@ -29,12 +31,16 @@ export default function AuthenticatedLayout({ header, children }) {
                     <div className="flex h-16 justify-between">
                         <div className="flex">
                             <div className="flex shrink-0 items-center">
-                                <Link href="/">
-                                    <ApplicationLogo className="block h-9 w-auto fill-current text-cyan-400" />
+                                <Link href="/" className="flex items-center gap-2.5 group">
+                                    <ApplicationLogo className="block h-8 w-auto object-contain transition group-hover:scale-105" />
+                                    <div className="flex items-center">
+                                        <span className="brand-nexus text-lg font-black tracking-tight text-blue-700 dark:text-blue-500">nexus</span>
+                                        <span className="brand-academic text-lg font-extrabold tracking-tight text-slate-900 dark:text-slate-100">academic</span>
+                                    </div>
                                 </Link>
                             </div>
 
-                            <div className="hidden space-x-8 sm:-my-px sm:ms-10 sm:flex">
+                            <div className="hidden space-x-8 sm:-my-px sm:ms-8 sm:flex">
                                 <NavLink
                                     href={route('dashboard')}
                                     active={route().current('dashboard')}
@@ -44,13 +50,13 @@ export default function AuthenticatedLayout({ header, children }) {
                             </div>
                         </div>
 
-                        <div className="hidden sm:ms-6 sm:flex sm:items-center space-x-3">
+                        <div className="hidden sm:ms-6 sm:flex sm:items-center space-x-2">
                             <Link
                                 href="/"
                                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition duration-150 ${
                                     route().current('welcome')
-                                        ? 'bg-slate-800 text-white'
-                                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
+                                        ? 'bg-blue-50 text-[#1534e8] border border-blue-200/80 dark:bg-slate-800 dark:text-white dark:border-slate-700 shadow-2xs'
+                                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/60'
                                 }`}
                             >
                                 Home
@@ -59,8 +65,8 @@ export default function AuthenticatedLayout({ header, children }) {
                                 href={route('dashboard')}
                                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition duration-150 ${
                                     route().current('dashboard')
-                                        ? 'bg-slate-800 text-white'
-                                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
+                                        ? 'bg-blue-50 text-[#1534e8] border border-blue-200/80 dark:bg-slate-800 dark:text-white dark:border-slate-700 shadow-2xs'
+                                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/60'
                                 }`}
                             >
                                 Mis Proyectos
@@ -70,8 +76,8 @@ export default function AuthenticatedLayout({ header, children }) {
                                 href={route('profile.professional')}
                                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition duration-150 ${
                                     route().current('profile.professional')
-                                        ? 'bg-slate-800 text-white'
-                                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
+                                        ? 'bg-blue-50 text-[#1534e8] border border-blue-200/80 dark:bg-slate-800 dark:text-white dark:border-slate-700 shadow-2xs'
+                                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/60'
                                 }`}
                             >
                                 Perfil
@@ -81,29 +87,29 @@ export default function AuthenticatedLayout({ header, children }) {
                                 href={route('messages.index')}
                                 className={`relative px-3 py-1.5 rounded-lg text-xs font-bold transition duration-150 flex items-center space-x-1.5 ${
                                     route().current('messages.*')
-                                        ? 'bg-slate-800 text-white'
-                                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
+                                        ? 'bg-blue-50 text-[#1534e8] border border-blue-200/80 dark:bg-slate-800 dark:text-white dark:border-slate-700 shadow-2xs'
+                                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/60'
                                 }`}
                             >
                                 <span>Mensajes</span>
                                 {usePage().props.auth?.unreadMessagesCount > 0 && (
-                                    <span className="flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-gradient-to-r from-cyan-500 to-indigo-500 px-1 text-[10px] font-extrabold text-slate-950 shadow-sm animate-pulse">
+                                    <span className="flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-[#1534e8] px-1 text-[10px] font-extrabold text-white shadow-xs">
                                         {usePage().props.auth.unreadMessagesCount}
                                     </span>
                                 )}
                             </Link>
 
                             <button
-                                onClick={() => setTheme(theme === 'spatial' ? 'academic' : 'spatial')}
+                                onClick={() => setTheme(theme === 'dark' || theme === 'spatial' ? 'academic' : 'dark')}
                                 className="p-1.5 rounded-lg transition duration-150 bg-slate-900/60 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800/40 flex items-center justify-center"
                                 title="Cambiar tema"
                             >
-                                {theme === 'spatial' ? (
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                {(theme === 'dark' || theme === 'spatial') ? (
+                                    <svg className="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 9H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m12.728 12.728l.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z" />
                                     </svg>
                                 ) : (
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                    <svg className="w-4 h-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
                                     </svg>
                                 )}

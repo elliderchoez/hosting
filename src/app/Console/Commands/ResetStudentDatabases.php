@@ -205,6 +205,8 @@ class ResetStudentDatabases extends Command
                     $restartProc = new Process(['docker', 'restart', '-t', '2', $containerName]);
                     $restartProc->run();
                     $this->info("Contenedor '{$containerName}' reiniciado tras restablecer la base de datos.");
+                    // Mantener el bloqueo activo brevemente para permitir que los servicios internos (como APIs secundarias o TypeORM) inicien
+                    sleep(2);
                 }
 
             } catch (\Exception $e) {
@@ -237,9 +239,9 @@ class ResetStudentDatabases extends Command
         $check->run();
         $isRunning = trim($check->getOutput()) === 'true';
 
-        // 0. Si existe un snapshot inicial (.initial_db_snapshot.sql), restaurarlo directamente en segundos
+        // 0. Si existe un snapshot inicial válido (.initial_db_snapshot.sql con tablas), restaurarlo directamente en segundos
         $snapshotFile = $projectPath . '/.initial_db_snapshot.sql';
-        if (File::exists($snapshotFile)) {
+        if (File::exists($snapshotFile) && str_contains(File::get($snapshotFile), 'CREATE TABLE')) {
             $this->info("Snapshot inicial detectado. Restaurando réplica exacta en segundos...");
             if ($driver === 'mysql') {
                 $command = [

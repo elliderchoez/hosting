@@ -46,31 +46,33 @@ export default function DeleteUserForm({ className = '' }) {
     };
 
     return (
-        <section className={`space-y-6 ${className}`}>
+        <section className={`space-y-4 ${className}`}>
             <header>
-                <h2 className="text-lg font-bold text-slate-100">
+                <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
                     Eliminar Cuenta
                 </h2>
 
-                <p className="mt-1 text-sm text-slate-400">
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                     Una vez que tu cuenta sea eliminada, todos sus recursos y datos asociados (incluyendo proyectos y despliegues en contenedores) se borrarán de forma permanente.
                 </p>
             </header>
 
-            <button 
-                onClick={confirmUserDeletion}
-                className="px-4 py-2.5 rounded-xl text-sm font-bold bg-red-650 hover:bg-red-600 text-white shadow-md shadow-red-500/10 transition duration-200"
-            >
-                Eliminar Cuenta
-            </button>
+            <div>
+                <button 
+                    onClick={confirmUserDeletion}
+                    className="px-5 py-2.5 rounded-xl text-sm font-bold bg-red-600 hover:bg-red-700 text-white shadow-xs transition duration-200"
+                >
+                    Eliminar Cuenta
+                </button>
+            </div>
 
             <Modal show={confirmingUserDeletion} onClose={closeModal}>
-                <form onSubmit={deleteUser} className="p-6 bg-slate-900 text-slate-100 border border-slate-800 rounded-2xl">
-                    <h2 className="text-lg font-bold text-slate-100">
+                <form onSubmit={deleteUser} className="p-6 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-800 rounded-2xl">
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
                         ¿Estás seguro de que deseas eliminar tu cuenta?
                     </h2>
 
-                    <p className="mt-2 text-sm text-slate-400">
+                    <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
                         Esta acción es irreversible. Se eliminarán permanentemente todos tus proyectos, contenedores gVisor y la hoja de vida generada. Por favor, introduce tu contraseña para confirmar la eliminación definitiva de la cuenta.
                     </p>
 
@@ -90,7 +92,7 @@ export default function DeleteUserForm({ className = '' }) {
                             onChange={(e) =>
                                 setData('password', e.target.value)
                             }
-                            className="mt-1 block w-3/4 bg-slate-950 border-slate-900 focus:border-cyan-500 focus:ring-0 text-slate-200 text-sm"
+                            className="mt-1 block w-3/4 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 focus:border-[#1534e8] dark:focus:border-cyan-500 focus:ring-0 text-slate-900 dark:text-slate-100 text-sm rounded-xl py-2.5 px-3"
                             isFocused
                             placeholder="Contraseña de la cuenta"
                         />
@@ -105,7 +107,7 @@ export default function DeleteUserForm({ className = '' }) {
                         <button 
                             type="button"
                             onClick={closeModal}
-                            className="px-4 py-2.5 rounded-xl text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 transition"
+                            className="px-4 py-2.5 rounded-xl text-sm font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 dark:border-slate-700 dark:text-slate-200 transition shadow-2xs"
                         >
                             Cancelar
                         </button>
@@ -113,7 +115,7 @@ export default function DeleteUserForm({ className = '' }) {
                         <button 
                             type="submit"
                             disabled={processing}
-                            className="px-4 py-2.5 rounded-xl text-sm font-bold bg-red-650 hover:bg-red-600 text-white transition disabled:opacity-50"
+                            className="px-5 py-2.5 rounded-xl text-sm font-bold bg-red-600 hover:bg-red-700 text-white transition disabled:opacity-50 shadow-xs"
                         >
                             {processing ? 'Eliminando...' : 'Eliminar Cuenta'}
                         </button>

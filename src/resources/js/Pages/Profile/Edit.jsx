@@ -9,12 +9,12 @@ export default function Edit({ mustVerifyEmail, status }) {
         <AuthenticatedLayout
             header={
                 <div className="flex justify-between items-center w-full">
-                    <h2 className="text-xl font-bold leading-tight text-slate-100">
+                    <h2 className="text-xl font-bold leading-tight text-slate-900 dark:text-slate-100">
                         Configuración de la Cuenta
                     </h2>
                     <Link
                         href={route('profile.professional')}
-                        className="px-4 py-2 bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5"
+                        className="px-4 py-2 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 hover:text-slate-900 dark:bg-slate-900 dark:border-slate-800 dark:hover:border-slate-700 dark:text-slate-300 dark:hover:text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
                     >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
@@ -26,22 +26,22 @@ export default function Edit({ mustVerifyEmail, status }) {
         >
             <Head title="Configuración de Cuenta" />
 
-            <div className="py-12 bg-slate-950 text-slate-100">
-                <div className="mx-auto max-w-7xl space-y-6 sm:px-6 lg:px-8">
-                    <div className="rounded-2xl border border-slate-900 bg-slate-900/40 p-6 backdrop-blur shadow-md">
+            <div className="py-8 bg-[#f3f5f9] dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen">
+                <div className="mx-auto max-w-5xl space-y-6 sm:px-6 lg:px-8">
+                    <div className="profile-card rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/50 p-6 sm:p-8 backdrop-blur shadow-xs dark:shadow-md">
                         <UpdateProfileInformationForm
                             mustVerifyEmail={mustVerifyEmail}
                             status={status}
-                            className="max-w-xl text-slate-200"
+                            className="w-full"
                         />
                     </div>
 
-                    <div className="rounded-2xl border border-slate-900 bg-slate-900/40 p-6 backdrop-blur shadow-md">
-                        <UpdatePasswordForm className="max-w-xl text-slate-200" />
+                    <div className="profile-card rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/50 p-6 sm:p-8 backdrop-blur shadow-xs dark:shadow-md">
+                        <UpdatePasswordForm className="w-full" />
                     </div>
 
-                    <div className="rounded-2xl border border-slate-900 bg-slate-900/40 p-6 backdrop-blur shadow-md">
-                        <DeleteUserForm className="max-w-xl text-slate-200" />
+                    <div className="profile-card rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/50 p-6 sm:p-8 backdrop-blur shadow-xs dark:shadow-md">
+                        <DeleteUserForm className="w-full" />
                     </div>
                 </div>
             </div>

@@ -18,6 +18,17 @@ class DetectLanguageAction
             return null;
         }
 
+        // 0. Detect Dockerfile (Universal support for projects that provide their own custom Docker container)
+        $dockerfilePath = File::exists($projectPath . '/Dockerfile') ? $projectPath . '/Dockerfile' : (File::exists($projectPath . '/dockerfile') ? $projectPath . '/dockerfile' : null);
+        if ($dockerfilePath) {
+            $dockerContent = @file_get_contents($dockerfilePath) ?: '';
+            // Si es un proyecto Laravel (tiene artisan) y su Dockerfile es solo un contenedor auxiliar FPM o está incompleto, priorizar PHP nativo
+            $isAuxiliaryPhpFpm = File::exists($projectPath . '/artisan') && (str_contains($dockerContent, '-fpm') || !str_contains($dockerContent, 'COPY') || str_contains($dockerContent, 'RUN docker-php-ext-'));
+            if (!$isAuxiliaryPhpFpm) {
+                return 'dockerfile';
+            }
+        }
+
         // 1. Detect PHP (Prioritized because Laravel contains package.json for Vite/JS compilation)
         if (File::exists($projectPath . '/composer.json') || 
             File::exists($projectPath . '/artisan') ||
@@ -26,18 +37,20 @@ class DetectLanguageAction
             return 'php';
         }
 
-        // 2. Detect Node.js
-        if (File::exists($projectPath . '/package.json')) {
-            return 'nodejs';
-        }
-
-        // 3. Detect Python
+        // 2. Detect Python (Prioritized over Node.js when Python frameworks/tools like Django or pyproject.toml exist)
         if (File::exists($projectPath . '/requirements.txt') || 
             File::exists($projectPath . '/main.py') || 
             File::exists($projectPath . '/manage.py') || 
-            File::exists($projectPath . '/Pipfile')
+            File::exists($projectPath . '/Pipfile') ||
+            File::exists($projectPath . '/pyproject.toml') ||
+            File::exists($projectPath . '/setup.cfg')
         ) {
             return 'python';
+        }
+
+        // 3. Detect Node.js
+        if (File::exists($projectPath . '/package.json')) {
+            return 'nodejs';
         }
 
         // 4. Detect Java (Maven or Gradle)

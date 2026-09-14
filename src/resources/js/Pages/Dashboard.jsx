@@ -2,6 +2,21 @@ import { useState, useEffect } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, useForm, router } from '@inertiajs/react';
 
+export const PROJECT_CATEGORIES = [
+    'Finanzas y Facturación',
+    'Comercio Electrónico y Tiendas',
+    'Herramientas y Calculadoras',
+    'Educación y Gestión Académica',
+    'Salud y Medicina',
+    'Gestión Empresarial (ERP / CRM)',
+    'Redes Sociales y Comunidad',
+    'Inteligencia Artificial y Datos',
+    'Turismo y Hotelería',
+    'Logística y Transporte',
+    'Entretenimiento y Multimedia',
+    'Otros / General'
+];
+
 export default function Dashboard({ auth, profile, projects }) {
     const [activeLogsProject, setActiveLogsProject] = useState(null);
     const [logs, setLogs] = useState({ build_log: '', container_log: '', status: '' });
@@ -39,6 +54,7 @@ export default function Dashboard({ auth, profile, projects }) {
         deployment_mode: 'fullstack',
         fullstack_source: 'monorepo',
         name: '',
+        category: '',
         subdomain: '',
         github_repo_url: '',
         branch: 'main',
@@ -70,13 +86,13 @@ export default function Dashboard({ auth, profile, projects }) {
             projectForm.setData('env_vars', '');
             return;
         }
-        const apiUrl = `https://${subdomain}.uleam-academic.software/api`;
+        const apiUrl = `https://${subdomain}.nexus-academic.software/api`;
         const vars = [
             `VITE_API_URL=${apiUrl}`,
             `REACT_APP_API_URL=${apiUrl}`,
             `NEXT_PUBLIC_API_URL=${apiUrl}`,
             `API_URL=${apiUrl}`,
-            `BACKEND_URL=https://${subdomain}.uleam-academic.software`
+            `BACKEND_URL=https://${subdomain}.nexus-academic.software`
         ].join('\n');
         projectForm.setData('env_vars', vars);
     };
@@ -293,9 +309,9 @@ export default function Dashboard({ auth, profile, projects }) {
                                 <p>• Puedes subir proyectos en archivo ZIP de hasta 50MB.</p>
                             </div>
                         </div>
-                        <div className="flex-shrink-0 bg-slate-900 border border-slate-800 rounded-xl p-3 text-center">
+                        <div className="flex-shrink-0 bg-white dark:bg-slate-900 border border-blue-200 dark:border-slate-800 rounded-xl p-3 text-center shadow-xs">
                             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Cupo de Aplicaciones</span>
-                            <span className="text-2xl font-black text-cyan-400 block mt-1">{mainProjects.length} / 3</span>
+                            <span className="text-2xl font-black text-[#1534e8] dark:text-cyan-400 block mt-1">{mainProjects.length} / 3</span>
                         </div>
                     </div>
 
@@ -352,7 +368,7 @@ export default function Dashboard({ auth, profile, projects }) {
                                     return (
                                         <div
                                             key={project.id}
-                                            className="rounded-2xl border border-slate-900 bg-slate-950 p-5 flex flex-col justify-between shadow-lg space-y-4"
+                                            className="my-application-card rounded-2xl border border-slate-900 bg-slate-950 p-5 flex flex-col justify-between shadow-lg space-y-4 transition duration-200"
                                         >
                                             <div>
                                                 <div className="flex justify-between items-start mb-2">
@@ -366,11 +382,12 @@ export default function Dashboard({ auth, profile, projects }) {
                                                             )}
                                                         </h4>
                                                     </div>
-                                                    <span className={`px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wider ${project.status === 'running' ? 'bg-cyan-500/15 text-cyan-400' :
-                                                        project.status === 'sleeping' ? 'bg-indigo-500/15 text-indigo-400' :
-                                                            project.status === 'building' ? 'bg-yellow-500/15 text-yellow-400 animate-pulse' :
-                                                                'bg-slate-800 text-slate-400'
-                                                        }`}>
+                                                    <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold uppercase tracking-wider ${
+                                                        project.status === 'running' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-cyan-500/15 dark:text-cyan-400 dark:border-cyan-500/30' :
+                                                        project.status === 'sleeping' ? 'bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-400 dark:border-indigo-500/30' :
+                                                        project.status === 'building' ? 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-yellow-500/15 dark:text-yellow-400 dark:border-yellow-500/30 animate-pulse' :
+                                                        'bg-slate-100 text-slate-600 border border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700'
+                                                    }`}>
                                                         {project.status === 'running' ? 'Activo' :
                                                             project.status === 'sleeping' ? 'Suspendido' :
                                                                 project.status === 'building' ? 'Compilando' :
@@ -379,7 +396,7 @@ export default function Dashboard({ auth, profile, projects }) {
                                                 </div>
 
                                                 <p className="text-xs text-slate-400 font-mono break-all mb-1">
-                                                    https://{project.subdomain}.uleam-academic.software
+                                                    https://{project.subdomain}.nexus-academic.software
                                                 </p>
                                                 <p className="text-xs text-slate-500 break-all mb-3">
                                                     Git: {project.github_repo_url} (Rama: {project.branch})
@@ -387,7 +404,7 @@ export default function Dashboard({ auth, profile, projects }) {
 
                                                 {/* Sección de Backend Vinculado */}
                                                 {linkedBackendObj ? (
-                                                    <div className="p-3 bg-slate-900/70 border border-slate-800 rounded-xl space-y-2 mt-3">
+                                                    <div className="backend-link-box p-3 bg-slate-900/70 border border-slate-800 rounded-xl space-y-2 mt-3">
                                                         <div className="flex items-center justify-between">
                                                             <span className="text-[11px] font-bold text-indigo-400 flex items-center gap-1.5">
                                                                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
@@ -400,7 +417,7 @@ export default function Dashboard({ auth, profile, projects }) {
                                                             </span>
                                                         </div>
                                                         <p className="text-[11px] text-slate-400 font-mono truncate">
-                                                            API: https://{linkedBackendObj.subdomain}.uleam-academic.software/api
+                                                            API: https://{linkedBackendObj.subdomain}.nexus-academic.software/api
                                                         </p>
                                                         <div className="flex items-center justify-between pt-1 border-t border-slate-800 text-[11px]">
                                                             <div className="flex space-x-2">
@@ -428,7 +445,7 @@ export default function Dashboard({ auth, profile, projects }) {
                                                         </div>
                                                     </div>
                                                 ) : (
-                                                    <div className="p-2.5 bg-slate-900/40 border border-dashed border-slate-800 rounded-xl flex items-center justify-between text-xs mt-3">
+                                                    <div className="backend-link-box p-2.5 bg-slate-900/40 border border-dashed border-slate-800 rounded-xl flex items-center justify-between text-xs mt-3">
                                                         <span className="text-slate-400 text-[11px]">¿Requiere un Backend API separado?</span>
                                                         <button
                                                             onClick={() => setLinkBackendModalProject(project)}
@@ -446,14 +463,14 @@ export default function Dashboard({ auth, profile, projects }) {
                                                     {project.status === 'stopped' || project.status === 'sleeping' ? (
                                                         <button
                                                             onClick={() => startContainer(project.id)}
-                                                            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-green-600 hover:bg-green-500 text-white transition"
+                                                            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition"
                                                         >
                                                             Encender
                                                         </button>
                                                     ) : project.status === 'running' ? (
                                                         <button
                                                             onClick={() => stopContainer(project.id)}
-                                                            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
+                                                            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-transparent transition"
                                                         >
                                                             Apagar
                                                         </button>
@@ -461,7 +478,7 @@ export default function Dashboard({ auth, profile, projects }) {
 
                                                     <button
                                                         onClick={() => rebuildProject(project.id)}
-                                                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-300 transition"
+                                                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 dark:border-slate-800 dark:text-slate-300 transition shadow-2xs"
                                                         disabled={project.status === 'building'}
                                                     >
                                                         Actualizar (Build)
@@ -469,14 +486,14 @@ export default function Dashboard({ auth, profile, projects }) {
 
                                                     <button
                                                         onClick={() => fetchLogs(project)}
-                                                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-400 hover:text-white transition"
+                                                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 dark:border-slate-800 dark:text-slate-400 dark:hover:text-white transition shadow-2xs"
                                                     >
                                                         Ver Logs
                                                     </button>
 
                                                     <button
                                                         onClick={() => openInstructionsModal(project)}
-                                                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-950/20 hover:bg-indigo-950/45 border border-indigo-900/30 text-indigo-400 hover:text-indigo-300 transition"
+                                                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 dark:bg-indigo-950/20 dark:hover:bg-indigo-950/45 dark:border-indigo-900/30 dark:text-indigo-400 transition shadow-2xs"
                                                     >
                                                         Instrucciones
                                                     </button>
@@ -484,7 +501,7 @@ export default function Dashboard({ auth, profile, projects }) {
 
                                                 <button
                                                     onClick={() => deleteProject(project.id)}
-                                                    className="p-2 rounded-lg bg-red-950/20 hover:bg-red-950/50 border border-red-900/30 text-red-400 hover:text-red-300 transition text-xs"
+                                                    className="p-2 rounded-lg bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 dark:bg-red-950/20 dark:hover:bg-red-950/50 dark:border-red-900/30 dark:text-red-400 transition text-xs shadow-2xs"
                                                     title="Eliminar Proyecto"
                                                 >
                                                     <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -543,13 +560,13 @@ export default function Dashboard({ auth, profile, projects }) {
 
                         {/* Selector de Modo de Despliegue (Fullstack vs Simple) */}
                         {!attachParentProjectId && (
-                            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950 rounded-xl mb-4 border-0">
+                            <div className="grid grid-cols-2 gap-2 deploy-config-track mb-4">
                                 <button
                                     type="button"
                                     onClick={() => projectForm.setData('deployment_mode', 'fullstack')}
-                                    className={`py-2 px-3 rounded-lg text-xs font-semibold transition border-0 ${projectForm.data.deployment_mode === 'fullstack'
-                                        ? 'bg-slate-800 text-indigo-300 shadow-sm'
-                                        : 'text-slate-400 hover:text-slate-200'
+                                    className={`py-2 px-3 rounded-lg text-xs font-bold transition border-0 ${projectForm.data.deployment_mode === 'fullstack'
+                                        ? 'deploy-config-btn-active'
+                                        : 'deploy-config-btn-inactive'
                                         }`}
                                 >
                                     Suite Fullstack (Frontend + API)
@@ -557,9 +574,9 @@ export default function Dashboard({ auth, profile, projects }) {
                                 <button
                                     type="button"
                                     onClick={() => projectForm.setData('deployment_mode', 'simple')}
-                                    className={`py-2 px-3 rounded-lg text-xs font-semibold transition border-0 ${projectForm.data.deployment_mode === 'simple'
-                                        ? 'bg-slate-800 text-slate-200 shadow-sm'
-                                        : 'text-slate-400 hover:text-slate-200'
+                                    className={`py-2 px-3 rounded-lg text-xs font-bold transition border-0 ${projectForm.data.deployment_mode === 'simple'
+                                        ? 'deploy-config-btn-active'
+                                        : 'deploy-config-btn-inactive'
                                         }`}
                                 >
                                     Aplicación Simple / Monolito
@@ -568,13 +585,13 @@ export default function Dashboard({ auth, profile, projects }) {
                         )}
 
                         {/* Pestañas de Selección de tipo de subida */}
-                        <div className="flex gap-2 p-1 bg-slate-950 rounded-xl mb-4 border-0">
+                        <div className="flex gap-2 deploy-config-track mb-4">
                             <button
                                 type="button"
                                 onClick={() => setUploadType('github')}
-                                className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition border-0 ${uploadType === 'github'
-                                    ? 'bg-slate-800 text-white'
-                                    : 'text-slate-400 hover:text-slate-200'
+                                className={`flex-1 py-2 rounded-lg text-xs font-bold transition border-0 ${uploadType === 'github'
+                                    ? 'deploy-config-btn-active'
+                                    : 'deploy-config-btn-inactive'
                                     }`}
                             >
                                 GitHub
@@ -582,9 +599,9 @@ export default function Dashboard({ auth, profile, projects }) {
                             <button
                                 type="button"
                                 onClick={() => setUploadType('folder')}
-                                className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition border-0 ${uploadType === 'folder'
-                                    ? 'bg-slate-800 text-white'
-                                    : 'text-slate-400 hover:text-slate-200'
+                                className={`flex-1 py-2 rounded-lg text-xs font-bold transition border-0 ${uploadType === 'folder'
+                                    ? 'deploy-config-btn-active'
+                                    : 'deploy-config-btn-inactive'
                                     }`}
                             >
                                 Carpeta Local / ZIP
@@ -592,17 +609,55 @@ export default function Dashboard({ auth, profile, projects }) {
                         </div>
 
                         <form onSubmit={handleProjectSubmit} className="space-y-4">
+                            {Object.keys(projectForm.errors).length > 0 && (
+                                <div className="p-3.5 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/60 rounded-xl text-xs space-y-1.5 shadow-2xs">
+                                    {Object.keys(projectForm.errors).length === 1 && projectForm.errors.category ? (
+                                        <p className="font-bold text-red-800 dark:text-red-200">
+                                            Elige una categoría para el proyecto
+                                        </p>
+                                    ) : (
+                                        <>
+                                            <p className="font-bold text-red-800 dark:text-red-200">
+                                                {projectForm.errors.category ? 'Elige una categoría para el proyecto' : 'Corrige los siguientes errores antes de continuar:'}
+                                            </p>
+                                            <ul className="list-disc list-inside space-y-0.5 text-[11px] text-red-700 dark:text-red-300 pl-1">
+                                                {Object.entries(projectForm.errors).map(([field, msg]) => {
+                                                    if (field === 'category') return null;
+                                                    const labels = {
+                                                        name: 'Nombre del Proyecto',
+                                                        subdomain: 'Subdominio',
+                                                        backend_subdomain: 'Subdominio Backend',
+                                                        github_repo_url: 'URL de GitHub',
+                                                        backend_github_repo_url: 'URL de GitHub Backend',
+                                                        branch: 'Rama para Deploy',
+                                                        folder_files: 'Archivos del Proyecto',
+                                                        deployment_mode: 'Modo de Despliegue',
+                                                    };
+                                                    const fieldLabel = labels[field] || field.replace('_', ' ');
+                                                    return (
+                                                        <li key={field}>
+                                                            <span className="font-bold">{fieldLabel}:</span> {msg}
+                                                        </li>
+                                                    );
+                                                })}
+                                            </ul>
+                                        </>
+                                    )}
+                                </div>
+                            )}
                             {/* ======================================================= */}
                             {/* PASO 1: FUENTE DE CÓDIGO (GitHub o Local)              */}
                             {/* ======================================================= */}
                             {projectForm.data.deployment_mode === 'fullstack' && !attachParentProjectId ? (
                                 <div className="space-y-4">
                                     {uploadType === 'github' && (
-                                        <div className="flex bg-slate-950 p-1 rounded-xl border-0">
+                                        <div className="flex gap-1.5 deploy-config-track mb-1">
                                             <button
                                                 type="button"
                                                 onClick={() => projectForm.setData('fullstack_source', 'monorepo')}
-                                                className={`flex-1 py-1 text-center text-xs font-semibold rounded-lg transition border-0 ${projectForm.data.fullstack_source === 'monorepo' ? 'bg-slate-800 text-indigo-300' : 'text-slate-400 hover:text-white'
+                                                className={`flex-1 py-1.5 text-center text-xs font-bold rounded-lg transition border-0 ${projectForm.data.fullstack_source === 'monorepo'
+                                                    ? 'deploy-config-btn-active'
+                                                    : 'deploy-config-btn-inactive'
                                                     }`}
                                             >
                                                 Mismo Repositorio (Monorepo)
@@ -610,7 +665,9 @@ export default function Dashboard({ auth, profile, projects }) {
                                             <button
                                                 type="button"
                                                 onClick={() => projectForm.setData('fullstack_source', 'separate')}
-                                                className={`flex-1 py-1 text-center text-xs font-semibold rounded-lg transition border-0 ${projectForm.data.fullstack_source === 'separate' ? 'bg-slate-800 text-indigo-300' : 'text-slate-400 hover:text-white'
+                                                className={`flex-1 py-1.5 text-center text-xs font-bold rounded-lg transition border-0 ${projectForm.data.fullstack_source === 'separate'
+                                                    ? 'deploy-config-btn-active'
+                                                    : 'deploy-config-btn-inactive'
                                                     }`}
                                             >
                                                 Repositorios Separados
@@ -760,11 +817,13 @@ export default function Dashboard({ auth, profile, projects }) {
                                         </>
                                     ) : (
                                         <div className="space-y-4">
-                                            <div className="flex bg-slate-950 p-1 rounded-xl border-0">
+                                            <div className="flex gap-1.5 deploy-config-track mb-1">
                                                 <button
                                                     type="button"
                                                     onClick={() => { setLocalUploadMode('zip'); projectForm.setData({ ...projectForm.data, folder_files: null, folder_paths: null }); }}
-                                                    className={`flex-1 py-1 text-center text-xs font-semibold rounded-lg transition border-0 ${localUploadMode === 'zip' ? 'bg-slate-800 text-indigo-300' : 'text-slate-400 hover:text-white'
+                                                    className={`flex-1 py-1.5 text-center text-xs font-bold rounded-lg transition border-0 ${localUploadMode === 'zip'
+                                                        ? 'deploy-config-btn-active'
+                                                        : 'deploy-config-btn-inactive'
                                                         }`}
                                                 >
                                                     Archivo ZIP (Recomendado)
@@ -772,7 +831,9 @@ export default function Dashboard({ auth, profile, projects }) {
                                                 <button
                                                     type="button"
                                                     onClick={() => { setLocalUploadMode('folder'); projectForm.setData({ ...projectForm.data, folder_files: null, folder_paths: null }); }}
-                                                    className={`flex-1 py-1 text-center text-xs font-semibold rounded-lg transition border-0 ${localUploadMode === 'folder' ? 'bg-slate-800 text-indigo-300' : 'text-slate-400 hover:text-white'
+                                                    className={`flex-1 py-1.5 text-center text-xs font-bold rounded-lg transition border-0 ${localUploadMode === 'folder'
+                                                        ? 'deploy-config-btn-active'
+                                                        : 'deploy-config-btn-inactive'
                                                         }`}
                                                 >
                                                     Carpeta Local
@@ -824,6 +885,31 @@ export default function Dashboard({ auth, profile, projects }) {
                             {/* ======================================================= */}
                             <div className="space-y-3 pt-3">
                                 <div>
+                                    <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                                        <span>Categoría del Proyecto</span>
+                                        <span className="text-[10px] text-amber-400 font-semibold uppercase bg-amber-400/10 px-2 py-0.5 rounded">Obligatorio</span>
+                                    </label>
+                                    <select
+                                        value={projectForm.data.category}
+                                        onChange={e => projectForm.setData('category', e.target.value)}
+                                        required
+                                        className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 focus:ring-1 focus:ring-indigo-500 text-xs sm:text-sm font-medium cursor-pointer"
+                                    >
+                                        <option value="" disabled>Selecciona una categoría de software...</option>
+                                        {PROJECT_CATEGORIES.map(cat => (
+                                            <option key={cat} value={cat} className="bg-slate-900 text-slate-200 py-1">
+                                                {cat}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {projectForm.errors.category && (
+                                        <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium">
+                                            Elige una categoría para el proyecto
+                                        </p>
+                                    )}
+                                </div>
+
+                                <div>
                                     <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Nombre del Proyecto</label>
                                     <input
                                         type="text"
@@ -851,7 +937,7 @@ export default function Dashboard({ auth, profile, projects }) {
                                                         placeholder="mi_app_frontend"
                                                     />
                                                     <span className="px-2.5 py-2 bg-slate-950 text-slate-500 text-[10px] flex items-center font-mono select-none">
-                                                        .uleam...
+                                                        .nexus...
                                                     </span>
                                                 </div>
                                                 {projectForm.errors.subdomain && <p className="text-xs text-red-400 mt-1">{projectForm.errors.subdomain}</p>}
@@ -869,7 +955,7 @@ export default function Dashboard({ auth, profile, projects }) {
                                                         placeholder="mi_app_backend"
                                                     />
                                                     <span className="px-2.5 py-2 bg-slate-950 text-slate-500 text-[10px] flex items-center font-mono select-none">
-                                                        .uleam...
+                                                        .nexus...
                                                     </span>
                                                 </div>
                                                 {projectForm.errors.backend_subdomain && <p className="text-xs text-red-400 mt-1">{projectForm.errors.backend_subdomain}</p>}
@@ -880,10 +966,10 @@ export default function Dashboard({ auth, profile, projects }) {
                                         {projectForm.data.subdomain && (
                                             <div className="mt-2 p-2.5 bg-slate-950 rounded-xl text-[11px] font-mono space-y-1">
                                                 <div className="text-slate-300 truncate">
-                                                    Frontend: http://{projectForm.data.subdomain}.uleam-academic.software
+                                                    Frontend: http://{projectForm.data.subdomain}.nexus-academic.software
                                                 </div>
                                                 <div className="text-slate-400 truncate">
-                                                    API: http://{projectForm.data.backend_subdomain || (projectForm.data.subdomain + '_backend')}.uleam-academic.software/api
+                                                    API: http://{projectForm.data.backend_subdomain || (projectForm.data.subdomain + '_backend')}.nexus-academic.software/api
                                                 </div>
                                             </div>
                                         )}
@@ -901,12 +987,12 @@ export default function Dashboard({ auth, profile, projects }) {
                                                 placeholder="mi-proyecto"
                                             />
                                             <span className="px-4 py-2.5 bg-slate-950 text-slate-500 text-sm flex items-center font-mono select-none">
-                                                .uleam-academic.software
+                                                .nexus-academic.software
                                             </span>
                                         </div>
                                         {projectForm.errors.subdomain && (
-                                            <p className="text-xs text-red-400 mt-1 font-medium flex items-center gap-1">
-                                                <span>✕</span> {projectForm.errors.subdomain}
+                                            <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium">
+                                                {projectForm.errors.subdomain}
                                             </p>
                                         )}
                                     </div>
@@ -931,21 +1017,21 @@ export default function Dashboard({ auth, profile, projects }) {
                     {isDeployHelpOpen && (
                         <div className="fixed bottom-20 right-6 z-[60] w-80 md:w-96 max-h-[75vh] bg-slate-900 rounded-2xl p-5 shadow-2xl overflow-y-auto flex flex-col justify-between animate-fadeIn border-0">
                             <div>
-                                <div className="flex justify-between items-center pb-3 mb-4">
-                                    <h4 className="text-sm font-bold text-slate-200 uppercase tracking-wider">
+                                <div className="flex justify-between items-center pb-3 mb-4 border-b border-slate-200 dark:border-slate-800">
+                                    <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wider">
                                         Guía de Despliegue
                                     </h4>
                                     <button
                                         type="button"
                                         onClick={() => setIsDeployHelpOpen(false)}
-                                        className="text-slate-400 hover:text-white text-xs p-1 border-0"
+                                        className="text-slate-400 hover:text-slate-700 dark:hover:text-white text-xs p-1 rounded-lg border-0 transition"
                                         title="Cerrar guía"
                                     >
                                         ✕
                                     </button>
                                 </div>
 
-                                <div className="space-y-3 text-xs text-slate-300">
+                                <div className="space-y-2.5 text-xs">
                                     {/* Opción 1: Fullstack Monorepo GitHub */}
                                     <button
                                         type="button"
@@ -964,19 +1050,19 @@ export default function Dashboard({ auth, profile, projects }) {
                                                 setUploadType('github');
                                             }
                                         }}
-                                        className={`w-full text-left p-3 rounded-xl transition cursor-pointer border-0 ${selectedGuideOption === 1
-                                            ? 'bg-indigo-950/50 text-indigo-200 ring-1 ring-indigo-500/50'
-                                            : 'bg-slate-950 hover:bg-slate-850/80 text-slate-300'
+                                        className={`deploy-guide-card ${selectedGuideOption === 1
+                                            ? 'deploy-guide-card-active'
+                                            : 'deploy-guide-card-inactive'
                                             }`}
                                     >
                                         <div className="flex justify-between items-center mb-1">
-                                            <h5 className="font-bold text-indigo-300">1. Fullstack GitHub (Monorepo)</h5>
+                                            <h5 className="guide-card-title text-xs">1. Fullstack GitHub (Monorepo)</h5>
                                             {selectedGuideOption === 1 && (
-                                                <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded font-medium">Activo</span>
+                                                <span className="guide-card-badge text-[10px] font-bold px-2 py-0.5 rounded-full">Activo</span>
                                             )}
                                         </div>
-                                        <p className="text-slate-400 text-[11px] leading-relaxed">
-                                            Frontend y Backend en un solo repositorio con subcarpetas <code className="text-indigo-200">frontend/</code> y <code className="text-indigo-200">backend/</code>.
+                                        <p className="guide-card-desc text-[11px] leading-relaxed">
+                                            Frontend y Backend en un solo repositorio con subcarpetas <code>frontend/</code> y <code>backend/</code>.
                                         </p>
                                     </button>
 
@@ -996,18 +1082,18 @@ export default function Dashboard({ auth, profile, projects }) {
                                                 setUploadType('github');
                                             }
                                         }}
-                                        className={`w-full text-left p-3 rounded-xl transition cursor-pointer border-0 ${selectedGuideOption === 2
-                                            ? 'bg-indigo-950/50 text-indigo-200 ring-1 ring-indigo-500/50'
-                                            : 'bg-slate-950 hover:bg-slate-850/80 text-slate-300'
+                                        className={`deploy-guide-card ${selectedGuideOption === 2
+                                            ? 'deploy-guide-card-active'
+                                            : 'deploy-guide-card-inactive'
                                             }`}
                                     >
                                         <div className="flex justify-between items-center mb-1">
-                                            <h5 className="font-bold text-indigo-300">2. Fullstack GitHub (2 Repositorios)</h5>
+                                            <h5 className="guide-card-title text-xs">2. Fullstack GitHub (2 Repositorios)</h5>
                                             {selectedGuideOption === 2 && (
-                                                <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded font-medium">Activo</span>
+                                                <span className="guide-card-badge text-[10px] font-bold px-2 py-0.5 rounded-full">Activo</span>
                                             )}
                                         </div>
-                                        <p className="text-slate-400 text-[11px] leading-relaxed">
+                                        <p className="guide-card-desc text-[11px] leading-relaxed">
                                             Frontend y Backend en 2 repositorios de GitHub independientes.
                                         </p>
                                     </button>
@@ -1030,19 +1116,19 @@ export default function Dashboard({ auth, profile, projects }) {
                                                 setLocalUploadMode('zip');
                                             }
                                         }}
-                                        className={`w-full text-left p-3 rounded-xl transition cursor-pointer border-0 ${selectedGuideOption === 3
-                                            ? 'bg-indigo-950/50 text-indigo-200 ring-1 ring-indigo-500/50'
-                                            : 'bg-slate-950 hover:bg-slate-850/80 text-slate-300'
+                                        className={`deploy-guide-card ${selectedGuideOption === 3
+                                            ? 'deploy-guide-card-active'
+                                            : 'deploy-guide-card-inactive'
                                             }`}
                                     >
                                         <div className="flex justify-between items-center mb-1">
-                                            <h5 className="font-bold text-indigo-300">3. Fullstack en Archivo ZIP</h5>
+                                            <h5 className="guide-card-title text-xs">3. Fullstack en Archivo ZIP</h5>
                                             {selectedGuideOption === 3 && (
-                                                <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded font-medium">Activo</span>
+                                                <span className="guide-card-badge text-[10px] font-bold px-2 py-0.5 rounded-full">Activo</span>
                                             )}
                                         </div>
-                                        <p className="text-slate-400 text-[11px] leading-relaxed">
-                                            Sube un <code className="text-indigo-200">.zip</code> local con las carpetas frontend y backend juntas.
+                                        <p className="guide-card-desc text-[11px] leading-relaxed">
+                                            Sube un <code>.zip</code> local con las carpetas frontend y backend juntas.
                                         </p>
                                     </button>
 
@@ -1061,18 +1147,18 @@ export default function Dashboard({ auth, profile, projects }) {
                                                 setUploadType('github');
                                             }
                                         }}
-                                        className={`w-full text-left p-3 rounded-xl transition cursor-pointer border-0 ${selectedGuideOption === 4
-                                            ? 'bg-indigo-950/50 text-indigo-200 ring-1 ring-indigo-500/50'
-                                            : 'bg-slate-950 hover:bg-slate-850/80 text-slate-300'
+                                        className={`deploy-guide-card ${selectedGuideOption === 4
+                                            ? 'deploy-guide-card-active'
+                                            : 'deploy-guide-card-inactive'
                                             }`}
                                     >
                                         <div className="flex justify-between items-center mb-1">
-                                            <h5 className="font-bold text-indigo-300">4. Proyecto Simple (GitHub)</h5>
+                                            <h5 className="guide-card-title text-xs">4. Proyecto Simple (GitHub)</h5>
                                             {selectedGuideOption === 4 && (
-                                                <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded font-medium">Activo</span>
+                                                <span className="guide-card-badge text-[10px] font-bold px-2 py-0.5 rounded-full">Activo</span>
                                             )}
                                         </div>
-                                        <p className="text-slate-400 text-[11px] leading-relaxed">
+                                        <p className="guide-card-desc text-[11px] leading-relaxed">
                                             Para monolitos (Laravel con Blade, PHP puro, Python) o SPA individual desde GitHub.
                                         </p>
                                     </button>
@@ -1093,26 +1179,26 @@ export default function Dashboard({ auth, profile, projects }) {
                                                 setLocalUploadMode('zip');
                                             }
                                         }}
-                                        className={`w-full text-left p-3 rounded-xl transition cursor-pointer border-0 ${selectedGuideOption === 5
-                                            ? 'bg-indigo-950/50 text-indigo-200 ring-1 ring-indigo-500/50'
-                                            : 'bg-slate-950 hover:bg-slate-850/80 text-slate-300'
+                                        className={`deploy-guide-card ${selectedGuideOption === 5
+                                            ? 'deploy-guide-card-active'
+                                            : 'deploy-guide-card-inactive'
                                             }`}
                                     >
                                         <div className="flex justify-between items-center mb-1">
-                                            <h5 className="font-bold text-indigo-300">5. Proyecto Simple en Archivo ZIP</h5>
+                                            <h5 className="guide-card-title text-xs">5. Proyecto Simple en Archivo ZIP</h5>
                                             {selectedGuideOption === 5 && (
-                                                <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded font-medium">Activo</span>
+                                                <span className="guide-card-badge text-[10px] font-bold px-2 py-0.5 rounded-full">Activo</span>
                                             )}
                                         </div>
-                                        <p className="text-slate-400 text-[11px] leading-relaxed">
-                                            Sube un <code className="text-indigo-200">.zip</code> local de hasta 50MB para una sola aplicación o monolito.
+                                        <p className="guide-card-desc text-[11px] leading-relaxed">
+                                            Sube un <code>.zip</code> local de hasta 50MB para una sola aplicación o monolito.
                                         </p>
                                     </button>
                                 </div>
                             </div>
 
                             <div className="pt-4 mt-4 text-[11px] text-slate-500 text-center">
-                                ULEAM Academic
+                                Nexus Academic
                             </div>
                         </div>
                     )}
@@ -1186,7 +1272,7 @@ export default function Dashboard({ auth, profile, projects }) {
                                         className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-slate-200 text-xs mb-3"
                                     >
                                         {backendProjects.map(p => (
-                                            <option key={p.id} value={p.id}>{p.name} ({p.subdomain}.uleam-academic.software)</option>
+                                            <option key={p.id} value={p.id}>{p.name} ({p.subdomain}.nexus-academic.software)</option>
                                         ))}
                                     </select>
                                     <button
@@ -1247,7 +1333,7 @@ export default function Dashboard({ auth, profile, projects }) {
                                 <button
                                     type="button"
                                     onClick={() => setInstructionsProject(null)}
-                                    className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold transition text-sm"
+                                    className="flex-1 py-2.5 rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-bold transition text-sm shadow-2xs"
                                 >
                                     Cancelar
                                 </button>
@@ -1334,7 +1420,7 @@ export default function Dashboard({ auth, profile, projects }) {
                         <div className="flex justify-end space-x-3">
                             <button
                                 onClick={() => setProjectToDelete(null)}
-                                className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition duration-150"
+                                className="px-4 py-2 rounded-xl text-xs font-bold bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 transition duration-150 shadow-2xs"
                             >
                                 Cancelar
                             </button>
@@ -1393,19 +1479,37 @@ function parseLogs(logText) {
         const end = nextMatch ? nextMatch.index : logText.length;
 
         const content = logText.substring(start, end).trim();
-        const cleanContentForErrorCheck = content
-            .toLowerCase()
-            .replace(/error-handler/g, '')
-            .replace(/error_reporting/g, '')
-            .replace(/0 errors/g, '')
-            .replace(/no errors/g, '');
 
-        const hasError = cleanContentForErrorCheck.includes('error') ||
-            cleanContentForErrorCheck.includes('fallida') ||
-            cleanContentForErrorCheck.includes('failed') ||
-            cleanContentForErrorCheck.includes('exception') ||
-            cleanContentForErrorCheck.includes('excepción') ||
-            cleanContentForErrorCheck.includes('fatal');
+        // Detección precisa de errores reales (evitando falsos positivos por rutas de archivos o warnings)
+        const lines = content.split('\n');
+        const hasError = lines.some(line => {
+            const trimmed = line.trim().toLowerCase();
+            if (!trimmed) return false;
+            // Ignorar líneas de progreso de compiladores (ej. webpack progress)
+            if (trimmed.includes('[webpack.progress]') || trimmed.startsWith('<s>')) return false;
+            // Ignorar warnings y notices benignos de npm / composer / deprecaciones
+            if (trimmed.startsWith('npm warn') || trimmed.startsWith('npm notice') || trimmed.startsWith('warning:') || trimmed.includes('deprecated')) return false;
+            // Ignorar nombres de archivos de código que incluyan la palabra error (ej. PageError.jsx, createError.js, etc.)
+            if (/(\/|\\)[^ ]*(error|exception)[^ ]*\.(js|jsx|ts|tsx|vue|php|css|html)/i.test(trimmed)) return false;
+            // Ignorar funciones de manejo o contadores en cero
+            if (trimmed.includes('error-handler') || trimmed.includes('error_reporting') || trimmed.includes('0 errors') || trimmed.includes('no errors')) return false;
+            // Ignorar migraciones de Laravel exitosas (ej. 2021_..._create_failed_jobs_table .. DONE)
+            if (trimmed.endsWith('done') || trimmed.includes('.. done') || trimmed.includes('... done')) return false;
+            // Ignorar nombres de tablas de Laravel para colas fallidas o logs
+            if (trimmed.includes('failed_jobs') || trimmed.includes('timeout_error')) return false;
+
+            // Detectar errores críticos auténticos
+            return trimmed.startsWith('npm err!') ||
+                   trimmed.startsWith('npm error') ||
+                   trimmed.includes('fatal error') ||
+                   trimmed.includes('uncaught exception') ||
+                   trimmed.includes('compilación fallida') ||
+                   trimmed.includes('build failed') ||
+                   trimmed.includes('command failed') ||
+                   /\berror:\b/i.test(trimmed) ||
+                   /\berror\s+in\b/i.test(trimmed) ||
+                   (trimmed.includes('failed') && !trimmed.includes('0 failed'));
+        });
 
         steps.push({
             title: currentMatch.title,

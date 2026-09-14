@@ -37,7 +37,7 @@ class ProfileController extends Controller
 
         $request->user()->save();
 
-        return Redirect::route('profile.edit');
+        return Redirect::back()->with('status', 'Información de la cuenta actualizada.');
     }
 
     /**
@@ -76,6 +76,7 @@ class ProfileController extends Controller
         return Inertia::render('Profile/Show', [
             'profile' => $profile,
             'status' => session('status'),
+            'mustVerifyEmail' => $user instanceof MustVerifyEmail,
         ]);
     }
 

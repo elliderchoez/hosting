@@ -63,7 +63,7 @@ class BuildProjectJob implements ShouldQueue
 
         // Paths
         $projectPath = storage_path("app/projects/project-{$project->id}");
-        $domain = env('APP_DOMAIN', 'uleam-academic.software');
+        $domain = env('APP_DOMAIN', 'nexus-academic.software');
 
         // Detener cualquier contenedor previo para liberar locks de archivos montados
         $containerName = "project-{$project->id}";
@@ -141,22 +141,20 @@ class BuildProjectJob implements ShouldQueue
                         \Illuminate\Support\Facades\File::put($configPath, $content);
                     }
                 }
-            }
-
-            // Auto-parchear config/cors.php de proyectos Laravel para aceptar
-            // cualquier origen *.localhost y *.uleam-academic.software automáticamente,
+                    // Auto-parchear config/cors.php de proyectos Laravel para aceptar
+            // cualquier origen *.localhost y *.nexus-academic.software automáticamente,
             // eliminando la necesidad de que el estudiante configure FRONTEND_URL.
             $corsConfigPath = $projectPath . '/config/cors.php';
             if (\Illuminate\Support\Facades\File::exists($corsConfigPath)) {
                 $corsContent = \Illuminate\Support\Facades\File::get($corsConfigPath);
                 $needsPatch = strpos($corsContent, 'localhost') === false
-                    || strpos($corsContent, 'uleam-academic') === false;
+                    || (strpos($corsContent, 'nexus-academic') === false && strpos($corsContent, 'uleam-academic') === false);
                 if ($needsPatch) {
                     $logs .= "Detectado config/cors.php en proyecto Laravel. Habilitando CORS automático para dominios de la plataforma...\n";
                     // Insertar patrones al inicio del array 'allowed_origins_patterns'
                     $corsContent = preg_replace(
                         "/('allowed_origins_patterns'\s*=>\s*\[)/",
-                        "$1\n        '#^https?://.*\\.localhost\$#',\n        '#^https?://.*\\.uleam-academic\\.software\$#',",
+                        "$1\n        '#^https?://.*\\.localhost\$#',\n        '#^https?://.*\\.nexus-academic\\.software\$#',\n        '#^https?://.*\\.uleam-academic\\.software\$#',",
                         $corsContent
                     );
                     // También agregar wildcard al array 'allowed_origins' si usa env()
@@ -168,9 +166,9 @@ class BuildProjectJob implements ShouldQueue
                         );
                     }
                     \Illuminate\Support\Facades\File::put($corsConfigPath, $corsContent);
-                    $logs .= "CORS habilitado automáticamente para *.localhost y *.uleam-academic.software.\n";
+                    $logs .= "CORS habilitado automáticamente para *.localhost y *.nexus-academic.software.\n";
                 }
-            }
+            }          }
 
             $buildResult = $buildAction->execute($project, $projectPath);
             $logs .= $buildResult['output'] . "\n";
@@ -230,6 +228,11 @@ class BuildProjectJob implements ShouldQueue
             $project->container_id = $startResult['container_id'];
             $project->last_visited_at = now();
             $project->save();
+
+            // Generar snapshot inicial universal para cualquier aplicación (Node, monorepos, TypeORM, Prisma, etc.)
+            if (!empty($project->db_name)) {
+                $this->generateInitialDatabaseSnapshot($project, $projectPath);
+            }
 
             $deployment->status = 'success';
             $deployment->build_log = $logs . "\n=== COMPILACIÓN EXITOSA ===";
@@ -406,9 +409,10 @@ class BuildProjectJob implements ShouldQueue
         $strongMarkers = [
             'composer.json', 'artisan',
             'package.json',
-            'requirements.txt', 'Pipfile', 'manage.py',
+            'requirements.txt', 'Pipfile', 'manage.py', 'pyproject.toml',
             'pom.xml', 'build.gradle', 'build.gradle.kts', 'gradlew',
-            'Program.cs', 'Startup.cs'
+            'Program.cs', 'Startup.cs',
+            'Dockerfile', 'dockerfile'
         ];
         foreach ($strongMarkers as $marker) {
             if (\Illuminate\Support\Facades\File::exists($dir . '/' . $marker)) {
@@ -725,6 +729,9 @@ class BuildProjectJob implements ShouldQueue
             }
         }
         $logs .= "\n";
+
+        // Generar snapshot inicial tras importar los respaldos SQL legítimos
+        $this->generateInitialDatabaseSnapshot($project, $projectPath);
     }
 
     /**
@@ -900,6 +907,101 @@ class BuildProjectJob implements ShouldQueue
                 $this->executeMigrationCommand($seedCommand, $logs);
             }
 
+            // Auto-completar instalación para proyectos con asistentes web (Zero-Click para evaluadores)
+            // 1. Archivos bandera estándar de instalación en Laravel / CMS
+            foreach (['database_created', 'installed', '.installed', 'setup_completed'] as $flag) {
+                @touch($projectPath . '/storage/app/' . $flag);
+                @touch($projectPath . '/storage/' . $flag);
+            }
+
+            // 2. Si el proyecto tiene tabla o modelo Setting, marcar flags de completado automáticamente
+            $postInstallTinker = <<<'PHP'
+try {
+    if (class_exists('Crater\Models\Setting')) {
+        \Crater\Models\Setting::updateOrCreate(['option' => 'profile_complete'], ['value' => 'COMPLETED']);
+        \Crater\Models\Setting::updateOrCreate(['option' => 'version'], ['value' => '6.0.6']);
+    }
+    if (class_exists('Crater\Models\Company') && class_exists('Crater\Models\User')) {
+        $c = \Crater\Models\Company::first();
+        if (!$c) {
+            $c = \Crater\Models\Company::create(['name' => 'Demo Company', 'slug' => 'demo-company']);
+        }
+        $u = \Crater\Models\User::first();
+        if ($u && $c) {
+            $c->owner_id = $u->id;
+            if (class_exists('Vinkla\Hashids\Facades\Hashids')) {
+                try {
+                    $c->unique_hash = \Vinkla\Hashids\Facades\Hashids::connection(\Crater\Models\Company::class)->encode($c->id);
+                } catch (\Throwable $e) {}
+            }
+            $c->save();
+            try { $c->setupDefaultData(); } catch (\Throwable $e) {}
+            if (!$u->companies()->where('companies.id', $c->id)->exists()) {
+                $u->companies()->attach($c->id);
+            }
+            if (class_exists('Silber\Bouncer\BouncerFacade')) {
+                try {
+                    \Silber\Bouncer\BouncerFacade::scope()->to($c->id);
+                    $u->assign('super admin');
+                    \Silber\Bouncer\BouncerFacade::allow('super admin')->everything();
+                } catch (\Throwable $e) {}
+            }
+        }
+    }
+
+    // Auto-detección y provisión universal de usuario administrador para pruebas
+    if (\Illuminate\Support\Facades\Schema::hasTable('users')) {
+        $firstUser = \Illuminate\Support\Facades\DB::table('users')->first();
+        if ($firstUser) {
+            \Illuminate\Support\Facades\DB::table('users')->where('id', $firstUser->id)->update([
+                'password' => \Illuminate\Support\Facades\Hash::make('password')
+            ]);
+            echo "AUTH_USER:" . $firstUser->email . PHP_EOL;
+        } else {
+            $cols = \Illuminate\Support\Facades\Schema::getColumnListing('users');
+            $data = [
+                'email' => 'admin@example.com',
+                'password' => \Illuminate\Support\Facades\Hash::make('password'),
+            ];
+            if (in_array('name', $cols)) $data['name'] = 'Admin Evaluador';
+            if (in_array('role', $cols)) $data['role'] = 'admin';
+            if (in_array('created_at', $cols)) $data['created_at'] = now();
+            if (in_array('updated_at', $cols)) $data['updated_at'] = now();
+            \Illuminate\Support\Facades\DB::table('users')->insert($data);
+            echo "AUTH_USER:admin@example.com" . PHP_EOL;
+        }
+    }
+} catch (\Throwable $e) {}
+PHP;
+            $tinkerProcess = new Process([
+                'docker', 'run', '--rm',
+                '--network', 'uleam_academic_network',
+                '-v', "{$projectPath}:/app",
+                '-w', '/app',
+                '-e', "DB_CONNECTION={$project->db_driver}",
+                '-e', "DB_HOST={$dbHost}",
+                '-e', "DB_PORT={$dbPort}",
+                '-e', "DB_DATABASE={$project->db_name}",
+                '-e', "DB_USERNAME={$project->db_user}",
+                '-e', "DB_PASSWORD={$project->db_password}",
+                'webdevops/php:8.4',
+                'php', '-d', 'error_reporting=E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED', 'artisan', 'tinker', '--execute=' . $postInstallTinker
+            ]);
+            $tinkerProcess->run();
+            $tinkerOut = $tinkerProcess->getOutput();
+
+            if (preg_match('/AUTH_USER:([^\r\n]+)/', $tinkerOut, $authMatches)) {
+                $authEmail = trim($authMatches[1]);
+                if (empty($project->demo_instructions) || !str_contains($project->demo_instructions, 'Clave:')) {
+                    $prefix = "Acceso predeterminado para pruebas:\nUsuario: {$authEmail}\nClave: password";
+                    $project->demo_instructions = empty($project->demo_instructions)
+                        ? "{$prefix}\n\nEl sistema incluye catálogo y datos de muestra listos para evaluar."
+                        : "{$prefix}\n\n" . $project->demo_instructions;
+                    $project->save();
+                    $logs .= "Credenciales predeterminadas generadas e integradas en las instrucciones: {$authEmail} / password\n";
+                }
+            }
+
             // Generar snapshot inicial de la base de datos para la función de reseteo del evaluador
             $this->generateInitialDatabaseSnapshot($project, $projectPath);
             return;
@@ -923,10 +1025,11 @@ class BuildProjectJob implements ShouldQueue
                 '-e', "DB_PASSWORD={$project->db_password}",
                 // Si la app lee DATABASE_URL
                 '-e', "DATABASE_URL=" . ($project->db_driver === 'mysql' ? 'mysql' : 'postgres') . "://{$project->db_user}:{$project->db_password}@{$dbHost}:{$dbPort}/{$project->db_name}",
-                'python:3.11-alpine',
+                'python:3.12-alpine',
                 'sh', '-c', '.venv/bin/python manage.py migrate'
             ];
             $this->executeMigrationCommand($command, $logs);
+            $this->generateInitialDatabaseSnapshot($project, $projectPath);
             return;
         }
 
@@ -960,6 +1063,7 @@ class BuildProjectJob implements ShouldQueue
                 'sh', '-c', 'npx sequelize-cli db:migrate || npx sequelize db:migrate'
             ];
             $this->executeMigrationCommand($command, $logs);
+            $this->generateInitialDatabaseSnapshot($project, $projectPath);
             return;
         }
     }
@@ -1176,6 +1280,8 @@ class BuildProjectJob implements ShouldQueue
             'QUEUE_CONNECTION' => 'sync',
             'MAIL_MAILER' => 'log',
             'FILESYSTEM_DISK' => 'public',
+            'SANCTUM_STATEFUL_DOMAINS' => "{$project->subdomain}.localhost,localhost,127.0.0.1",
+            'SESSION_DOMAIN' => '',
         ];
 
         // Buscar posibles ubicaciones de .env (.env en raíz, en backend, api, server)
@@ -1236,23 +1342,29 @@ class BuildProjectJob implements ShouldQueue
             return;
         }
 
+        if (empty($project->db_name)) {
+            return;
+        }
+
         if ($project->db_driver === 'mysql') {
             $dumpCmd = new Process([
                 'docker', 'exec', 'uleam_mysql_students',
                 'mysqldump', '--no-tablespaces', '-u', 'root', '-puleam_secure_pass', $project->db_name
             ]);
             $dumpCmd->run();
-            if ($dumpCmd->isSuccessful() && strlen($dumpCmd->getOutput()) > 500) {
-                \Illuminate\Support\Facades\File::put($snapshotFile, $dumpCmd->getOutput());
+            $output = $dumpCmd->getOutput();
+            if ($dumpCmd->isSuccessful() && (str_contains($output, 'CREATE TABLE') || strlen($output) > 500)) {
+                \Illuminate\Support\Facades\File::put($snapshotFile, $output);
             }
         } elseif ($project->db_driver === 'pgsql') {
             $dumpCmd = new Process([
                 'docker', 'exec', 'uleam_postgres_students',
-                'pg_dump', '-U', 'root', '-d', $project->db_name
+                'pg_dump', '-U', 'postgres', '-d', $project->db_name
             ]);
             $dumpCmd->run();
-            if ($dumpCmd->isSuccessful() && strlen($dumpCmd->getOutput()) > 500) {
-                \Illuminate\Support\Facades\File::put($snapshotFile, $dumpCmd->getOutput());
+            $output = $dumpCmd->getOutput();
+            if ($dumpCmd->isSuccessful() && (str_contains($output, 'CREATE TABLE') || strlen($output) > 500)) {
+                \Illuminate\Support\Facades\File::put($snapshotFile, $output);
             }
         }
     }

@@ -14,7 +14,7 @@ Route::post('/contact/{studentId}', [ShowcaseController::class, 'contactStudent'
 Route::post('/showcase/projects/{project}/start', [ShowcaseController::class, 'startDemo'])->name('showcase.start');
 Route::post('/showcase/projects/{project}/stop', [ShowcaseController::class, 'stopDemo'])->name('showcase.stop');
 
-// 2. Authenticated Student routes
+// 2. Rutas de autenticaion de estudiantes
 Route::middleware(['auth', 'verified'])->group(function () {
     // Dashboard
     Route::get('/dashboard', [ProjectController::class, 'index'])->name('dashboard');

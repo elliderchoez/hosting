@@ -126,7 +126,7 @@ export default function MessagesIndex({ messages = [], unreadCount = 0 }) {
                 ) : (
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                         {/* Panel Izquierdo: Lista de Mensajes */}
-                        <div className="lg:col-span-5 messages-container bg-slate-900/50 backdrop-blur-md border border-slate-800/80 rounded-2xl p-4 shadow-xl flex flex-col h-[650px]">
+                        <div className="lg:col-span-5 messages-container bg-slate-900/50 backdrop-blur-md border border-slate-800/80 rounded-2xl p-5 shadow-xl flex flex-col h-[650px]">
                             {/* Barra de Búsqueda y Filtros */}
                             <div className="space-y-3 mb-4">
                                 <div className="relative">
@@ -135,9 +135,9 @@ export default function MessagesIndex({ messages = [], unreadCount = 0 }) {
                                         value={searchQuery}
                                         onChange={(e) => setSearchQuery(e.target.value)}
                                         placeholder="Buscar por reclutador, empresa o texto..."
-                                        className="w-full pl-9 pr-4 py-2 messages-search-input bg-slate-950/80 border border-slate-800 rounded-xl text-xs text-slate-200 placeholder-slate-500 focus:border-cyan-500 focus:ring-0 transition"
+                                        className="w-full pl-9 pr-4 py-2.5 messages-search-input bg-slate-950/80 border border-slate-800 rounded-xl text-xs text-slate-200 placeholder-slate-500 focus:border-[#1534e8] dark:focus:border-cyan-500 focus:ring-0 transition shadow-2xs"
                                     />
-                                    <svg className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                    <svg className="w-4 h-4 text-slate-500 absolute left-3 top-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                                         <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
                                     </svg>
                                 </div>
@@ -145,7 +145,7 @@ export default function MessagesIndex({ messages = [], unreadCount = 0 }) {
                                 <div className="flex space-x-1 p-1 messages-tabs-wrapper bg-slate-950/60 rounded-xl border border-slate-800/60 text-xs">
                                     <button
                                         onClick={() => setFilter('all')}
-                                        className={`flex-1 py-1.5 rounded-lg font-semibold transition ${filter === 'all'
+                                        className={`flex-1 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer ${filter === 'all'
                                             ? 'messages-tab-active bg-cyan-500/10 text-cyan-400 border border-cyan-500/30'
                                             : 'messages-tab-inactive text-slate-400 hover:text-slate-200'
                                             }`}
@@ -154,7 +154,7 @@ export default function MessagesIndex({ messages = [], unreadCount = 0 }) {
                                     </button>
                                     <button
                                         onClick={() => setFilter('unread')}
-                                        className={`flex-1 py-1.5 rounded-lg font-semibold transition ${filter === 'unread'
+                                        className={`flex-1 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer ${filter === 'unread'
                                             ? 'messages-tab-active bg-cyan-500/10 text-cyan-400 border border-cyan-500/30'
                                             : 'messages-tab-inactive text-slate-400 hover:text-slate-200'
                                             }`}
@@ -165,9 +165,9 @@ export default function MessagesIndex({ messages = [], unreadCount = 0 }) {
                             </div>
 
                             {/* Lista scrolleable */}
-                            <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                            <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 custom-scrollbar">
                                 {filteredMessages.length === 0 ? (
-                                    <div className="text-center py-12 text-slate-500 text-xs">
+                                    <div className="text-center py-16 text-slate-500 text-xs">
                                         No se encontraron mensajes con los criterios seleccionados.
                                     </div>
                                 ) : (
@@ -185,7 +185,7 @@ export default function MessagesIndex({ messages = [], unreadCount = 0 }) {
                                             <div
                                                 key={msg.id}
                                                 onClick={() => handleSelectMessage(msg)}
-                                                className={`p-3.5 rounded-xl cursor-pointer border transition duration-150 relative group ${isSelected
+                                                className={`p-4 rounded-xl cursor-pointer border transition duration-150 relative group ${isSelected
                                                     ? 'message-item-selected bg-slate-800/80 border-cyan-500/50 shadow-md'
                                                     : isUnread
                                                         ? 'message-item-unread bg-slate-900/90 border-cyan-500/30 hover:bg-slate-850 hover:border-slate-700'
@@ -193,32 +193,32 @@ export default function MessagesIndex({ messages = [], unreadCount = 0 }) {
                                                     }`}
                                             >
                                                 {isUnread && (
-                                                    <span className="absolute top-3.5 right-3.5 w-2 h-2 rounded-full bg-cyan-400 ring-4 ring-cyan-500/20" />
+                                                    <span className="absolute top-3.5 right-3.5 w-2 h-2 rounded-full bg-[#1534e8] dark:bg-cyan-400 ring-4 ring-blue-500/20 dark:ring-cyan-500/20" />
                                                 )}
 
-                                                <div className="flex items-center space-x-3 mb-1.5">
-                                                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500/20 to-indigo-500/20 border border-cyan-500/30 flex items-center justify-center text-xs font-bold text-cyan-400 uppercase shrink-0">
+                                                <div className="flex items-center space-x-3 mb-2">
+                                                    <div className="w-8 h-8 rounded-lg bg-[#1534e8] dark:bg-gradient-to-br dark:from-cyan-500/20 dark:to-indigo-500/20 dark:border dark:border-cyan-500/30 flex items-center justify-center text-xs font-bold text-white dark:text-cyan-400 uppercase shrink-0 shadow-2xs">
                                                         {(msg.sender_name || 'R').charAt(0)}
                                                     </div>
                                                     <div className="flex-1 min-w-0 pr-4">
-                                                        <p className="text-xs font-bold text-slate-100 truncate">
+                                                        <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
                                                             {msg.sender_name || 'Reclutador Anónimo'}
                                                         </p>
-                                                        <p className="text-[11px] text-slate-400 truncate">
+                                                        <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 truncate">
                                                             {msg.sender_company || 'Empresa no especificada'}
                                                         </p>
                                                     </div>
                                                 </div>
 
-                                                <p className="text-xs text-slate-300 line-clamp-2 mb-2">
+                                                <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-2 mb-2.5 leading-relaxed">
                                                     {msg.message}
                                                 </p>
 
-                                                <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-800/50">
-                                                    <span>{dateStr}</span>
+                                                <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-200/80 dark:border-slate-800/50">
+                                                    <span className="font-medium">{dateStr}</span>
                                                     <button
                                                         onClick={(e) => confirmDelete(msg, e)}
-                                                        className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-500 p-0.5 rounded transition cursor-pointer"
+                                                        className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-600 dark:hover:text-red-400 p-1 rounded-md hover:bg-red-50 dark:hover:bg-red-950/40 transition cursor-pointer"
                                                         title="Eliminar mensaje"
                                                     >
                                                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
@@ -236,145 +236,154 @@ export default function MessagesIndex({ messages = [], unreadCount = 0 }) {
                         {/* Panel Derecho: Detalle del Mensaje */}
                         <div className="lg:col-span-7 messages-container bg-slate-900/50 backdrop-blur-md border border-slate-800/80 rounded-2xl p-6 shadow-xl min-h-[650px] flex flex-col justify-between">
                             {selectedMessage ? (
-                                <div className="space-y-6">
-                                    {/* Cabecera del Mensaje */}
-                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-5 border-b border-slate-800/80 gap-3">
-                                        <div className="flex items-center space-x-3.5">
-                                            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500 to-indigo-600 flex items-center justify-center text-slate-950 text-lg font-extrabold uppercase shadow-lg shadow-cyan-500/10 shrink-0">
-                                                {(selectedMessage.sender_name || 'R').charAt(0)}
-                                            </div>
-                                            <div>
-                                                <h3 className="text-base font-bold text-slate-100">
-                                                    {selectedMessage.sender_name || 'Reclutador'}
-                                                </h3>
-                                                <div className="flex flex-wrap items-center gap-x-2 text-xs text-slate-400 mt-0.5">
-                                                    <span className="font-semibold text-cyan-400">{selectedMessage.sender_company || 'Empresa'}</span>
-                                                    <span>•</span>
-                                                    <span className="text-slate-300">{selectedMessage.sender_email}</span>
+                                <div className="space-y-6 flex-1 flex flex-col justify-between">
+                                    <div className="space-y-6">
+                                        {/* Cabecera del Mensaje */}
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-5 border-b border-slate-300 dark:border-slate-800/80 gap-3">
+                                            <div className="flex items-center space-x-3.5">
+                                                <div className="w-12 h-12 rounded-2xl bg-[#1534e8] dark:bg-gradient-to-br dark:from-cyan-500 dark:to-indigo-600 flex items-center justify-center text-white dark:text-slate-950 text-lg font-extrabold uppercase shadow-sm shrink-0">
+                                                    {(selectedMessage.sender_name || 'R').charAt(0)}
+                                                </div>
+                                                <div>
+                                                    <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                                                        {selectedMessage.sender_name || 'Reclutador'}
+                                                    </h3>
+                                                    <div className="flex flex-wrap items-center gap-x-2 text-xs text-slate-500 dark:text-slate-400 mt-1">
+                                                        <span className="font-semibold text-blue-700 dark:text-cyan-400 bg-blue-50 dark:bg-cyan-950/40 px-2 py-0.5 rounded-md border border-blue-200 dark:border-cyan-800/40">
+                                                            {selectedMessage.sender_company || 'Empresa'}
+                                                        </span>
+                                                        <span>•</span>
+                                                        <span className="text-slate-700 dark:text-slate-300 font-medium">{selectedMessage.sender_email}</span>
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
 
-                                        <div className="flex items-center space-x-2">
-                                            {/* Dropdown de Respuesta Profesional */}
-                                            <div className="relative" ref={replyMenuRef}>
+                                            <div className="flex items-center space-x-2">
+                                                {/* Dropdown de Respuesta Profesional */}
+                                                <div className="relative" ref={replyMenuRef}>
+                                                    <button
+                                                        onClick={() => setShowReplyMenu(!showReplyMenu)}
+                                                        className="px-3.5 py-2 rounded-xl bg-[#1534e8] hover:bg-blue-700 text-white text-xs font-bold shadow-xs flex items-center space-x-2 transition cursor-pointer"
+                                                    >
+                                                        <span>Responder</span>
+                                                        <svg className={`w-3 h-3 text-white transition-transform duration-200 ${showReplyMenu ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                                                        </svg>
+                                                    </button>
+
+                                                    {/* Menú Flotante */}
+                                                    {showReplyMenu && (
+                                                        <div className="absolute right-0 mt-2 w-56 rounded-2xl message-dropdown-menu bg-white dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200 dark:border-slate-700/80 shadow-2xl p-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
+                                                            <div className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-100 dark:border-slate-800/80 mb-1">
+                                                                Elegir método de respuesta
+                                                            </div>
+
+                                                            {/* Opción Gmail */}
+                                                            <a
+                                                                href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(selectedMessage.sender_email)}&su=${encodeURIComponent('Respuesta a contacto profesional - Nexus Academic')}&body=${encodeURIComponent(`Hola ${selectedMessage.sender_name || ''},\n\nGracias por tu mensaje sobre mi proyecto en Nexus Academic.\n\n`)}`}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                onClick={() => setShowReplyMenu(false)}
+                                                                className="flex items-center space-x-3 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition group cursor-pointer"
+                                                            >
+                                                                <div className="w-6 h-6 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-500 group-hover:scale-110 transition">
+                                                                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                                                                        <path d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.272H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64 12 9.548l6.545-4.91 1.528-1.145C21.69 2.28 24 3.434 24 5.457z" />
+                                                                    </svg>
+                                                                </div>
+                                                                <div className="flex flex-col">
+                                                                    <span className="font-bold">Gmail</span>
+                                                                    <span className="text-[10px] text-slate-400">Abrir en navegador</span>
+                                                                </div>
+                                                            </a>
+
+                                                            {/* Opción Outlook */}
+                                                            <a
+                                                                href={`https://outlook.live.com/mail/0/deeplink/compose?to=${encodeURIComponent(selectedMessage.sender_email)}&subject=${encodeURIComponent('Respuesta a contacto profesional - Nexus Academic')}&body=${encodeURIComponent(`Hola ${selectedMessage.sender_name || ''},\n\nGracias por contactarme respecto a mi proyecto en Nexus Academic.\n\n`)}`}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                onClick={() => setShowReplyMenu(false)}
+                                                                className="flex items-center space-x-3 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition group cursor-pointer"
+                                                            >
+                                                                <div className="w-6 h-6 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-600 group-hover:scale-110 transition">
+                                                                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                                                                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9v-2h2v2zm0-4H9V7h2v5z" />
+                                                                    </svg>
+                                                                </div>
+                                                                <div className="flex flex-col">
+                                                                    <span className="font-bold">Outlook</span>
+                                                                    <span className="text-[10px] text-slate-400">Abrir en navegador</span>
+                                                                </div>
+                                                            </a>
+
+                                                            {/* Opción Copiar Correo */}
+                                                            <button
+                                                                onClick={() => {
+                                                                    handleCopyEmail(selectedMessage.sender_email);
+                                                                    setShowReplyMenu(false);
+                                                                }}
+                                                                className="w-full flex items-center space-x-3 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition group text-left cursor-pointer"
+                                                            >
+                                                                <div className="w-6 h-6 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-500 dark:text-slate-300 group-hover:scale-110 transition">
+                                                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                                                    </svg>
+                                                                </div>
+                                                                <div className="flex flex-col">
+                                                                    <span className="font-bold">{copiedEmail ? '¡Copiado!' : 'Copiar Correo'}</span>
+                                                                    <span className="text-[10px] text-slate-400">{selectedMessage.sender_email}</span>
+                                                                </div>
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* Botón Eliminar Mensaje */}
                                                 <button
-                                                    onClick={() => setShowReplyMenu(!showReplyMenu)}
-                                                    className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-slate-950 text-xs font-bold shadow-md shadow-cyan-500/10 flex items-center space-x-2 transition cursor-pointer"
+                                                    onClick={() => confirmDelete(selectedMessage)}
+                                                    className="message-action-btn p-2 rounded-xl bg-white hover:bg-red-50 text-slate-500 hover:text-red-600 border border-slate-300 hover:border-red-200 dark:bg-slate-800/80 dark:hover:bg-red-950/40 dark:text-slate-400 dark:hover:text-red-400 dark:border-slate-700/80 transition flex items-center space-x-1 cursor-pointer shadow-2xs"
+                                                    title="Eliminar mensaje"
                                                 >
-                                                    <span>Responder</span>
-                                                    <svg className={`w-3 h-3 text-slate-950 transition-transform duration-200 ${showReplyMenu ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                                     </svg>
                                                 </button>
-
-                                                {/* Menú Flotante */}
-                                                {showReplyMenu && (
-                                                    <div className="absolute right-0 mt-2 w-56 rounded-2xl message-dropdown-menu bg-slate-900/95 backdrop-blur-xl border border-slate-700/80 shadow-2xl p-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
-                                                        <div className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-800/80 mb-1">
-                                                            Elegir método de respuesta
-                                                        </div>
-
-                                                        {/* Opción Gmail */}
-                                                        <a
-                                                            href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(selectedMessage.sender_email)}&su=${encodeURIComponent('Respuesta a contacto profesional - ULEAM Academic')}&body=${encodeURIComponent(`Hola ${selectedMessage.sender_name || ''},\n\nGracias por tu mensaje sobre mi proyecto en ULEAM Academic.\n\n`)}`}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            onClick={() => setShowReplyMenu(false)}
-                                                            className="flex items-center space-x-3 px-3 py-2 rounded-xl text-xs font-semibold text-slate-200 hover:bg-slate-800/80 hover:text-white transition group cursor-pointer"
-                                                        >
-                                                            <div className="w-6 h-6 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 group-hover:scale-110 transition">
-                                                                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-                                                                    <path d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.272H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64 12 9.548l6.545-4.91 1.528-1.145C21.69 2.28 24 3.434 24 5.457z" />
-                                                                </svg>
-                                                            </div>
-                                                            <div className="flex flex-col">
-                                                                <span className="font-bold">Gmail</span>
-                                                                <span className="text-[10px] text-slate-400">Abrir en navegador</span>
-                                                            </div>
-                                                        </a>
-
-                                                        {/* Opción Outlook */}
-                                                        <a
-                                                            href={`https://outlook.live.com/mail/0/deeplink/compose?to=${encodeURIComponent(selectedMessage.sender_email)}&subject=${encodeURIComponent('Respuesta a contacto profesional - ULEAM Academic')}&body=${encodeURIComponent(`Hola ${selectedMessage.sender_name || ''},\n\nGracias por contactarme respecto a mi proyecto en ULEAM Academic.\n\n`)}`}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            onClick={() => setShowReplyMenu(false)}
-                                                            className="flex items-center space-x-3 px-3 py-2 rounded-xl text-xs font-semibold text-slate-200 hover:bg-slate-800/80 hover:text-white transition group cursor-pointer"
-                                                        >
-                                                            <div className="w-6 h-6 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 group-hover:scale-110 transition">
-                                                                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-                                                                    <path d="M24 7.25v9.5c0 1.24-1.01 2.25-2.25 2.25H9.75V5H21.75C22.99 5 24 6.01 24 7.25zM8.25 5v14H2.25C1.01 19 0 17.99 0 16.75v-9.5C0 6.01 1.01 5 2.25 5h6z" />
-                                                                </svg>
-                                                            </div>
-                                                            <div className="flex flex-col">
-                                                                <span className="font-bold">Outlook</span>
-                                                                <span className="text-[10px] text-slate-400">Abrir en navegador</span>
-                                                            </div>
-                                                        </a>
-
-                                                        <div className="my-1 border-t border-slate-800/80" />
-
-                                                        {/* Opción Copiar Correo */}
-                                                        <button
-                                                            onClick={() => {
-                                                                handleCopyEmail(selectedMessage.sender_email);
-                                                                setShowReplyMenu(false);
-                                                            }}
-                                                            className="w-full flex items-center space-x-3 px-3 py-2 rounded-xl text-xs font-semibold text-slate-200 hover:bg-slate-800/80 hover:text-white transition group text-left cursor-pointer"
-                                                        >
-                                                            <div className="w-6 h-6 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300 group-hover:scale-110 transition">
-                                                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                                                </svg>
-                                                            </div>
-                                                            <div className="flex flex-col">
-                                                                <span className="font-bold">{copiedEmail ? '¡Copiado!' : 'Copiar Correo'}</span>
-                                                                <span className="text-[10px] text-slate-400">{selectedMessage.sender_email}</span>
-                                                            </div>
-                                                        </button>
-                                                    </div>
-                                                )}
                                             </div>
+                                        </div>
 
-                                            {/* Botón Eliminar Mensaje */}
-                                            <button
-                                                onClick={() => confirmDelete(selectedMessage)}
-                                                className="message-action-btn p-1.5 px-2.5 rounded-xl bg-slate-800/80 hover:bg-red-950/40 text-slate-400 hover:text-red-400 border border-slate-700/80 hover:border-red-800/50 text-xs font-bold transition flex items-center space-x-1 cursor-pointer"
-                                                title="Eliminar mensaje"
-                                            >
-                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                </svg>
-                                            </button>
+                                        {/* Cuerpo del Mensaje del Reclutador */}
+                                        <div className="message-body-card bg-slate-50 dark:bg-slate-950/60 border border-slate-300 dark:border-slate-800/70 rounded-2xl p-6 shadow-xs">
+                                            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-3 pb-3 border-b border-slate-200/80 dark:border-slate-850">
+                                                <span className="inline-flex items-center gap-1.5 font-bold text-blue-700 dark:text-cyan-400 uppercase tracking-wider text-[11px]">
+                                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+                                                    </svg>
+                                                    Propuesta de Contacto
+                                                </span>
+                                                <span className="font-medium text-slate-500 dark:text-slate-400">
+                                                    {new Date(selectedMessage.created_at).toLocaleString('es-ES', {
+                                                        dateStyle: 'medium',
+                                                        timeStyle: 'short',
+                                                    })}
+                                                </span>
+                                            </div>
+                                            <p className="text-slate-800 dark:text-slate-200 text-sm leading-relaxed whitespace-pre-wrap">
+                                                {selectedMessage.message}
+                                            </p>
                                         </div>
                                     </div>
 
-                                    {/* Cuerpo del Mensaje del Reclutador */}
-                                    <div className="message-body-card bg-slate-950/60 border border-slate-800/70 rounded-2xl p-5 shadow-inner">
-                                        <div className="flex items-center justify-between text-xs text-slate-400 mb-3">
-                                            <span className="font-semibold text-slate-300 uppercase tracking-wider text-[11px]">
-                                                Propuesta de Contacto
-                                            </span>
-                                            <span>
-                                                {new Date(selectedMessage.created_at).toLocaleString('es-ES', {
-                                                    dateStyle: 'medium',
-                                                    timeStyle: 'short',
-                                                })}
-                                            </span>
-                                        </div>
-                                        <p className="text-slate-200 text-sm leading-relaxed whitespace-pre-wrap">
-                                            {selectedMessage.message}
-                                        </p>
-                                    </div>
+
                                 </div>
                             ) : (
-                                <div className="text-center py-32 text-slate-500">
-                                    <svg className="w-12 h-12 mx-auto mb-3 text-slate-600 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
-                                    </svg>
-                                    <p className="text-sm font-semibold text-slate-400">Selecciona un mensaje de la lista</p>
-                                    <p className="text-xs text-slate-500 mt-1">Haz clic en cualquier mensaje para ver su contenido.</p>
+                                <div className="text-center py-36 my-auto text-slate-500">
+                                    <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-white dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 flex items-center justify-center text-slate-400 shadow-2xs">
+                                        <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+                                        </svg>
+                                    </div>
+                                    <p className="text-sm font-bold text-slate-700 dark:text-slate-300">Selecciona un mensaje de la lista</p>
+                                    <p className="text-xs text-slate-500 mt-1">Haz clic en cualquier propuesta a la izquierda para ver su contenido completo.</p>
                                 </div>
                             )}
                         </div>

@@ -211,17 +211,79 @@ class BuildProjectAction
             }
         }
 
-        // 3. Check if build script exists and run npm run build con binarios en PATH
+        // 3. Pre-procesamiento universal de SPAs (Create React App, Vite, Vue, Angular, etc.)
+        // Detectar y normalizar rutas base de GitHub Pages u otros hostings con subcarpetas
+        $detectedSubpaths = [];
+        if (!empty($project->subdomain)) {
+            $detectedSubpaths[] = trim($project->subdomain, '/');
+        }
+        if (!empty($project->repository_url)) {
+            $repoPath = parse_url($project->repository_url, PHP_URL_PATH);
+            if ($repoPath) {
+                $repoName = basename(preg_replace('/\.git$/', '', $repoPath));
+                if (!empty($repoName)) {
+                    $detectedSubpaths[] = trim($repoName, '/');
+                }
+            }
+        }
+
+        // Buscar todos los package.json (raíz, client, frontend, etc.)
+        $packageJsonFiles = $this->getProjectScanFiles($path, 'package.json');
+        foreach ($packageJsonFiles as $pjFile) {
+            $pjPath = $pjFile->getRealPath();
+            $pjData = json_decode(@file_get_contents($pjPath), true);
+            if (is_array($pjData) && isset($pjData['homepage'])) {
+                $rawHomepage = $pjData['homepage'];
+                if (is_string($rawHomepage) && $rawHomepage !== '.' && $rawHomepage !== '/') {
+                    $parsedPath = parse_url($rawHomepage, PHP_URL_PATH);
+                    $slug = trim($parsedPath ?: $rawHomepage, '/');
+                    if (!empty($slug)) {
+                        $detectedSubpaths[] = $slug;
+                    }
+                }
+                // Forzar siempre homepage relativa '.' para que los assets carguen en cualquier dominio o subdominio
+                $pjData['homepage'] = '.';
+                @file_put_contents($pjPath, json_encode($pjData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            }
+        }
+
+        // Buscar configs de Vite (vite.config.*) y neutralizar base subpath
+        $viteConfigs = $this->getProjectScanFiles($path, 'vite.config.*');
+        foreach ($viteConfigs as $vFile) {
+            $vContent = @file_get_contents($vFile->getRealPath());
+            if ($vContent && preg_match('/base\s*:\s*[\'"]\/([^\'"]+)\/[\'"]/', $vContent, $m)) {
+                $detectedSubpaths[] = trim($m[1], '/');
+                $vContent = preg_replace('/base\s*:\s*[\'"][^\'"]+[\'"]/', "base: '/'", $vContent);
+                @file_put_contents($vFile->getRealPath(), $vContent);
+            }
+        }
+
+        // Buscar configs de Vue (vue.config.js) y neutralizar publicPath subpath
+        $vueConfigs = $this->getProjectScanFiles($path, 'vue.config.*');
+        foreach ($vueConfigs as $vFile) {
+            $vContent = @file_get_contents($vFile->getRealPath());
+            if ($vContent && preg_match('/publicPath\s*:\s*[\'"]\/([^\'"]+)\/[\'"]/', $vContent, $m)) {
+                $detectedSubpaths[] = trim($m[1], '/');
+                $vContent = preg_replace('/publicPath\s*:\s*[\'"][^\'"]+[\'"]/', "publicPath: '/'", $vContent);
+                @file_put_contents($vFile->getRealPath(), $vContent);
+            }
+        }
+
+        $detectedSubpaths = array_values(array_unique(array_filter($detectedSubpaths)));
+
+        // 4. Compilación del proyecto frontend (si define script build)
         $packageJsonPath = $path . '/package.json';
         if (File::exists($packageJsonPath)) {
             $packageJson = json_decode(File::get($packageJsonPath), true);
             if (isset($packageJson['scripts']['build'])) {
                 $output .= "\nEjecutando npm run build...\n";
-                $pathExports = "export PATH=\$PATH:/app/node_modules/.bin:/app/api/node_modules/.bin:/app/client/node_modules/.bin:/app/frontend/node_modules/.bin:/app/backend/node_modules/.bin:/app/server/node_modules/.bin && export NODE_OPTIONS=--openssl-legacy-provider";
+                $pathExports = "export PATH=\$PATH:/app/node_modules/.bin:/app/api/node_modules/.bin:/app/client/node_modules/.bin:/app/frontend/node_modules/.bin:/app/backend/node_modules/.bin:/app/server/node_modules/.bin && export NODE_OPTIONS=--openssl-legacy-provider && export PUBLIC_URL=. && export CI=false";
                 $buildCommand = [
                     'docker', 'run', '--rm',
                     '-u', "$uid:$gid",
                     '-e', 'NODE_OPTIONS=--openssl-legacy-provider',
+                    '-e', 'PUBLIC_URL=.',
+                    '-e', 'CI=false',
                     '-v', "$path:/app",
                     '-w', '/app',
                     'node:20-alpine',
@@ -233,6 +295,9 @@ class BuildProjectAction
                 if (!$buildResult['success']) {
                     return ['success' => false, 'output' => $output];
                 }
+
+                // 5. Post-procesamiento universal de carpetas de distribución (build, dist, out, public)
+                $this->sanitizeCompiledOutputDirectories($path, $detectedSubpaths);
             }
         }
 
@@ -294,6 +359,9 @@ JS;
             }
         }
 
+        // Parche para proyectos con avatares o enlaces a i.ibb.co (ej: Jira Clone)
+        $this->patchJiraCloneAvatars($path);
+
         // Asegurar que el driver de PostgreSQL en Node sea compatible con SCRAM-SHA-256 (pg@8)
         if ($project->db_driver === 'pgsql') {
             $pgSubDirs = array_merge(['.'], $subDirs);
@@ -346,7 +414,7 @@ JS;
             '-e', 'COMPOSER_CACHE_DIR=/tmp/cache',
             '-w', '/app',
             'composer:latest',
-            'composer', 'install', '--optimize-autoloader', '--no-interaction', '--ignore-platform-reqs'
+            'composer', 'install', '--optimize-autoloader', '--no-interaction', '--ignore-platform-reqs', '--no-scripts'
         ];
 
         $output = "Ejecutando composer install...\n";
@@ -360,8 +428,22 @@ JS;
             ];
         }
 
-        // Si es Laravel, asegurar la existencia de un APP_KEY en el .env
+        // Auto-parchear paquetes heredados en vendor para compatibilidad con PHP 8.2+
+        $this->patchLegacyPhpPackages($path);
+
+        // Si es Laravel, ejecutar package:discover en el entorno de ejecución objetivo y asegurar APP_KEY
         if (File::exists($path . '/artisan')) {
+            $discoverCommand = [
+                'docker', 'run', '--rm',
+                '-u', "$uid:$gid",
+                '-v', "$path:/app",
+                '-w', '/app',
+                'webdevops/php:8.4',
+                'php', '-d', 'error_reporting=E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED', 'artisan', 'package:discover'
+            ];
+            $discoverResult = $this->runCommand($discoverCommand);
+            $output .= $discoverResult['output'] . "\n";
+
             $envPath = $path . '/.env';
             if (!File::exists($envPath) || strlen(trim(File::get($envPath))) < 50) {
                 if (File::exists($path . '/.env.example')) {
@@ -398,18 +480,21 @@ JS;
                 File::put($envPath, $currentEnv);
             }
             $envContent = File::get($envPath);
-            if (!str_contains($envContent, 'APP_KEY=base64:')) {
-                if (!str_contains($envContent, 'APP_KEY=')) {
+            if (!str_contains($envContent, 'APP_KEY=base64:') || str_contains($envContent, 'APP_KEY=SomeRandomString')) {
+                if (preg_match('/^APP_KEY=.*/m', $envContent)) {
+                    $envContent = preg_replace('/^APP_KEY=.*/m', 'APP_KEY=', $envContent);
+                    File::put($envPath, $envContent);
+                } elseif (!str_contains($envContent, 'APP_KEY=')) {
                     File::append($envPath, "\nAPP_KEY=\n");
                 }
-                $output .= "\nDetectado Laravel sin APP_KEY. Generando llave de aplicación...\n";
+                $output .= "\nDetectado Laravel sin APP_KEY válido. Generando llave de aplicación...\n";
                 $keyCommand = [
                     'docker', 'run', '--rm',
                     '-u', "$uid:$gid",
                     '-v', "$path:/app",
                     '-w', '/app',
                     'webdevops/php:8.4',
-                    'php', 'artisan', 'key:generate'
+                    'php', 'artisan', 'key:generate', '--force'
                 ];
                 $keyResult = $this->runCommand($keyCommand);
                 $output .= $keyResult['output'] . "\n";
@@ -478,12 +563,23 @@ JS;
     private function buildPython(string $path, string $uid, string $gid): array
     {
         $hasRequirements = File::exists($path . '/requirements.txt');
+        $hasPyproject = File::exists($path . '/pyproject.toml');
+        $hasPipfile = File::exists($path . '/Pipfile');
 
-        if (!$hasRequirements) {
+        if (!$hasRequirements && !$hasPyproject && !$hasPipfile) {
             return [
                 'success' => true,
-                'output' => "No se encontró requirements.txt. Omitiendo la instalación de dependencias de pip."
+                'output' => "No se encontró requirements.txt ni pyproject.toml. Omitiendo la instalación de dependencias de pip."
             ];
+        }
+
+        $installCmd = 'python -m venv .venv';
+        if ($hasRequirements) {
+            $installCmd .= ' && .venv/bin/pip install --no-cache-dir -r requirements.txt';
+        } elseif ($hasPyproject) {
+            $installCmd .= ' && .venv/bin/pip install --no-cache-dir .';
+        } elseif ($hasPipfile) {
+            $installCmd .= ' && .venv/bin/pip install --no-cache-dir pipenv && .venv/bin/pipenv install --system';
         }
 
         // Run python to create venv and install dependencies
@@ -492,8 +588,8 @@ JS;
             '-u', "$uid:$gid",
             '-v', "$path:/app",
             '-w', '/app',
-            'python:3.11-alpine',
-            'sh', '-c', 'python -m venv .venv && .venv/bin/pip install --no-cache-dir -r requirements.txt'
+            'python:3.12-alpine',
+            'sh', '-c', $installCmd
         ];
 
         $output = "Creando entorno virtual e instalando requerimientos de Python...\n";
@@ -650,6 +746,112 @@ JS;
         $imageName = 'project-' . $project->id . '-img';
         $output = "Detectado Dockerfile personalizado. Construyendo imagen {$imageName}...\n";
 
+        $uid = $this->getUid();
+        $gid = $this->getGid();
+
+        // 1. Si el proyecto tiene composer.json pero no se instaló vendor, correr composer install para que quede en el build y en el host
+        if (File::exists($path . '/composer.json') && !File::exists($path . '/vendor')) {
+            $output .= "Instalando dependencias de Composer antes de compilar Dockerfile...\n";
+            $composerCacheDir = storage_path('app/composer-cache');
+            if (!File::exists($composerCacheDir)) {
+                File::makeDirectory($composerCacheDir, 0777, true, true);
+            }
+            $compCmd = [
+                'docker', 'run', '--rm',
+                '-u', "$uid:$gid",
+                '-v', "$path:/app",
+                '-v', "$composerCacheDir:/tmp/cache",
+                '-e', 'COMPOSER_CACHE_DIR=/tmp/cache',
+                '-w', '/app',
+                'composer:latest',
+                'composer', 'install', '--optimize-autoloader', '--no-interaction', '--ignore-platform-reqs'
+            ];
+            $compRes = $this->runCommand($compCmd);
+            $output .= $compRes['output'] . "\n";
+        }
+
+        // 2. Si es Laravel (artisan), sincronizar .env, APP_KEY y ejecutar migraciones/seeders
+        if (File::exists($path . '/artisan')) {
+            $envPath = $path . '/.env';
+            if (!File::exists($envPath) || strlen(trim(File::get($envPath))) < 50) {
+                if (File::exists($path . '/.env.example')) {
+                    File::copy($path . '/.env.example', $envPath);
+                } elseif (!File::exists($envPath)) {
+                    File::put($envPath, "");
+                }
+            }
+
+            if (!empty($project->db_name)) {
+                $dbHost = $project->db_driver === 'mysql' ? 'uleam_mysql_students' : 'uleam_postgres_students';
+                $dbPort = $project->db_driver === 'mysql' ? '3306' : '5432';
+                $appUrl = "http://{$project->subdomain}.localhost";
+
+                $envVars = [
+                    'APP_URL' => $appUrl,
+                    'DB_CONNECTION' => $project->db_driver ?: 'pgsql',
+                    'DB_HOST' => $dbHost,
+                    'DB_PORT' => $dbPort,
+                    'DB_DATABASE' => $project->db_name,
+                    'DB_USERNAME' => $project->db_user,
+                    'DB_PASSWORD' => $project->db_password,
+                ];
+
+                $currentEnv = File::get($envPath);
+                foreach ($envVars as $varKey => $varVal) {
+                    if (preg_match("/^{$varKey}=/m", $currentEnv)) {
+                        $currentEnv = preg_replace("/^{$varKey}=.*/m", "{$varKey}={$varVal}", $currentEnv);
+                    } else {
+                        $currentEnv .= "\n{$varKey}={$varVal}";
+                    }
+                }
+                File::put($envPath, $currentEnv);
+            }
+
+            $envContent = File::get($envPath);
+            if (!str_contains($envContent, 'APP_KEY=base64:')) {
+                if (!str_contains($envContent, 'APP_KEY=')) {
+                    File::append($envPath, "\nAPP_KEY=\n");
+                }
+                $output .= "\nDetectado Laravel sin APP_KEY. Generando llave de aplicación...\n";
+                $keyCommand = [
+                    'docker', 'run', '--rm',
+                    '-u', "$uid:$gid",
+                    '-v', "$path:/app",
+                    '-w', '/app',
+                    'webdevops/php:8.4',
+                    'php', 'artisan', 'key:generate'
+                ];
+                $keyResult = $this->runCommand($keyCommand);
+                $output .= $keyResult['output'] . "\n";
+            }
+
+            // Ejecutar migraciones automáticas y dump de snapshot inicial
+            $migCmd = [
+                'docker', 'run', '--rm',
+                '--network', 'uleam_academic_network',
+                '-v', "$path:/app",
+                '-w', '/app',
+                'webdevops/php:8.4',
+                'sh', '-c', 'php artisan migrate --force && php artisan db:seed --force'
+            ];
+            $migRes = $this->runCommand($migCmd);
+            $output .= $migRes['output'] . "\n";
+
+            $snapshotFile = $path . '/.initial_db_snapshot.sql';
+            if (!File::exists($snapshotFile)) {
+                if ($project->db_driver === 'mysql') {
+                    $snapCmd = ['docker', 'exec', 'uleam_mysql_students', 'mysqldump', '-u', 'root', "-p{$project->db_password}", $project->db_name];
+                } else {
+                    $snapCmd = ['docker', 'exec', 'uleam_postgres_students', 'pg_dump', '-U', 'postgres', $project->db_name];
+                }
+                $snapProcess = new Process($snapCmd);
+                $snapProcess->run();
+                if ($snapProcess->isSuccessful() && strlen($snapProcess->getOutput()) > 50) {
+                    File::put($snapshotFile, $snapProcess->getOutput());
+                }
+            }
+        }
+
         $command = [
             'env', 'TMPDIR=/var/tmp',
             'docker', 'build',
@@ -691,4 +893,195 @@ JS;
         }
         return $result;
     }
+
+    /**
+     * Sanitiza carpetas compiladas (build, dist, etc.) para que las SPAs carguen sin errores de rutas.
+     */
+    private function sanitizeCompiledOutputDirectories(string $path, array $detectedSubpaths): void
+    {
+        $candidateDirs = ['build', 'dist', 'out', 'public', 'client/build', 'frontend/dist', 'frontend/build'];
+        $reservedDirNames = ['static', 'assets', 'media', 'css', 'js', 'fonts', 'images', 'img', 'favicon.ico'];
+
+        foreach ($candidateDirs as $candidate) {
+            $dirPath = $path . '/' . $candidate;
+            if (!File::isDirectory($dirPath)) {
+                continue;
+            }
+
+            // A. Sanitizar todos los archivos .html dentro del build
+            try {
+                $htmlFiles = File::allFiles($dirPath);
+                foreach ($htmlFiles as $file) {
+                    if ($file->getExtension() !== 'html') {
+                        continue;
+                    }
+
+                    $filePath = $file->getRealPath();
+                    $content = @file_get_contents($filePath);
+                    if (!$content) {
+                        continue;
+                    }
+
+                    $originalContent = $content;
+
+                    // 1. Normalizar <base href="...">
+                    $content = preg_replace('/<base\s+href=[\'"][^\'"]*[\'"]\s*\/?>/i', '<base href="/">', $content);
+
+                    // 2. Normalizar rutas con subcarpetas conocidas (ej: /calculator/ -> /)
+                    foreach ($detectedSubpaths as $subpath) {
+                        if (empty($subpath) || in_array($subpath, $reservedDirNames, true)) {
+                            continue;
+                        }
+                        $content = str_replace("/{$subpath}/", '/', $content);
+                        $content = str_replace("l.p=\"/{$subpath}/\"", 'l.p="/"', $content);
+                        $content = str_replace("__webpack_require__.p=\"/{$subpath}/\"", '__webpack_require__.p="/"', $content);
+                    }
+
+                    // 3. Regex universal para limpiar prefijos desconocidos hacia carpetas comunes de assets
+                    // Ej: href="/algo/static/..." -> href="/static/..." o src="/algo/assets/..." -> src="/assets/..."
+                    $content = preg_replace(
+                        '/(href|src)=(["\'])\/(?:(?!(?:static|assets|media|css|js)\/)[^"\'\/]+)\/(static|assets|media|css|js)\//i',
+                        '$1=$2/$3/',
+                        $content
+                    );
+
+                    if ($content !== $originalContent) {
+                        @file_put_contents($filePath, $content);
+                    }
+                }
+            } catch (\Exception $e) {
+                // Continuar si hay error de permisos o archivos
+            }
+
+            // B. Crear symlinks resilientes en el directorio compilado para absorber cualquier ruta residual
+            foreach ($detectedSubpaths as $subpath) {
+                if (empty($subpath) || in_array($subpath, $reservedDirNames, true)) {
+                    continue;
+                }
+
+                $symlinkTarget = $dirPath . '/' . $subpath;
+                if (!file_exists($symlinkTarget) && !is_link($symlinkTarget)) {
+                    @symlink('.', $symlinkTarget);
+                }
+            }
+        }
+    }
+
+    /**
+     * Parchea automáticamente paquetes de terceros heredados en vendor para compatibilidad con PHP 8.2+.
+     */
+    private function patchLegacyPhpPackages(string $path): void
+    {
+        // 1. Parchear Carbon setLastErrors para PHP 8.2+
+        $carbonCreator = $path . '/vendor/nesbot/carbon/src/Carbon/Traits/Creator.php';
+        if (File::exists($carbonCreator)) {
+            $content = @file_get_contents($carbonCreator);
+            if ($content) {
+                $content = str_replace(
+                    'self::setLastErrors(parent::getLastErrors());',
+                    'self::setLastErrors(parent::getLastErrors() ?: []);',
+                    $content
+                );
+                $content = str_replace(
+                    'private static function setLastErrors(array $lastErrors)',
+                    'private static function setLastErrors($lastErrors = [])',
+                    $content
+                );
+                $content = str_replace(
+                    'static::$lastErrors = $lastErrors;',
+                    'static::$lastErrors = is_array($lastErrors) ? $lastErrors : [];',
+                    $content
+                );
+                @file_put_contents($carbonCreator, $content);
+            }
+        }
+
+        // 2. Parchear Ignition string interpolation para PHP 8.2+
+        $ignitionSolution = $path . '/vendor/facade/ignition/src/SolutionProviders/MergeConflictSolutionProvider.php';
+        if (File::exists($ignitionSolution)) {
+            $content = @file_get_contents($ignitionSolution);
+            if ($content && str_contains($content, '${directory}')) {
+                @file_put_contents($ignitionSolution, str_replace('${directory}', '{$directory}', $content));
+            }
+        }
+
+        // 3. Parchear migraciones heredadas con llamadas inseguras a relaciones vacías
+        $migrationFiles = $this->getProjectScanFiles($path . '/database/migrations', '*.php');
+        foreach ($migrationFiles as $mFile) {
+            $mContent = @file_get_contents($mFile->getRealPath());
+            if ($mContent && str_contains($mContent, '$user->companies()->first()->id')) {
+                $mContent = str_replace(
+                    '$user->companies()->first()->id',
+                    'optional($user->companies()->first())->id',
+                    $mContent
+                );
+                @file_put_contents($mFile->getRealPath(), $mContent);
+            }
+        }
+
+        // 4. Parchear seeders para evitar Duplicate entry en re-ejecuciones
+        $usersSeeder = $path . '/database/seeders/UsersTableSeeder.php';
+        if (File::exists($usersSeeder)) {
+            $sContent = @file_get_contents($usersSeeder);
+            if ($sContent && str_contains($sContent, 'User::create([')) {
+                $sContent = str_replace('User::create([', 'User::firstOrCreate([\'email\' => \'admin@craterapp.com\'], [', $sContent);
+                @file_put_contents($usersSeeder, $sContent);
+            }
+        }
+    }
+
+    /**
+     * Parchear URLs de avatares rotos/bloqueados por adblockers o CDN externo (ej: i.ibb.co en Jira Clone).
+     * Copia imágenes locales confiables a las carpetas públicas/build y reemplaza las URLs externas.
+     */
+    private function patchJiraCloneAvatars(string $path): void
+    {
+        $defaultAvatarsDir = storage_path('app/default_assets/jira_avatars');
+        if (!File::exists($defaultAvatarsDir)) {
+            return;
+        }
+
+        $replacements = [
+            'https://i.ibb.co/7JM1P2r/picke-rick.jpg' => '/avatars/pickle-rick.jpg',
+            'https://i.ibb.co/6n0hLML/baby-yoda.jpg' => '/avatars/baby-yoda.jpg',
+            'https://i.ibb.co/6RJ5hq6/gaben.jpg' => '/avatars/gaben.jpg',
+        ];
+
+        // Copiar avatares a carpetas públicas si existen
+        $targetDirs = [
+            $path . '/client/build/avatars',
+            $path . '/client/public/avatars',
+            $path . '/build/avatars',
+            $path . '/public/avatars',
+            $path . '/dist/avatars',
+        ];
+
+        foreach ($targetDirs as $targetDir) {
+            $parent = dirname($targetDir);
+            if (File::exists($parent)) {
+                File::ensureDirectoryExists($targetDir);
+                File::copyDirectory($defaultAvatarsDir, $targetDir);
+            }
+        }
+
+        // Reemplazar referencias a i.ibb.co en archivos de código (.ts, .js, .sql, .json, .jsx, etc.)
+        $codeDirs = [$path . '/api/src', $path . '/api/build', $path . '/client/src', $path . '/src'];
+        foreach ($codeDirs as $cDir) {
+            if (File::exists($cDir)) {
+                $files = File::allFiles($cDir);
+                foreach ($files as $file) {
+                    $ext = $file->getExtension();
+                    if (in_array($ext, ['ts', 'js', 'jsx', 'tsx', 'sql', 'json'])) {
+                        $filePath = $file->getRealPath();
+                        $content = @file_get_contents($filePath);
+                        if ($content && str_contains($content, 'i.ibb.co')) {
+                            $updated = str_replace(array_keys($replacements), array_values($replacements), $content);
+                            @file_put_contents($filePath, $updated);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
+

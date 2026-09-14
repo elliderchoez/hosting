@@ -31,7 +31,7 @@ class StartProjectContainerAction
             $this->stopAndRemoveContainer($containerName);
 
             // 3. Define language settings
-            $settings = $this->getLanguageSettings($project->language, $projectPath);
+            $settings = $this->getLanguageSettings($project->language, $projectPath, $project);
             if (!$settings) {
                 return [
                     'success' => false,
@@ -43,6 +43,11 @@ class StartProjectContainerAction
             // 4. Read runtime from env (runsc for production gVisor, runc for local development)
             $runtime = env('DOCKER_RUNTIME', 'runc');
 
+            $workDir = '/app';
+            if ($project->language === 'dockerfile') {
+                $workDir = $this->detectDockerfileWorkdir($projectPath);
+            }
+
             // 5. Construct Docker Run Command
             $command = [
                 'docker', 'run', '-d',
@@ -52,9 +57,28 @@ class StartProjectContainerAction
                 '--memory', '256m',
                 '--cpus', '0.5',
                 '--pids-limit', '50',
-                '-v', "$projectPath:/app", // Montar como lectura y escritura para permitir caché/logs
-                '-w', '/app',
+                '-v', "$projectPath:$workDir", // Montar en su WORKDIR como lectura y escritura
             ];
+
+            // Si el WORKDIR del contenedor no es /app, montar también en /app para compatibilidad
+            if ($workDir !== '/app') {
+                $command[] = '-v';
+                $command[] = "$projectPath:/app";
+            }
+
+            // Si el contenedor fue construido con Dockerfile o contiene package.json,
+            // preservar el directorio de node_modules de la imagen para que el montaje host no lo oculte
+            if ($project->language === 'dockerfile' || File::exists($projectPath . '/package.json')) {
+                $command[] = '-v';
+                $command[] = "$workDir/node_modules";
+                if ($workDir !== '/app') {
+                    $command[] = '-v';
+                    $command[] = '/app/node_modules';
+                }
+            }
+
+            $command[] = '-w';
+            $command[] = $workDir;
 
             $command[] = '--label';
             $command[] = 'traefik.enable=true';
@@ -188,6 +212,14 @@ class StartProjectContainerAction
                 $command[] = 'PHP_CLI_SERVER_WORKERS=4';
             }
 
+            // Variables de entorno para optimización de memoria (256MB) y compatibilidad Python/Django/Node
+            $command[] = '-e';
+            $command[] = 'WEB_CONCURRENCY=1';
+            $command[] = '-e';
+            $command[] = 'ALLOWED_HOSTS=*';
+            $command[] = '-e';
+            $command[] = 'SECRET_KEY=uleam_secret_key_' . md5($project->id);
+
             // Append base image
             $command[] = $settings['image'];
 
@@ -259,7 +291,7 @@ class StartProjectContainerAction
     /**
      * Get container image, port, and start command based on language.
      */
-    private function getLanguageSettings(?string $language, string $projectPath): ?array
+    private function getLanguageSettings(?string $language, string $projectPath, ?Project $project = null): ?array
     {
         switch ($language) {
             case 'nodejs':
@@ -276,15 +308,18 @@ const api = spawn('node', ['build/index.js'], {
     stdio: 'inherit'
 });
 
-console.log('[Runner] Iniciando frontend Client en puerto 3000...');
-const client = spawn('node', ['server.js'], {
-    cwd: '/app/client',
-    env: { ...process.env, PORT: '3000' },
-    stdio: 'inherit'
-});
+console.log('[Runner] Esperando 3 segundos para que la API esté lista...');
+setTimeout(() => {
+    console.log('[Runner] Iniciando servidor frontend en puerto 3000...');
+    const client = spawn('node', ['client/server.js'], {
+        cwd: '/app',
+        env: { ...process.env, PORT: '3000' },
+        stdio: 'inherit'
+    });
 
-api.on('exit', code => console.log('[Runner] API finalizó con código:', code));
-client.on('exit', code => console.log('[Runner] Client finalizó con código:', code));
+    client.on('exit', code => process.exit(code));
+    api.on('exit', code => process.exit(code));
+}, 3000);
 JS;
                     File::put($projectPath . '/_monorepo_runner.js', $runnerContent);
                     $command = ['node', '_monorepo_runner.js'];
@@ -294,18 +329,39 @@ JS;
                     $command = ['node', 'app.js'];
                 } elseif (File::exists($projectPath . '/client/server.js')) {
                     $command = ['node', 'client/server.js'];
-                } elseif (File::exists($projectPath . '/package.json')) {
-                    $packageJson = json_decode(File::get($projectPath . '/package.json'), true);
-                    if (isset($packageJson['scripts']['start:production']) && !str_contains($packageJson['scripts']['start:production'], 'pm2')) {
-                        $command = ['npm', 'run', 'start:production'];
-                    } elseif (isset($packageJson['scripts']['start']) && !str_contains($packageJson['scripts']['start'], 'pm2')) {
-                        $command = ['npm', 'start'];
-                    } elseif (isset($packageJson['scripts']['preview'])) {
-                        // Proyecto frontend estático (como Vite): Servimos el build en el puerto 3000
-                        $command = ['npx', 'vite', 'preview', '--host', '0.0.0.0', '--port', '3000'];
-                    } elseif (isset($packageJson['scripts']['dev'])) {
-                        // Servidor de desarrollo como alternativa
-                        $command = ['npx', 'vite', '--host', '0.0.0.0', '--port', '3000'];
+                } else {
+                    // Detección universal de SPAs estáticas (Create React App, Vite, Vue, Angular, etc.)
+                    $staticDirs = ['build', 'dist', 'out', 'public', 'client/build', 'frontend/dist', 'frontend/build'];
+                    $servedStaticDir = null;
+                    if (!File::exists($projectPath . '/server.js') && !File::exists($projectPath . '/app.js') && !File::exists($projectPath . '/api')) {
+                        foreach ($staticDirs as $sDir) {
+                            if (File::exists($projectPath . '/' . $sDir . '/index.html')) {
+                                $servedStaticDir = $sDir;
+                                break;
+                            }
+                        }
+                    }
+
+                    if ($servedStaticDir) {
+                        // Servimos con serve en el puerto 3000 (consume < 25MB RAM y soporta SPA fallback)
+                        if ($project && !empty($project->subdomain)) {
+                            $subdomainLink = $projectPath . '/' . $servedStaticDir . '/' . trim($project->subdomain, '/');
+                            if (!file_exists($subdomainLink) && !is_link($subdomainLink)) {
+                                @symlink('.', $subdomainLink);
+                            }
+                        }
+                        $command = ['npx', '-y', 'serve', '-s', $servedStaticDir, '-l', '3000'];
+                    } elseif (File::exists($projectPath . '/package.json')) {
+                        $packageJson = json_decode(File::get($projectPath . '/package.json'), true);
+                        if (isset($packageJson['scripts']['start:production']) && !str_contains($packageJson['scripts']['start:production'], 'pm2')) {
+                            $command = ['npm', 'run', 'start:production'];
+                        } elseif (isset($packageJson['scripts']['start']) && !str_contains($packageJson['scripts']['start'], 'pm2')) {
+                            $command = ['npm', 'start'];
+                        } elseif (isset($packageJson['scripts']['preview'])) {
+                            $command = ['npx', 'vite', 'preview', '--host', '0.0.0.0', '--port', '3000'];
+                        } elseif (isset($packageJson['scripts']['dev'])) {
+                            $command = ['npx', 'vite', '--host', '0.0.0.0', '--port', '3000'];
+                        }
                     }
                 }
 
@@ -316,10 +372,25 @@ JS;
                 ];
 
             case 'php':
-                // Built-in PHP server con supresion de avisos deprecated y multi-workers
+                // Built-in PHP server con supresion de avisos deprecated y soporte de router para Laravel/frameworks
                 $command = ['php', '-d', 'error_reporting=E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED', '-S', '0.0.0.0:80'];
-                if (File::exists($projectPath . '/public/index.php')) {
-                    $command = ['php', '-d', 'error_reporting=E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED', '-S', '0.0.0.0:80', '-t', 'public'];
+                if (File::exists($projectPath . '/server.php')) {
+                    // Laravel incluye server.php en la raíz como emulador de mod_rewrite para el servidor integrado con document root public
+                    $command = ['php', '-d', 'error_reporting=E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED', '-S', '0.0.0.0:80', '-t', 'public', 'server.php'];
+                } elseif (File::exists($projectPath . '/public/index.php')) {
+                    $routerPath = $projectPath . '/_php_router.php';
+                    if (!File::exists($routerPath)) {
+                        $routerContent = <<<'PHP'
+<?php
+$uri = urldecode(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?? '');
+if ($uri !== '/' && file_exists(__DIR__ . '/public' . $uri)) {
+    return false;
+}
+require_once __DIR__ . '/public/index.php';
+PHP;
+                        File::put($routerPath, $routerContent);
+                    }
+                    $command = ['php', '-d', 'error_reporting=E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED', '-S', '0.0.0.0:80', '-t', 'public', '_php_router.php'];
                 }
                 return [
                     'image' => 'webdevops/php:8.4',
@@ -342,7 +413,7 @@ JS;
                 }
 
                 return [
-                    'image' => 'python:3.11-alpine',
+                    'image' => 'python:3.12-alpine',
                     'port' => 5000,
                     'command' => $command
                 ];
@@ -369,10 +440,11 @@ JS;
                 // basename($projectPath) = 'project-{UUID}', so image = 'project-{UUID}-img'
                 // which matches what buildDockerfile() creates: 'project-' . $project->id . '-img'
                 $port = $this->detectDockerfilePort($projectPath);
+                $cmd = $this->detectDockerfileCommand($projectPath);
                 return [
                     'image'   => basename($projectPath) . '-img',
                     'port'    => $port,
-                    'command' => []  // CMD is baked into the image
+                    'command' => $cmd
                 ];
 
             default:
@@ -400,5 +472,54 @@ JS;
         }
 
         return 8080;
+    }
+
+    /**
+     * Detect the WORKDIR from a project's Dockerfile.
+     * Falls back to /app if not found.
+     */
+    private function detectDockerfileWorkdir(string $projectPath): string
+    {
+        $dockerfilePath = File::exists($projectPath . '/Dockerfile')
+            ? $projectPath . '/Dockerfile'
+            : $projectPath . '/dockerfile';
+
+        if (!File::exists($dockerfilePath)) {
+            return '/app';
+        }
+
+        $content = File::get($dockerfilePath);
+        if (preg_match('/^WORKDIR\s+(\S+)/mi', $content, $matches)) {
+            return trim($matches[1]);
+        }
+
+        return '/app';
+    }
+
+    /**
+     * Detect and adapt the CMD from a project's Dockerfile.
+     * Reduces multi-worker servers (like uvicorn/gunicorn --workers=2+) to 1 worker for the 256MB sandbox limit.
+     */
+    private function detectDockerfileCommand(string $projectPath): array
+    {
+        $dockerfilePath = File::exists($projectPath . '/Dockerfile')
+            ? $projectPath . '/Dockerfile'
+            : $projectPath . '/dockerfile';
+
+        if (!File::exists($dockerfilePath)) {
+            return [];
+        }
+
+        $content = File::get($dockerfilePath);
+        if (preg_match('/CMD\s*(\[[^\]]+\])/i', $content, $matches)) {
+            $cmdArray = json_decode($matches[1], true);
+            if (is_array($cmdArray)) {
+                // Adaptar flags de workers pesados para sandbox de 256MB
+                return array_map(function($arg) {
+                    return preg_replace('/--workers=\d+/', '--workers=1', $arg);
+                }, $cmdArray);
+            }
+        }
+        return [];
     }
 }

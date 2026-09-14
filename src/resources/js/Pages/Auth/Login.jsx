@@ -29,7 +29,7 @@ export default function Login({ status, canResetPassword }) {
 
             <div className="mb-6 text-center">
                 <h2 className="text-2xl font-bold text-slate-100">Iniciar Sesión</h2>
-                <p className="text-xs text-slate-400 mt-1">Ingresa a tu cuenta de Hosting Académico ULEAM</p>
+                <p className="text-xs text-slate-400 mt-1">Ingresa a tu cuenta de Nexus Academic</p>
             </div>
 
             {status && (

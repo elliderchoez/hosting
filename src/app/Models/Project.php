@@ -28,7 +28,8 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
     'db_user',
     'db_password',
     'db_driver',
-    'demo_instructions'
+    'demo_instructions',
+    'category'
 ])]
 class Project extends Model
 {

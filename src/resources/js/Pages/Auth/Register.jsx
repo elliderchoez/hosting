@@ -53,7 +53,7 @@ export default function Register() {
 
             <div className="mb-6 text-center">
                 <h2 className="text-2xl font-bold text-slate-100">Crear una cuenta</h2>
-                <p className="text-xs text-slate-400 mt-1">Registra tu usuario para el Hosting Académico ULEAM</p>
+                <p className="text-xs text-slate-400 mt-1">Registra tu usuario para Nexus Academic</p>
             </div>
 
             <form onSubmit={submit} className="space-y-4">
