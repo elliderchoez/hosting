@@ -18,17 +18,6 @@ class DetectLanguageAction
             return null;
         }
 
-        // 0. Detect Dockerfile (Universal support for projects that provide their own custom Docker container)
-        $dockerfilePath = File::exists($projectPath . '/Dockerfile') ? $projectPath . '/Dockerfile' : (File::exists($projectPath . '/dockerfile') ? $projectPath . '/dockerfile' : null);
-        if ($dockerfilePath) {
-            $dockerContent = @file_get_contents($dockerfilePath) ?: '';
-            // Si es un proyecto Laravel (tiene artisan) y su Dockerfile es solo un contenedor auxiliar FPM o está incompleto, priorizar PHP nativo
-            $isAuxiliaryPhpFpm = File::exists($projectPath . '/artisan') && (str_contains($dockerContent, '-fpm') || !str_contains($dockerContent, 'COPY') || str_contains($dockerContent, 'RUN docker-php-ext-'));
-            if (!$isAuxiliaryPhpFpm) {
-                return 'dockerfile';
-            }
-        }
-
         // 1. Detect PHP (Prioritized because Laravel contains package.json for Vite/JS compilation)
         if (File::exists($projectPath . '/composer.json') || 
             File::exists($projectPath . '/artisan') ||
@@ -70,12 +59,25 @@ class DetectLanguageAction
                 return 'dotnet';
             }
         }
-        if (File::exists($projectPath . '/Program.cs') || File::exists($projectPath . '/Startup.cs')) {
-            return 'dotnet';
+        // 6. Detect Go
+        if (File::exists($projectPath . '/go.mod') || File::exists($projectPath . '/main.go')) {
+            return 'go';
+        }
+
+        // 7. Inspect Dockerfile base image if present
+        $dockerfilePath = File::exists($projectPath . '/Dockerfile') ? $projectPath . '/Dockerfile' : (File::exists($projectPath . '/dockerfile') ? $projectPath . '/dockerfile' : null);
+        if ($dockerfilePath) {
+            $dockerContent = strtolower(@file_get_contents($dockerfilePath) ?: '');
+            if (str_contains($dockerContent, 'node:') || str_contains($dockerContent, 'node-') || str_contains($dockerContent, 'node ')) return 'nodejs';
+            if (str_contains($dockerContent, 'python:') || str_contains($dockerContent, 'python-') || str_contains($dockerContent, 'python ')) return 'python';
+            if (str_contains($dockerContent, 'php:') || str_contains($dockerContent, 'php-') || str_contains($dockerContent, 'php ')) return 'php';
+            if (str_contains($dockerContent, 'openjdk') || str_contains($dockerContent, 'java:') || str_contains($dockerContent, 'maven') || str_contains($dockerContent, 'gradle')) return 'java';
+            if (str_contains($dockerContent, 'dotnet') || str_contains($dockerContent, 'aspnet')) return 'dotnet';
+            if (str_contains($dockerContent, 'golang') || str_contains($dockerContent, 'go:')) return 'go';
         }
 
 
-        // 7. Last resort: scan file extensions
+        // 7. Last resort: scan file extensions in root
         foreach ($rootFiles as $file) {
             $extension = $file->getExtension();
             if ($extension === 'php') {
@@ -90,9 +92,34 @@ class DetectLanguageAction
             if ($extension === 'cs') {
                 return 'dotnet';
             }
-            if ($extension === 'js' || $extension === 'ts' || $extension === 'jsx' || $extension === 'tsx') {
+            if ($extension === 'go') {
+                return 'go';
+            }
+            if ($extension === 'js' || $extension === 'ts' || $extension === 'jsx' || $extension === 'tsx' || $extension === 'html') {
                 return 'nodejs';
             }
+        }
+
+        // 8. Scan immediate subdirectories for multi-folder frontend projects (e.g., web/index.html, script.js)
+        try {
+            $allFiles = File::allFiles($projectPath);
+            foreach ($allFiles as $file) {
+                $path = $file->getRelativePathname();
+                if (str_starts_with($path, 'node_modules') || str_starts_with($path, 'vendor') || str_starts_with($path, '.git')) {
+                    continue;
+                }
+                $ext = $file->getExtension();
+                if (in_array($ext, ['js', 'ts', 'jsx', 'tsx', 'html'])) {
+                    return 'nodejs';
+                }
+                if ($ext === 'php') return 'php';
+                if ($ext === 'py') return 'python';
+                if ($ext === 'java') return 'java';
+                if ($ext === 'cs') return 'dotnet';
+                if ($ext === 'go') return 'go';
+            }
+        } catch (\Throwable $e) {
+            // ignore
         }
 
         return null;

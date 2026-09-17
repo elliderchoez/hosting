@@ -157,12 +157,38 @@ export default function Dashboard({ auth, profile, projects }) {
             } else {
                 updates.subdomain = cleanSlug;
             }
+
+            // Auto-detección inteligente de categoría a partir de palabras clave en el repositorio
+            const lowerUrl = `${url} ${repoName}`.toLowerCase();
+            if (!projectForm.data.category) {
+                if (/invoice|crater|factur|finan|cobro|pago|billing|conta|contab/i.test(lowerUrl)) {
+                    updates.category = 'Finanzas y Facturación';
+                } else if (/shop|tienda|store|cart|e-?commerce|comercio|carrito/i.test(lowerUrl)) {
+                    updates.category = 'Comercio Electrónico y Tiendas';
+                } else if (/erp|crm|gestion|empresa|administra/i.test(lowerUrl)) {
+                    updates.category = 'Gestión Empresarial (ERP / CRM)';
+                } else if (/academic|educa|school|colegio|universi|bookstack|curso|aula/i.test(lowerUrl)) {
+                    updates.category = 'Educación y Gestión Académica';
+                } else if (/salud|medic|clinic|hospital|doctor/i.test(lowerUrl)) {
+                    updates.category = 'Salud y Medicina';
+                } else if (/chat|social|comunidad|forum|foro|red/i.test(lowerUrl)) {
+                    updates.category = 'Redes Sociales y Comunidad';
+                } else if (/ai|ia|datos|data|bot|nlp|machine-?learning/i.test(lowerUrl)) {
+                    updates.category = 'Inteligencia Artificial y Datos';
+                } else if (/hotel|turism|viaje|travel/i.test(lowerUrl)) {
+                    updates.category = 'Turismo y Hotelería';
+                } else if (/logist|transporte|delivery|envio|courier/i.test(lowerUrl)) {
+                    updates.category = 'Logística y Transporte';
+                } else if (/movie|music|video|streaming|multimedia|game|juego/i.test(lowerUrl)) {
+                    updates.category = 'Entretenimiento y Multimedia';
+                }
+            }
         }
 
-        projectForm.setData({
-            ...projectForm.data,
+        projectForm.setData(prev => ({
+            ...prev,
             ...updates
-        });
+        }));
     };
 
     const handleZipChange = (e) => {
@@ -188,10 +214,10 @@ export default function Dashboard({ auth, profile, projects }) {
                 updates.subdomain = cleanSlug;
             }
 
-            projectForm.setData({
-                ...projectForm.data,
+            projectForm.setData(prev => ({
+                ...prev,
                 ...updates
-            });
+            }));
         }
     };
 
@@ -305,7 +331,7 @@ export default function Dashboard({ auth, profile, projects }) {
                             </h4>
                             <div className="text-xs text-slate-400 leading-relaxed space-y-1">
                                 <p>• Puedes tener hasta 3 proyectos publicados al mismo tiempo en tu vitrina.</p>
-                                <p>• Cuando un reclutador prueba tu proyecto, estará activo durante 15 minutos y luego se pausará solo para ahorrar recursos.</p>
+                                <p>• Cuando un reclutador prueba tu proyecto, estará activo durante 10 minutos y luego se pausará solo para ahorrar recursos.</p>
                                 <p>• Puedes subir proyectos en archivo ZIP de hasta 50MB.</p>
                             </div>
                         </div>
@@ -890,12 +916,12 @@ export default function Dashboard({ auth, profile, projects }) {
                                         <span className="text-[10px] text-amber-400 font-semibold uppercase bg-amber-400/10 px-2 py-0.5 rounded">Obligatorio</span>
                                     </label>
                                     <select
-                                        value={projectForm.data.category}
+                                        value={projectForm.data.category || ''}
                                         onChange={e => projectForm.setData('category', e.target.value)}
                                         required
                                         className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 focus:ring-1 focus:ring-indigo-500 text-xs sm:text-sm font-medium cursor-pointer"
                                     >
-                                        <option value="" disabled>Selecciona una categoría de software...</option>
+                                        <option value="">-- Selecciona una categoría de software --</option>
                                         {PROJECT_CATEGORIES.map(cat => (
                                             <option key={cat} value={cat} className="bg-slate-900 text-slate-200 py-1">
                                                 {cat}

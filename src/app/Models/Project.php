@@ -20,6 +20,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
     'root_dir', 
     'env_vars', 
     'language', 
+    'framework',
     'status', 
     'container_id', 
     'port', 

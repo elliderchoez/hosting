@@ -57,6 +57,7 @@ class BuildProjectAction
     private function buildNodeJs(Project $project, string $path, string $uid, string $gid): array
     {
         $output = "";
+        $npmCacheDir = $this->getCacheDir('npm');
 
         // Auto-instalar el driver de BD si el proyecto no lo tiene en dependencias
         $packageJsonPath = $path . '/package.json';
@@ -67,6 +68,8 @@ class BuildProjectAction
                 $packageJson['devDependencies'] ?? []
             );
 
+            $subDirs = ['api', 'client', 'frontend', 'backend', 'server', 'web', 'app'];
+
             if ($project->db_driver === 'mysql') {
                 if (!isset($deps['mysql']) && !isset($deps['mysql2'])) {
                     $output .= "Detectado proyecto Node.js sin driver de MySQL. Instalando mysql2 automáticamente...\n";
@@ -74,9 +77,11 @@ class BuildProjectAction
                         'docker', 'run', '--rm',
                         '-u', "$uid:$gid",
                         '-v', "$path:/app",
+                        '-v', "$npmCacheDir:/tmp/npm-cache",
+                        '-e', 'npm_config_cache=/tmp/npm-cache',
                         '-w', '/app',
                         'node:18-alpine',
-                        'npm', 'install', 'mysql2', '--no-audit', '--no-fund', '--save'
+                        'npm', 'install', 'mysql2', '--no-audit', '--no-fund', '--save', '--prefer-offline', '--legacy-peer-deps'
                     ];
                     $dbResult = $this->runCommand($dbCommand);
                     $output .= $dbResult['output'] . "\n";
@@ -88,9 +93,11 @@ class BuildProjectAction
                         'docker', 'run', '--rm',
                         '-u', "$uid:$gid",
                         '-v', "$path:/app",
+                        '-v', "$npmCacheDir:/tmp/npm-cache",
+                        '-e', 'npm_config_cache=/tmp/npm-cache',
                         '-w', '/app',
                         'node:18-alpine',
-                        'npm', 'install', 'pg', '--no-audit', '--no-fund', '--save'
+                        'npm', 'install', 'pg', '--no-audit', '--no-fund', '--save', '--prefer-offline', '--legacy-peer-deps'
                     ];
                     $dbResult = $this->runCommand($dbCommand);
                     $output .= $dbResult['output'] . "\n";
@@ -98,6 +105,7 @@ class BuildProjectAction
             }
 
             // Auto-instalar paquetes comunes requeridos en el código pero no declarados en package.json
+            // Nota: Se excluyen las subcarpetas de monorepos (api, client, etc.) para no duplicar en la raíz
             $commonPackages = ['jsonwebtoken', 'bcrypt', 'cors', 'express', 'dotenv', 'multer', 'nodemailer'];
             $missingPackages = [];
             foreach ($commonPackages as $pkg) {
@@ -117,10 +125,10 @@ class BuildProjectAction
                         ->name('*.tsx')
                         ->ignoreDotFiles(true)
                         ->ignoreVCS(true)
-                        ->exclude(['node_modules', 'dist', 'vendor', '.git', 'build', '.next', 'cache']);
+                        ->exclude(array_merge(['node_modules', 'dist', 'vendor', '.git', 'build', '.next', 'cache'], $subDirs));
 
+                    $packagesToInstall = [];
                     foreach ($missingPackages as $pkg) {
-                        $found = false;
                         foreach ($finder as $file) {
                             $content = @file_get_contents($file->getRealPath());
                             if ($content && (
@@ -128,32 +136,40 @@ class BuildProjectAction
                                 preg_match('/import\s+.*?\s+from\s+[\'"]' . preg_quote($pkg, '/') . '[\'"]/', $content) ||
                                 preg_match('/import\s+[\'"]' . preg_quote($pkg, '/') . '[\'"]/', $content)
                             )) {
-                                $found = true;
+                                $packagesToInstall[] = $pkg;
                                 break;
                             }
                         }
-                        if ($found) {
-                            $output .= "Detectado uso de '{$pkg}' pero no está declarado en package.json. Instalando automáticamente...\n";
-                            $installPkgCmd = [
+                    }
+
+                    if (!empty($packagesToInstall)) {
+                        $output .= "Detectado uso de paquetes no declarados en raíz: " . implode(', ', $packagesToInstall) . ". Instalando automáticamente...\n";
+                        $installPkgCmd = array_merge(
+                            [
                                 'docker', 'run', '--rm',
                                 '-u', "$uid:$gid",
                                 '-v', "$path:/app",
+                                '-v', "$npmCacheDir:/tmp/npm-cache",
+                                '-e', 'npm_config_cache=/tmp/npm-cache',
                                 '-w', '/app',
                                 'node:18-alpine',
-                                'npm', 'install', $pkg, '--no-audit', '--no-fund', '--save'
-                            ];
-                            $pkgResult = $this->runCommand($installPkgCmd);
-                            $output .= $pkgResult['output'] . "\n";
-                        }
+                                'npm', 'install'
+                            ],
+                            $packagesToInstall,
+                            ['--no-audit', '--no-fund', '--save', '--prefer-offline', '--legacy-peer-deps']
+                        );
+                        $pkgResult = $this->runCommand($installPkgCmd);
+                        $output .= $pkgResult['output'] . "\n";
                     }
                 } catch (\Exception $e) {
                     // Ignore search errors
                 }
             }
+        } else {
+            $subDirs = ['api', 'client', 'frontend', 'backend', 'server', 'web', 'app'];
         }
 
         // 1. Detectar e instalar dependencias en subdirectorios comunes de monorepos (api, client, frontend, backend, etc.)
-        $subDirs = ['api', 'client', 'frontend', 'backend', 'server', 'web', 'app'];
         foreach ($subDirs as $subDir) {
             $subPackageJson = $path . '/' . $subDir . '/package.json';
             if (File::exists($subPackageJson)) {
@@ -163,9 +179,11 @@ class BuildProjectAction
                     '-u', "$uid:$gid",
                     '-e', 'NODE_OPTIONS=--openssl-legacy-provider',
                     '-v', "$path:/app",
+                    '-v', "$npmCacheDir:/tmp/npm-cache",
+                    '-e', 'npm_config_cache=/tmp/npm-cache',
                     '-w', "/app/{$subDir}",
                     'node:20-alpine',
-                    'npm', 'install', '--no-audit', '--no-fund'
+                    'npm', 'install', '--no-audit', '--no-fund', '--prefer-offline', '--legacy-peer-deps'
                 ];
                 $subResult = $this->runCommand($subInstallCmd);
                 $output .= $subResult['output'] . "\n";
@@ -178,9 +196,11 @@ class BuildProjectAction
             '-u', "$uid:$gid",
             '-e', 'NODE_OPTIONS=--openssl-legacy-provider',
             '-v', "$path:/app",
+            '-v', "$npmCacheDir:/tmp/npm-cache",
+            '-e', 'npm_config_cache=/tmp/npm-cache',
             '-w', '/app',
             'node:20-alpine',
-            'npm', 'install', '--no-audit', '--no-fund'
+            'npm', 'install', '--no-audit', '--no-fund', '--prefer-offline', '--legacy-peer-deps'
         ];
 
         $output .= "Ejecutando npm install raíz...\n";
@@ -340,22 +360,39 @@ JS;
         }
 
         // Parche de compatibilidad para TypeORM 0.2 con PostgreSQL 12-16 (reemplazo de pg_constraint.consrc)
-        $pqrFiles = $this->getProjectScanFiles($path, 'PostgresQueryRunner.js');
-        foreach ($pqrFiles as $pqr) {
-            $content = @file_get_contents($pqr->getRealPath());
-            if ($content && str_contains($content, 'consrc')) {
-                $content = str_replace('CASE \\"cnst\\".\\"contype\\" WHEN \'x\' THEN pg_get_constraintdef(\\"cnst\\".\\"oid\\", true) ELSE \\"cnst\\".\\"consrc\\" END', 'pg_get_constraintdef(\\"cnst\\".\\"oid\\", true)', $content);
-                $content = str_replace('CASE "cnst"."contype" WHEN \'x\' THEN pg_get_constraintdef("cnst"."oid", true) ELSE "cnst"."consrc" END', 'pg_get_constraintdef("cnst"."oid", true)', $content);
-                $content = str_replace('"cnst"."consrc"', 'pg_get_constraintdef("cnst"."oid", true)', $content);
-                @file_put_contents($pqr->getRealPath(), $content);
+        $pqrPatterns = [
+            $path . '/*/node_modules/typeorm/*/postgres/PostgresQueryRunner.js',
+            $path . '/*/node_modules/typeorm/*/*/postgres/PostgresQueryRunner.js',
+            $path . '/node_modules/typeorm/*/postgres/PostgresQueryRunner.js',
+            $path . '/node_modules/typeorm/*/*/postgres/PostgresQueryRunner.js',
+        ];
+        $typeormFiles = [];
+        foreach ($pqrPatterns as $pattern) {
+            $typeormFiles = array_merge($typeormFiles, glob($pattern) ?: []);
+        }
+        foreach (array_unique($typeormFiles) as $pqrPath) {
+            if (File::exists($pqrPath)) {
+                $content = @file_get_contents($pqrPath);
+                if ($content && str_contains($content, 'consrc')) {
+                    $content = str_replace('CASE \\"cnst\\".\\"contype\\" WHEN \'x\' THEN pg_get_constraintdef(\\"cnst\\".\\"oid\\", true) ELSE \\"cnst\\".\\"consrc\\" END', 'pg_get_constraintdef(\\"cnst\\".\\"oid\\", true)', $content);
+                    $content = str_replace('CASE "cnst"."contype" WHEN \'x\' THEN pg_get_constraintdef("cnst"."oid", true) ELSE "cnst"."consrc" END', 'pg_get_constraintdef("cnst"."oid", true)', $content);
+                    $content = str_replace('"cnst"."consrc"', 'pg_get_constraintdef("cnst"."oid", true)', $content);
+                    $content = str_replace('\"cnst\".\"consrc\"', 'pg_get_constraintdef(\"cnst\".\"oid\", true)', $content);
+                    @file_put_contents($pqrPath, $content);
+                }
             }
         }
 
         // Parche de compatibilidad para module-alias en Node 20
-        $moduleAliasFiles = $this->getProjectScanFiles($path, 'register.js');
-        foreach ($moduleAliasFiles as $maFile) {
-            if (str_contains($maFile->getRealPath(), 'module-alias')) {
-                @file_put_contents($maFile->getRealPath(), '// noop module-alias for node 20 compatibility');
+        $moduleAliasCandidates = [
+            $path . '/node_modules/module-alias/register.js',
+            $path . '/api/node_modules/module-alias/register.js',
+            $path . '/backend/node_modules/module-alias/register.js',
+            $path . '/server/node_modules/module-alias/register.js',
+        ];
+        foreach ($moduleAliasCandidates as $maPath) {
+            if (File::exists($maPath)) {
+                @file_put_contents($maPath, '// noop module-alias for node 20 compatibility');
             }
         }
 
@@ -375,9 +412,11 @@ JS;
                             'docker', 'run', '--rm',
                             '-u', "$uid:$gid",
                             '-v', "$path:/app",
+                            '-v', "$npmCacheDir:/tmp/npm-cache",
+                            '-e', 'npm_config_cache=/tmp/npm-cache',
                             '-w', $workDir,
                             'node:20-alpine',
-                            'npm', 'install', 'pg@^8.11.0', '--no-audit', '--no-fund', '--save'
+                            'npm', 'install', 'pg@^8.11.0', '--no-audit', '--no-fund', '--save', '--prefer-offline', '--legacy-peer-deps'
                         ];
                         $this->runCommand($pgUpgradeCmd);
                     }
@@ -401,10 +440,7 @@ JS;
             ];
         }
 
-        $composerCacheDir = storage_path('app/composer-cache');
-        if (!File::exists($composerCacheDir)) {
-            File::makeDirectory($composerCacheDir, 0777, true, true);
-        }
+        $composerCacheDir = $this->getCacheDir('composer');
 
         $command = [
             'docker', 'run', '--rm',
@@ -414,7 +450,7 @@ JS;
             '-e', 'COMPOSER_CACHE_DIR=/tmp/cache',
             '-w', '/app',
             'composer:latest',
-            'composer', 'install', '--optimize-autoloader', '--no-interaction', '--ignore-platform-reqs', '--no-scripts'
+            'composer', 'install', '--prefer-dist', '--optimize-autoloader', '--no-interaction', '--ignore-platform-reqs', '--no-scripts'
         ];
 
         $output = "Ejecutando composer install...\n";
@@ -517,14 +553,17 @@ JS;
 
             if ($buildScript && !$hasPrecompiledAssets) {
                 $output .= "\nDetectado package.json en proyecto PHP sin assets precompilados. Instalando dependencias de frontend...\n";
+                $npmCacheDir = $this->getCacheDir('npm');
                 $npmInstallCmd = [
                     'docker', 'run', '--rm',
                     '-u', "$uid:$gid",
                     '-e', 'NODE_OPTIONS=--openssl-legacy-provider',
                     '-v', "$path:/app",
+                    '-v', "$npmCacheDir:/tmp/npm-cache",
+                    '-e', 'npm_config_cache=/tmp/npm-cache',
                     '-w', '/app',
                     'node:20-alpine',
-                    'npm', 'install', '--no-audit', '--no-fund', '--ignore-scripts'
+                    'npm', 'install', '--no-audit', '--no-fund', '--ignore-scripts', '--prefer-offline', '--legacy-peer-deps'
                 ];
                 $npmResult = $this->runCommand($npmInstallCmd);
                 $output .= $npmResult['output'] . "\n";
@@ -573,20 +612,24 @@ JS;
             ];
         }
 
+        $pipCacheDir = $this->getCacheDir('pip');
+
         $installCmd = 'python -m venv .venv';
         if ($hasRequirements) {
-            $installCmd .= ' && .venv/bin/pip install --no-cache-dir -r requirements.txt';
+            $installCmd .= ' && .venv/bin/pip install --prefer-binary -r requirements.txt';
         } elseif ($hasPyproject) {
-            $installCmd .= ' && .venv/bin/pip install --no-cache-dir .';
+            $installCmd .= ' && .venv/bin/pip install --prefer-binary .';
         } elseif ($hasPipfile) {
-            $installCmd .= ' && .venv/bin/pip install --no-cache-dir pipenv && .venv/bin/pipenv install --system';
+            $installCmd .= ' && .venv/bin/pip install pipenv && .venv/bin/pipenv install --system';
         }
 
-        // Run python to create venv and install dependencies
+        // Run python to create venv and install dependencies with persistent pip cache
         $command = [
             'docker', 'run', '--rm',
             '-u', "$uid:$gid",
             '-v', "$path:/app",
+            '-v', "$pipCacheDir:/tmp/pip-cache",
+            '-e', 'PIP_CACHE_DIR=/tmp/pip-cache',
             '-w', '/app',
             'python:3.12-alpine',
             'sh', '-c', $installCmd
@@ -624,6 +667,19 @@ JS;
                 'output' => "Excepción: " . $e->getMessage()
             ];
         }
+    }
+
+    /**
+     * Asegura la existencia y permisos de directorios de caché compartidos entre compilaciones.
+     */
+    private function getCacheDir(string $subDir): string
+    {
+        $cachePath = storage_path("app/caches/{$subDir}");
+        if (!File::exists($cachePath)) {
+            File::makeDirectory($cachePath, 0777, true, true);
+        }
+        @chmod($cachePath, 0777);
+        return $cachePath;
     }
 
     /**
@@ -665,14 +721,18 @@ JS;
             return ['success' => false, 'output' => "No se encontró pom.xml ni build.gradle. No se puede compilar el proyecto Java."];
         }
 
+        $m2CacheDir = $this->getCacheDir('m2');
+        $gradleCacheDir = $this->getCacheDir('gradle');
+
         if ($isMaven) {
             $output .= "Detectado proyecto Maven. Ejecutando mvn package...\n";
             $command = [
                 'docker', 'run', '--rm',
                 '-v', "$path:/app",
+                '-v', "$m2CacheDir:/tmp/.m2/repository",
                 '-w', '/app',
                 'maven:3.9-eclipse-temurin-17-alpine',
-                'mvn', '-q', 'package', '-DskipTests'
+                'mvn', '-q', 'package', '-DskipTests', '-Dmaven.repo.local=/tmp/.m2/repository'
             ];
         } else {
             $output .= "Detectado proyecto Gradle. Ejecutando gradle build...\n";
@@ -680,9 +740,11 @@ JS;
             $command = [
                 'docker', 'run', '--rm',
                 '-v', "$path:/app",
+                '-v', "$gradleCacheDir:/tmp/.gradle",
+                '-e', 'GRADLE_USER_HOME=/tmp/.gradle',
                 '-w', '/app',
                 'gradle:8.5-jdk17-alpine',
-                'sh', '-c', "$wrapper build -x test"
+                'sh', '-c', "$wrapper build -x test --no-daemon"
             ];
         }
 
@@ -714,11 +776,14 @@ JS;
             $csprojFiles = glob($path . '/*/*.csproj');
         }
 
+        $nugetCacheDir = $this->getCacheDir('nuget');
         $publishCommand = 'dotnet publish -c Release -o /app/publish --nologo -v q';
 
         $command = [
             'docker', 'run', '--rm',
             '-v', "$path:/app",
+            '-v', "$nugetCacheDir:/tmp/nuget-cache",
+            '-e', 'NUGET_PACKAGES=/tmp/nuget-cache',
             '-w', '/app',
             'mcr.microsoft.com/dotnet/sdk:8.0-alpine',
             'sh', '-c', $publishCommand
@@ -752,10 +817,7 @@ JS;
         // 1. Si el proyecto tiene composer.json pero no se instaló vendor, correr composer install para que quede en el build y en el host
         if (File::exists($path . '/composer.json') && !File::exists($path . '/vendor')) {
             $output .= "Instalando dependencias de Composer antes de compilar Dockerfile...\n";
-            $composerCacheDir = storage_path('app/composer-cache');
-            if (!File::exists($composerCacheDir)) {
-                File::makeDirectory($composerCacheDir, 0777, true, true);
-            }
+            $composerCacheDir = $this->getCacheDir('composer');
             $compCmd = [
                 'docker', 'run', '--rm',
                 '-u', "$uid:$gid",
@@ -764,7 +826,7 @@ JS;
                 '-e', 'COMPOSER_CACHE_DIR=/tmp/cache',
                 '-w', '/app',
                 'composer:latest',
-                'composer', 'install', '--optimize-autoloader', '--no-interaction', '--ignore-platform-reqs'
+                'composer', 'install', '--prefer-dist', '--optimize-autoloader', '--no-interaction', '--ignore-platform-reqs'
             ];
             $compRes = $this->runCommand($compCmd);
             $output .= $compRes['output'] . "\n";
@@ -883,7 +945,7 @@ JS;
                 ->name($pattern)
                 ->ignoreDotFiles(true)
                 ->ignoreVCS(true)
-                ->exclude(['.git', '.venv', 'vendor', 'cache', '.next']);
+                ->exclude(['.git', '.venv', 'vendor', 'cache', '.next', 'node_modules']);
             
             foreach ($finder as $file) {
                 $result[] = $file;

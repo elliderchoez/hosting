@@ -96,15 +96,25 @@ class BuildProjectJob implements ShouldQueue
             $deployment->build_log = $logs;
             $deployment->save();
 
-            // Paso 2: Detectar Lenguaje/Entorno
-            $logs .= "--- PASO 2: Detectando Lenguaje/Entorno ---\n";
+            // Paso 2: Detectar Lenguaje/Entorno y Tecnologías
+            $logs .= "--- PASO 2: Detectando Lenguaje/Entorno y Tecnologías ---\n";
             $language = $detectLanguageAction->execute($projectPath);
             if (!$language) {
                 $logs .= "Advertencia: No se detectaron archivos de lenguajes específicos. Configurando servidor estático por defecto (PHP).\n";
                 $language = 'php';
             }
-            $logs .= "Lenguaje detectado: $language\n\n";
+            $logs .= "Lenguaje detectado: $language\n";
             $project->language = $language;
+
+            // Detectar framework o librería específica
+            $detectFrameworkAction = app(\App\Actions\Docker\DetectFrameworkAction::class);
+            $framework = $detectFrameworkAction->execute($projectPath, $language);
+            $project->framework = $framework;
+            if ($framework) {
+                $logs .= "Framework/Stack detectado: $framework\n\n";
+            } else {
+                $logs .= "Framework: Ninguno detectado (Lenguaje puro / Vanilla)\n\n";
+            }
             $project->save();
 
             $deployment->build_log = $logs;

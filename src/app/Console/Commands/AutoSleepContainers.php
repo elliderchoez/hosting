@@ -62,31 +62,40 @@ class AutoSleepContainers extends Command
 
             $this->info("Current RX: $rxValue | Last recorded RX: " . ($lastRx ?? 'None'));
 
-            if ($lastRx !== null && $lastRx === $rxValue) {
-                // No new traffic has arrived since last check.
-                // Check if the idle time exceeds the threshold (15 minutes)
-                $idleMinutes = now()->diffInMinutes($project->last_visited_at);
-                $this->info("Container has been idle for $idleMinutes minutes.");
+            // 2. Comprobar tiempo de inactividad
+            $idleMinutes = $project->last_visited_at ? (int) abs(now()->diffInMinutes($project->last_visited_at)) : 999;
+            $this->info("Container idle time: $idleMinutes minutes.");
 
-                if ($idleMinutes >= 15) {
-                    $this->warn("Inactivity threshold reached. Putting container $containerName to sleep...");
-                    $result = $stopAction->execute($project);
-                    
-                    if ($result['success']) {
-                        $project->status = 'sleeping';
-                        $project->save();
-                        $this->info("Container put to sleep successfully.");
-                        Cache::forget($cacheKey);
-                    } else {
-                        $this->error("Failed to stop container: " . $result['output']);
-                    }
+            // Si fue visitado o ejecutado hace menos de 10 minutos, se mantiene activo
+            if ($idleMinutes < 10) {
+                Cache::put($cacheKey, $rxValue, now()->addHours(24));
+                $this->info("Container was active recently ($idleMinutes min ago). Keeping alive.");
+                continue;
+            }
+
+            // Si han pasado 10 minutos o más, verificar si hubo tráfico sustancial
+            $currentBytes = $this->parseBytes($rxValue);
+            $lastBytes = $lastRx !== null ? $this->parseBytes($lastRx) : $currentBytes;
+            $bytesDiff = max(0, $currentBytes - $lastBytes);
+
+            // Menos de 40 KB de tráfico se considera ruido de red de Docker (ARP / multicast / pings)
+            if ($lastRx === null || $bytesDiff < 40960) {
+                $this->warn("Inactivity threshold (10 min) reached for {$project->name} (Traffic diff: {$bytesDiff}B). Putting to sleep...");
+                $result = $stopAction->execute($project);
+                
+                if ($result['success']) {
+                    $project->status = 'sleeping';
+                    $project->save();
+                    $this->info("Container put to sleep successfully.");
+                    Cache::forget($cacheKey);
+                } else {
+                    $this->error("Failed to stop container: " . $result['output']);
                 }
             } else {
-                // Traffic detected! Update last visited time and cache the new RX value
-                $this->info("New traffic detected. Updating last visited timestamp.");
+                // Tráfico real sustancial detectado
+                $this->info("Substantial active traffic detected ({$bytesDiff}B). Updating last visited timestamp.");
                 $project->last_visited_at = now();
                 $project->save();
-                
                 Cache::put($cacheKey, $rxValue, now()->addHours(24));
             }
         }
@@ -129,5 +138,23 @@ class AutoSleepContainers extends Command
         }
 
         return null;
+    }
+
+    /**
+     * Parse Docker NetIO string value (e.g. "1.24kB", "2.5MB", "500B") to bytes.
+     */
+    private function parseBytes(string $val): float
+    {
+        $val = trim($val);
+        $unit = strtoupper(preg_replace('/[0-9.]/', '', $val));
+        $num = (float) preg_replace('/[^0-9.]/', '', $val);
+
+        return match ($unit) {
+            'B' => $num,
+            'KB', 'KIB' => $num * 1024,
+            'MB', 'MIB' => $num * 1024 * 1024,
+            'GB', 'GIB' => $num * 1024 * 1024 * 1024,
+            default => $num,
+        };
     }
 }

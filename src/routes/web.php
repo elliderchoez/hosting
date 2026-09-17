@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Route;
 // 1. Public Vitrina Showcase routes
 Route::get('/', [ShowcaseController::class, 'index'])->name('welcome');
 Route::get('/student/{userId}/profile', [ShowcaseController::class, 'studentProfile'])->name('student.profile');
+Route::get('/student/{userId}/cv', [ShowcaseController::class, 'studentCv'])->name('student.cv');
 Route::post('/contact/{studentId}', [ShowcaseController::class, 'contactStudent'])->name('student.contact')->middleware('throttle:6,1');
 Route::post('/showcase/projects/{project}/start', [ShowcaseController::class, 'startDemo'])->name('showcase.start');
 Route::post('/showcase/projects/{project}/stop', [ShowcaseController::class, 'stopDemo'])->name('showcase.stop');
@@ -37,6 +38,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::patch('/profile/account', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile/account', [ProfileController::class, 'destroy'])->name('profile.destroy');
     Route::post('/profile/details', [ProfileController::class, 'updateDetails'])->name('profile.details');
+    Route::get('/profile/verify-github', [ProfileController::class, 'verifyGithub'])->name('profile.verify-github');
+    Route::get('/profile/verify-linkedin', [ProfileController::class, 'verifyLinkedin'])->name('profile.verify-linkedin');
     Route::get('/profile/cv/generate', [ProfileController::class, 'generateCv'])->name('profile.cv.generate');
 
     // Student Message Inbox

@@ -41,10 +41,42 @@ class ShowcaseController extends Controller
      */
     public function studentProfile(string $userId): Response
     {
-        $student = User::with(['profile', 'projects'])->findOrFail($userId);
+        $student = User::with([
+            'profile',
+            'projects' => function ($query) {
+                $query->where('is_backend_service', false)
+                      ->whereIn('status', ['running', 'sleeping', 'stopped'])
+                      ->orderByRaw("CASE WHEN status = 'running' THEN 1 WHEN status = 'sleeping' THEN 2 ELSE 3 END")
+                      ->orderBy('updated_at', 'desc');
+            }
+        ])->findOrFail($userId);
 
         return Inertia::render('StudentProfile', [
-            'student' => $student
+            'student' => $student,
+            'auth' => [
+                'user' => auth()->user(),
+            ],
+        ]);
+    }
+
+    /**
+     * Display the student's printable curriculum vitae.
+     */
+    public function studentCv(string $userId)
+    {
+        $student = User::with([
+            'profile',
+            'projects' => function ($query) {
+                $query->where('is_backend_service', false);
+            }
+        ])->findOrFail($userId);
+
+        $profile = $student->profile ?? new \App\Models\Profile(['skills' => [], 'education' => []]);
+
+        return view('cv_template', [
+            'user' => $student,
+            'profile' => $profile,
+            'projects' => $student->projects
         ]);
     }
 

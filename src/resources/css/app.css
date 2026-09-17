@@ -97,8 +97,17 @@
 .theme-academic .text-slate-300,
 .theme-academic .text-slate-400,
 .theme-academic .text-slate-500,
-.theme-academic p:not(button):not(a) {
+.theme-academic p:not(button):not(a):not([class*="text-red"]):not([class*="text-rose"]):not([class*="text-emerald"]):not([class*="text-amber"]) {
     color: #475569 !important;
+}
+
+.theme-academic .text-red-600,
+.theme-academic .text-red-500,
+.theme-academic p.text-red-600,
+.theme-academic span.text-red-600,
+.theme-academic [class*="text-red-600"],
+.theme-academic [class*="text-rose-600"] {
+    color: #dc2626 !important;
 }
 
 /* Barra superior (Navbar / Header) en tema claro */
@@ -265,9 +274,9 @@
 
 
 /* Formulario e inputs en tema claro */
-.theme-academic input,
-.theme-academic textarea,
-.theme-academic select {
+.theme-academic input:not(.search-input-borderless),
+.theme-academic textarea:not(.search-input-borderless),
+.theme-academic select:not(.search-input-borderless) {
     background-color: #ffffff !important;
     border: 1px solid #cbd5e1 !important;
     color: #0f172a !important;
@@ -278,11 +287,36 @@
     color: #94a3b8 !important;
 }
 
-.theme-academic input:focus,
-.theme-academic textarea:focus,
-.theme-academic select:focus {
+.theme-academic input:not(.search-input-borderless):focus,
+.theme-academic textarea:not(.search-input-borderless):focus,
+.theme-academic select:not(.search-input-borderless):focus {
     border-color: #1534e8 !important;
     box-shadow: 0 0 0 2px rgba(21, 52, 232, 0.15) !important;
+}
+
+/* Buscador principal totalmente limpio y sin bordes internos */
+.theme-academic input.search-input-borderless,
+.dark input.search-input-borderless,
+input.search-input-borderless {
+    border: 0 !important;
+    border-width: 0 !important;
+    border-style: none !important;
+    border-color: transparent !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+.theme-academic input.search-input-borderless:focus,
+.dark input.search-input-borderless:focus,
+input.search-input-borderless:focus {
+    border: 0 !important;
+    border-width: 0 !important;
+    border-style: none !important;
+    border-color: transparent !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+    outline: none !important;
 }
 
 /* Modales en tema claro */
@@ -777,9 +811,9 @@
 }
 
 /* Formulario e inputs en modo oscuro */
-.dark input,
-.dark textarea,
-.dark select {
+.dark input:not(.search-input-borderless),
+.dark textarea:not(.search-input-borderless),
+.dark select:not(.search-input-borderless) {
     background-color: #0b0f19 !important;
     border: 1px solid #334155 !important;
     color: #f1f5f9 !important;
@@ -790,9 +824,9 @@
     color: #64748b !important;
 }
 
-.dark input:focus,
-.dark textarea:focus,
-.dark select:focus {
+.dark input:not(.search-input-borderless):focus,
+.dark textarea:not(.search-input-borderless):focus,
+.dark select:not(.search-input-borderless):focus {
     border-color: #3b82f6 !important;
     box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25) !important;
 }
