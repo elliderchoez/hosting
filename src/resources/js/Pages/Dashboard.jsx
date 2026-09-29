@@ -37,18 +37,6 @@ export default function Dashboard({ auth, profile, projects }) {
     const mainProjects = visibleProjects.filter(p => !p.is_backend_service);
     const backendServices = visibleProjects.filter(p => p.is_backend_service);
 
-    // Polling en segundo plano para mantener los estados de los proyectos sincronizados en tiempo real (cada 5 segundos)
-    useEffect(() => {
-        const interval = setInterval(() => {
-            router.reload({
-                only: ['projects'],
-                preserveState: true,
-                preserveScroll: true
-            });
-        }, 5000);
-        return () => clearInterval(interval);
-    }, []);
-
     // Form for adding new project
     const projectForm = useForm({
         deployment_mode: 'fullstack',
@@ -68,6 +56,21 @@ export default function Dashboard({ auth, profile, projects }) {
         env_vars: '',
         attach_to_project_id: ''
     });
+
+    // Polling en segundo plano para mantener los estados de los proyectos sincronizados en tiempo real (cada 5 segundos)
+    useEffect(() => {
+        if (isAddProjectOpen || projectForm.processing) return;
+
+        const interval = setInterval(() => {
+            if (isAddProjectOpen || projectForm.processing) return;
+            router.reload({
+                only: ['projects'],
+                preserveState: true,
+                preserveScroll: true
+            });
+        }, 5000);
+        return () => clearInterval(interval);
+    }, [isAddProjectOpen, projectForm.processing]);
 
     // Auto-linking: subdominio del backend seleccionado para inyectar URLs en env_vars
     const [linkedBackend, setLinkedBackend] = useState('');
@@ -226,8 +229,9 @@ export default function Dashboard({ auth, profile, projects }) {
     useEffect(() => {
         const algunProyectoCompilando = projects.some(p => p.status === 'building');
 
-        if (algunProyectoCompilando) {
+        if (algunProyectoCompilando && !isAddProjectOpen && !projectForm.processing) {
             const interval = setInterval(() => {
+                if (isAddProjectOpen || projectForm.processing) return;
                 router.reload({
                     only: ['projects'],
                     preserveState: true,
@@ -237,7 +241,35 @@ export default function Dashboard({ auth, profile, projects }) {
 
             return () => clearInterval(interval);
         }
-    }, [projects]);
+    }, [projects, isAddProjectOpen, projectForm.processing]);
+
+    // Fetch container/build logs
+    const fetchLogs = (project) => {
+        setLoadingLogs(true);
+        setActiveLogsProject(project);
+        axios.get(route('projects.logs', project.id))
+            .then(res => {
+                setLogs(res.data);
+                setLoadingLogs(false);
+            })
+            .catch(err => {
+                console.error("Error loading logs:", err);
+                setLoadingLogs(false);
+            });
+    };
+
+    // Si el proyecto recién enviado ya aparece registrado en la lista de proyectos, cerrar modal y abrir visor de logs
+    useEffect(() => {
+        if (isAddProjectOpen && projectForm.data.subdomain) {
+            const target = projectForm.data.subdomain.toLowerCase().trim();
+            const createdProj = projects.find(p => p.subdomain && p.subdomain.toLowerCase() === target);
+            if (createdProj) {
+                projectForm.reset();
+                setIsAddProjectOpen(false);
+                fetchLogs(createdProj);
+            }
+        }
+    }, [projects, isAddProjectOpen]);
 
     // Recargar logs en tiempo real cada 3 segundos si el visor de logs está abierto
     useEffect(() => {
@@ -268,22 +300,6 @@ export default function Dashboard({ auth, profile, projects }) {
                 }
             }
         });
-    };
-
-
-    // Fetch container/build logs
-    const fetchLogs = (project) => {
-        setLoadingLogs(true);
-        setActiveLogsProject(project);
-        axios.get(route('projects.logs', project.id))
-            .then(res => {
-                setLogs(res.data);
-                setLoadingLogs(false);
-            })
-            .catch(err => {
-                console.error("Error loading logs:", err);
-                setLoadingLogs(false);
-            });
     };
 
     // Start container

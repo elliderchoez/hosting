@@ -103,7 +103,15 @@ class BuildProjectJob implements ShouldQueue
                 $logs .= "Advertencia: No se detectaron archivos de lenguajes específicos. Configurando servidor estático por defecto (PHP).\n";
                 $language = 'php';
             }
-            $logs .= "Lenguaje detectado: $language\n";
+            $displayLanguage = match(strtolower((string) $language)) {
+                'nodejs' => 'JavaScript / TypeScript (Entorno: Node.js)',
+                'php'    => 'PHP',
+                'python' => 'Python',
+                'java'   => 'Java',
+                'dotnet' => 'C# (.NET)',
+                default  => ucfirst((string) $language),
+            };
+            $logs .= "Lenguaje detectado: $displayLanguage\n";
             $project->language = $language;
 
             // Detectar framework o librería específica

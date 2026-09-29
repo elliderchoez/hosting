@@ -57,7 +57,6 @@ class BuildProjectAction
     private function buildNodeJs(Project $project, string $path, string $uid, string $gid): array
     {
         $output = "";
-        $npmCacheDir = $this->getCacheDir('npm');
 
         // Auto-instalar el driver de BD si el proyecto no lo tiene en dependencias
         $packageJsonPath = $path . '/package.json';
@@ -70,6 +69,20 @@ class BuildProjectAction
 
             $subDirs = ['api', 'client', 'frontend', 'backend', 'server', 'web', 'app'];
 
+            // Escanear subproyectos para detectar si el driver ya está declarado en api/server/backend
+            foreach ($subDirs as $sd) {
+                $subPkg = $path . '/' . $sd . '/package.json';
+                if (File::exists($subPkg)) {
+                    $subJson = json_decode(File::get($subPkg), true) ?? [];
+                    $deps = array_merge(
+                        $deps,
+                        $subJson['dependencies'] ?? [],
+                        $subJson['devDependencies'] ?? []
+                    );
+                }
+            }
+
+            $this->ensureCacheVolumes();
             if ($project->db_driver === 'mysql') {
                 if (!isset($deps['mysql']) && !isset($deps['mysql2'])) {
                     $output .= "Detectado proyecto Node.js sin driver de MySQL. Instalando mysql2 automáticamente...\n";
@@ -77,11 +90,11 @@ class BuildProjectAction
                         'docker', 'run', '--rm',
                         '-u', "$uid:$gid",
                         '-v', "$path:/app",
-                        '-v', "$npmCacheDir:/tmp/npm-cache",
+                        '-v', 'uleam_npm_cache:/tmp/npm-cache',
                         '-e', 'npm_config_cache=/tmp/npm-cache',
                         '-w', '/app',
                         'node:18-alpine',
-                        'npm', 'install', 'mysql2', '--no-audit', '--no-fund', '--save', '--prefer-offline', '--legacy-peer-deps'
+                        'npm', 'install', 'mysql2', '--no-audit', '--no-fund', '--save', '--prefer-offline'
                     ];
                     $dbResult = $this->runCommand($dbCommand);
                     $output .= $dbResult['output'] . "\n";
@@ -93,11 +106,11 @@ class BuildProjectAction
                         'docker', 'run', '--rm',
                         '-u', "$uid:$gid",
                         '-v', "$path:/app",
-                        '-v', "$npmCacheDir:/tmp/npm-cache",
+                        '-v', 'uleam_npm_cache:/tmp/npm-cache',
                         '-e', 'npm_config_cache=/tmp/npm-cache',
                         '-w', '/app',
                         'node:18-alpine',
-                        'npm', 'install', 'pg', '--no-audit', '--no-fund', '--save', '--prefer-offline', '--legacy-peer-deps'
+                        'npm', 'install', 'pg', '--no-audit', '--no-fund', '--save', '--prefer-offline'
                     ];
                     $dbResult = $this->runCommand($dbCommand);
                     $output .= $dbResult['output'] . "\n";
@@ -149,14 +162,14 @@ class BuildProjectAction
                                 'docker', 'run', '--rm',
                                 '-u', "$uid:$gid",
                                 '-v', "$path:/app",
-                                '-v', "$npmCacheDir:/tmp/npm-cache",
+                                '-v', 'uleam_npm_cache:/tmp/npm-cache',
                                 '-e', 'npm_config_cache=/tmp/npm-cache',
                                 '-w', '/app',
                                 'node:18-alpine',
                                 'npm', 'install'
                             ],
                             $packagesToInstall,
-                            ['--no-audit', '--no-fund', '--save', '--prefer-offline', '--legacy-peer-deps']
+                            ['--no-audit', '--no-fund', '--save', '--prefer-offline']
                         );
                         $pkgResult = $this->runCommand($installPkgCmd);
                         $output .= $pkgResult['output'] . "\n";
@@ -169,46 +182,25 @@ class BuildProjectAction
             $subDirs = ['api', 'client', 'frontend', 'backend', 'server', 'web', 'app'];
         }
 
-        // 1. Detectar e instalar dependencias en subdirectorios comunes de monorepos (api, client, frontend, backend, etc.)
+        // 1. Detectar e instalar dependencias en subdirectorios comunes de monorepos (api, client, frontend, backend, etc.) con aceleración por volumen local
         foreach ($subDirs as $subDir) {
             $subPackageJson = $path . '/' . $subDir . '/package.json';
             if (File::exists($subPackageJson)) {
-                $output .= "Detectado subproyecto Node.js en '{$subDir}'. Instalando dependencias...\n";
-                $subInstallCmd = [
-                    'docker', 'run', '--rm',
-                    '-u', "$uid:$gid",
-                    '-e', 'NODE_OPTIONS=--openssl-legacy-provider',
-                    '-v', "$path:/app",
-                    '-v', "$npmCacheDir:/tmp/npm-cache",
-                    '-e', 'npm_config_cache=/tmp/npm-cache',
-                    '-w', "/app/{$subDir}",
-                    'node:20-alpine',
-                    'npm', 'install', '--no-audit', '--no-fund', '--prefer-offline', '--legacy-peer-deps'
-                ];
-                $subResult = $this->runCommand($subInstallCmd);
-                $output .= $subResult['output'] . "\n";
+                $subRes = $this->installNodeDependenciesWithSnapshot($project, $path, $subDir, $uid, $gid);
+                $output .= $subRes['output'];
+                if (!$subRes['success']) {
+                    return ['success' => false, 'output' => $output];
+                }
             }
         }
 
-        // 2. Install root dependencies
-        $installCommand = [
-            'docker', 'run', '--rm',
-            '-u', "$uid:$gid",
-            '-e', 'NODE_OPTIONS=--openssl-legacy-provider',
-            '-v', "$path:/app",
-            '-v', "$npmCacheDir:/tmp/npm-cache",
-            '-e', 'npm_config_cache=/tmp/npm-cache',
-            '-w', '/app',
-            'node:20-alpine',
-            'npm', 'install', '--no-audit', '--no-fund', '--prefer-offline', '--legacy-peer-deps'
-        ];
-
-        $output .= "Ejecutando npm install raíz...\n";
-        $result = $this->runCommand($installCommand);
-        $output .= $result['output'];
-
-        if (!$result['success']) {
-            return ['success' => false, 'output' => $output];
+        // 2. Install root dependencies con aceleración por volumen local
+        if (File::exists($path . '/package.json')) {
+            $rootRes = $this->installNodeDependenciesWithSnapshot($project, $path, null, $uid, $gid);
+            $output .= $rootRes['output'];
+            if (!$rootRes['success']) {
+                return ['success' => false, 'output' => $output];
+            }
         }
 
         // Neutralizar URLs de API externas hardcodeadas en Webpack para permitir consumo del backend local
@@ -406,17 +398,18 @@ JS;
                 $pkgFile = ($sd === '.') ? $path . '/package.json' : $path . '/' . $sd . '/package.json';
                 if (File::exists($pkgFile)) {
                     $pkgData = json_decode(File::get($pkgFile), true);
-                    if (isset($pkgData['dependencies']['pg']) || isset($pkgData['devDependencies']['pg'])) {
+                    $pgVer = $pkgData['dependencies']['pg'] ?? $pkgData['devDependencies']['pg'] ?? null;
+                    if ($pgVer && !str_contains($pgVer, '8.')) {
                         $workDir = ($sd === '.') ? '/app' : "/app/{$sd}";
                         $pgUpgradeCmd = [
                             'docker', 'run', '--rm',
                             '-u', "$uid:$gid",
                             '-v', "$path:/app",
-                            '-v', "$npmCacheDir:/tmp/npm-cache",
+                            '-v', 'uleam_npm_cache:/tmp/npm-cache',
                             '-e', 'npm_config_cache=/tmp/npm-cache',
                             '-w', $workDir,
                             'node:20-alpine',
-                            'npm', 'install', 'pg@^8.11.0', '--no-audit', '--no-fund', '--save', '--prefer-offline', '--legacy-peer-deps'
+                            'npm', 'install', 'pg@^8.11.0', '--no-audit', '--no-fund', '--save', '--prefer-offline'
                         ];
                         $this->runCommand($pgUpgradeCmd);
                     }
@@ -440,20 +433,19 @@ JS;
             ];
         }
 
-        $composerCacheDir = $this->getCacheDir('composer');
-
+        $this->ensureCacheVolumes();
         $command = [
             'docker', 'run', '--rm',
             '-u', "$uid:$gid",
             '-v', "$path:/app",
-            '-v', "$composerCacheDir:/tmp/cache",
+            '-v', "uleam_composer_cache:/tmp/cache",
             '-e', 'COMPOSER_CACHE_DIR=/tmp/cache',
             '-w', '/app',
             'composer:latest',
             'composer', 'install', '--prefer-dist', '--optimize-autoloader', '--no-interaction', '--ignore-platform-reqs', '--no-scripts'
         ];
 
-        $output = "Ejecutando composer install...\n";
+        $output = "Ejecutando composer install desde caché local...\n";
         $result = $this->runCommand($command);
         $output .= $result['output'];
 
@@ -553,20 +545,8 @@ JS;
 
             if ($buildScript && !$hasPrecompiledAssets) {
                 $output .= "\nDetectado package.json en proyecto PHP sin assets precompilados. Instalando dependencias de frontend...\n";
-                $npmCacheDir = $this->getCacheDir('npm');
-                $npmInstallCmd = [
-                    'docker', 'run', '--rm',
-                    '-u', "$uid:$gid",
-                    '-e', 'NODE_OPTIONS=--openssl-legacy-provider',
-                    '-v', "$path:/app",
-                    '-v', "$npmCacheDir:/tmp/npm-cache",
-                    '-e', 'npm_config_cache=/tmp/npm-cache',
-                    '-w', '/app',
-                    'node:20-alpine',
-                    'npm', 'install', '--no-audit', '--no-fund', '--ignore-scripts', '--prefer-offline', '--legacy-peer-deps'
-                ];
-                $npmResult = $this->runCommand($npmInstallCmd);
-                $output .= $npmResult['output'] . "\n";
+                $npmRes = $this->installNodeDependenciesWithSnapshot($project, $path, null, $uid, $gid);
+                $output .= $npmRes['output'] . "\n";
 
                 $output .= "Compilando assets de frontend (npm run {$buildScript})...\n";
                 $npmBuildCmd = [
@@ -612,8 +592,7 @@ JS;
             ];
         }
 
-        $pipCacheDir = $this->getCacheDir('pip');
-
+        $this->ensureCacheVolumes();
         $installCmd = 'python -m venv .venv';
         if ($hasRequirements) {
             $installCmd .= ' && .venv/bin/pip install --prefer-binary -r requirements.txt';
@@ -628,14 +607,14 @@ JS;
             'docker', 'run', '--rm',
             '-u', "$uid:$gid",
             '-v', "$path:/app",
-            '-v', "$pipCacheDir:/tmp/pip-cache",
+            '-v', "uleam_pip_cache:/tmp/pip-cache",
             '-e', 'PIP_CACHE_DIR=/tmp/pip-cache',
             '-w', '/app',
             'python:3.12-alpine',
             'sh', '-c', $installCmd
         ];
 
-        $output = "Creando entorno virtual e instalando requerimientos de Python...\n";
+        $output = "Creando entorno virtual e instalando requerimientos de Python desde caché local...\n";
         $result = $this->runCommand($command);
         $output .= $result['output'];
 
@@ -670,16 +649,153 @@ JS;
     }
 
     /**
-     * Asegura la existencia y permisos de directorios de caché compartidos entre compilaciones.
+     * Asegura la existencia y permisos 777 de los volúmenes de caché locales de Docker (NVMe nativo).
      */
-    private function getCacheDir(string $subDir): string
+    private function ensureCacheVolumes(): void
     {
-        $cachePath = storage_path("app/caches/{$subDir}");
-        if (!File::exists($cachePath)) {
-            File::makeDirectory($cachePath, 0777, true, true);
+        static $ensured = false;
+        if ($ensured) {
+            return;
         }
-        @chmod($cachePath, 0777);
-        return $cachePath;
+
+        $volumes = ['uleam_npm_cache', 'uleam_composer_cache', 'uleam_pip_cache', 'uleam_m2_cache', 'uleam_gradle_cache', 'uleam_nuget_cache'];
+        foreach ($volumes as $vol) {
+            $this->runCommand(['docker', 'volume', 'create', $vol]);
+        }
+
+        $this->runCommand([
+            'docker', 'run', '--rm',
+            '-v', 'uleam_npm_cache:/npm',
+            '-v', 'uleam_composer_cache:/composer',
+            '-v', 'uleam_pip_cache:/pip',
+            '-v', 'uleam_m2_cache:/m2',
+            '-v', 'uleam_gradle_cache:/gradle',
+            '-v', 'uleam_nuget_cache:/nuget',
+            'alpine', 'chmod', '-R', '777', '/npm', '/composer', '/pip', '/m2', '/gradle', '/nuget'
+        ]);
+
+        $ensured = true;
+    }
+
+    /**
+     * Instala dependencias Node.js con aceleración por caché local de paquetes (tarballs) en volumen Docker nativo y modernización de Lockfiles.
+     */
+    private function installNodeDependenciesWithSnapshot(Project $project, string $path, ?string $subDir, string $uid, string $gid): array
+    {
+        $this->ensureCacheVolumes();
+        $targetDir = $subDir ? $path . '/' . $subDir : $path;
+        $packageJsonPath = $targetDir . '/package.json';
+        if (!File::exists($packageJsonPath)) {
+            return ['success' => true, 'output' => ''];
+        }
+
+        $dirLabel = $subDir ? "'{$subDir}'" : 'raíz';
+        $manifestHash = md5_file($packageJsonPath);
+        $targetLock = $targetDir . '/package-lock.json';
+
+        // 1. Inyectar Lockfile modernizado si existe en la caché (evita consultas de metadatos en internet para proyectos viejos)
+        $this->injectModernLockfile('node', $manifestHash, $targetLock);
+
+        // Pre-parchear pg si es PostgreSQL para soportar SCRAM-SHA-256 en la primera pasada
+        if ($project->db_driver === 'pgsql') {
+            try {
+                $pkgData = json_decode(File::get($packageJsonPath), true);
+                $pgModified = false;
+                if (isset($pkgData['dependencies']['pg'])) {
+                    $v = preg_replace('/[^0-9.]/', '', $pkgData['dependencies']['pg']);
+                    if (version_compare($v, '8.0.0', '<')) {
+                        $pkgData['dependencies']['pg'] = '^8.11.0';
+                        $pgModified = true;
+                    }
+                }
+                if (isset($pkgData['devDependencies']['pg'])) {
+                    $v = preg_replace('/[^0-9.]/', '', $pkgData['devDependencies']['pg']);
+                    if (version_compare($v, '8.0.0', '<')) {
+                        $pkgData['devDependencies']['pg'] = '^8.11.0';
+                        $pgModified = true;
+                    }
+                }
+                if ($pgModified) {
+                    File::put($packageJsonPath, json_encode($pkgData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+                }
+            } catch (\Exception $e) {
+                // Ignore parse errors
+            }
+        }
+
+        $output = "";
+        $workDir = $subDir ? "/app/{$subDir}" : '/app';
+
+        // 2. Ejecutar npm install con caché en volumen Docker NVMe ultra-rápido y paquetes locales
+        $cmd = [
+            'docker', 'run', '--rm',
+            '-u', "$uid:$gid",
+            '-e', 'NODE_OPTIONS=--openssl-legacy-provider',
+            '-v', "$path:/app",
+            '-v', 'uleam_npm_cache:/tmp/npm-cache',
+            '-e', 'npm_config_cache=/tmp/npm-cache',
+            '-w', $workDir,
+            'node:20-alpine',
+            'npm', 'install', '--no-audit', '--no-fund', '--prefer-offline'
+        ];
+
+        $output .= "Instalando dependencias en {$dirLabel} desde caché local de paquetes...\n";
+        $result = $this->runCommand($cmd);
+        $output .= $result['output'] . "\n";
+
+        // Fallback automático para proyectos heredados con conflictos estrictos de peer dependencies
+        if (!$result['success'] && str_contains($result['output'], 'ERESOLVE')) {
+            $fallbackCmd = array_merge($cmd, ['--legacy-peer-deps']);
+            $result = $this->runCommand($fallbackCmd);
+            $output .= $result['output'] . "\n";
+        }
+
+        if (!$result['success']) {
+            return ['success' => false, 'output' => $output];
+        }
+
+        // 3. Guardar el lockfile modernizado resultante para futuros proyectos
+        $this->saveModernLockfile('node', $manifestHash, $targetLock);
+
+        return ['success' => true, 'output' => $output];
+    }
+
+    /**
+     * Inyecta un lockfile modernizado desde la caché para evitar que npm consulte metadatos por internet.
+     */
+    private function injectModernLockfile(string $tech, string $hash, string $targetFile): bool
+    {
+        $cachedLock = storage_path("app/caches/locks/{$tech}/{$hash}.lock");
+        if (File::exists($cachedLock)) {
+            @copy($cachedLock, $targetFile);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Guarda el lockfile modernizado resultante para futuros proyectos.
+     */
+    private function saveModernLockfile(string $tech, string $hash, string $sourceFile): void
+    {
+        if (!File::exists($sourceFile)) {
+            return;
+        }
+        $cachedLock = storage_path("app/caches/locks/{$tech}/{$hash}.lock");
+        if (File::exists($cachedLock)) {
+            return;
+        }
+
+        try {
+            $content = @file_get_contents($sourceFile);
+            if ($content && (str_contains($content, '"lockfileVersion": 2') || str_contains($content, '"lockfileVersion": 3') || str_contains($content, '"content-hash"'))) {
+                File::ensureDirectoryExists(dirname($cachedLock), 0777, true);
+                @file_put_contents($cachedLock, $content);
+                @chmod($cachedLock, 0777);
+            }
+        } catch (\Exception $e) {
+            // Ignore lock save errors
+        }
     }
 
     /**
@@ -721,15 +837,14 @@ JS;
             return ['success' => false, 'output' => "No se encontró pom.xml ni build.gradle. No se puede compilar el proyecto Java."];
         }
 
-        $m2CacheDir = $this->getCacheDir('m2');
-        $gradleCacheDir = $this->getCacheDir('gradle');
+        $this->ensureCacheVolumes();
 
         if ($isMaven) {
             $output .= "Detectado proyecto Maven. Ejecutando mvn package...\n";
             $command = [
                 'docker', 'run', '--rm',
                 '-v', "$path:/app",
-                '-v', "$m2CacheDir:/tmp/.m2/repository",
+                '-v', "uleam_m2_cache:/tmp/.m2/repository",
                 '-w', '/app',
                 'maven:3.9-eclipse-temurin-17-alpine',
                 'mvn', '-q', 'package', '-DskipTests', '-Dmaven.repo.local=/tmp/.m2/repository'
@@ -740,7 +855,7 @@ JS;
             $command = [
                 'docker', 'run', '--rm',
                 '-v', "$path:/app",
-                '-v', "$gradleCacheDir:/tmp/.gradle",
+                '-v', "uleam_gradle_cache:/tmp/.gradle",
                 '-e', 'GRADLE_USER_HOME=/tmp/.gradle',
                 '-w', '/app',
                 'gradle:8.5-jdk17-alpine',
@@ -776,13 +891,13 @@ JS;
             $csprojFiles = glob($path . '/*/*.csproj');
         }
 
-        $nugetCacheDir = $this->getCacheDir('nuget');
+        $this->ensureCacheVolumes();
         $publishCommand = 'dotnet publish -c Release -o /app/publish --nologo -v q';
 
         $command = [
             'docker', 'run', '--rm',
             '-v', "$path:/app",
-            '-v', "$nugetCacheDir:/tmp/nuget-cache",
+            '-v', "uleam_nuget_cache:/tmp/nuget-cache",
             '-e', 'NUGET_PACKAGES=/tmp/nuget-cache',
             '-w', '/app',
             'mcr.microsoft.com/dotnet/sdk:8.0-alpine',
@@ -817,12 +932,12 @@ JS;
         // 1. Si el proyecto tiene composer.json pero no se instaló vendor, correr composer install para que quede en el build y en el host
         if (File::exists($path . '/composer.json') && !File::exists($path . '/vendor')) {
             $output .= "Instalando dependencias de Composer antes de compilar Dockerfile...\n";
-            $composerCacheDir = $this->getCacheDir('composer');
+            $this->ensureCacheVolumes();
             $compCmd = [
                 'docker', 'run', '--rm',
                 '-u', "$uid:$gid",
                 '-v', "$path:/app",
-                '-v', "$composerCacheDir:/tmp/cache",
+                '-v', "uleam_composer_cache:/tmp/cache",
                 '-e', 'COMPOSER_CACHE_DIR=/tmp/cache',
                 '-w', '/app',
                 'composer:latest',

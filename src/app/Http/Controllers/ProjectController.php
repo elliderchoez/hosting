@@ -459,33 +459,52 @@ class ProjectController extends Controller
         if ($project->backend_project_id) {
             $backend = Project::where('user_id', Auth::id())->find($project->backend_project_id);
             if ($backend && $backend->is_backend_service) {
-                $this->cleanupProjectResources($backend, $stopAction);
+                try {
+                    $this->cleanupProjectResources($backend, $stopAction);
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning("Error limpiando recursos de backend {$backend->id}: " . $e->getMessage());
+                }
                 $backend->delete();
             }
         }
 
         // 2. Limpiar recursos del proyecto principal
-        $this->cleanupProjectResources($project, $stopAction);
+        try {
+            $this->cleanupProjectResources($project, $stopAction);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Error limpiando recursos de proyecto {$project->id}: " . $e->getMessage());
+        }
+
+        // 3. Eliminar registro en base de datos
         $project->delete();
 
         return redirect()->route('dashboard')->with('status', 'Proyecto eliminado exitosamente.');
     }
 
     /**
-     * Detener contenedor, limpiar archivos y eliminar base de datos de un proyecto.
+     * Detener contenedor, limpiar archivos y eliminar base de datos de un proyecto de forma inmediata.
      */
     private function cleanupProjectResources(Project $project, StopProjectContainerAction $stopAction): void
     {
-        // 1. Stop and remove Docker container
-        $stopAction->execute($project);
-
-        // 2. Clean project storage directory
-        $projectPath = storage_path("app/projects/project-{$project->id}");
-        if (File::exists($projectPath)) {
-            File::deleteDirectory($projectPath);
+        // 1. Detener y eliminar contenedor Docker (sin reset redundante de base de datos)
+        try {
+            $stopAction->execute($project, false);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Error deteniendo contenedor de {$project->id}: " . $e->getMessage());
         }
 
-        // Clean database and database user if present
+        // 2. Limpiar directorio de almacenamiento físico de manera instantánea y asíncrona
+        // En unidades externas / FUSE / NTFS, borrar miles de archivos con rm -rf síncrono causa ProcessTimedOutException (>60s).
+        // Mover a .trash es instantáneo (1ms) y se borra en background con nohup.
+        $projectPath = storage_path("app/projects/project-{$project->id}");
+        if (File::exists($projectPath)) {
+            $trashPath = storage_path("app/projects/.trash-" . uniqid() . "-{$project->id}");
+            @rename($projectPath, $trashPath);
+            $targetToDelete = File::exists($trashPath) ? $trashPath : $projectPath;
+            exec("nohup rm -rf " . escapeshellarg($targetToDelete) . " > /dev/null 2>&1 &");
+        }
+
+        // 3. Eliminar base de datos y usuario asociado
         if (!empty($project->db_name)) {
             try {
                 $dbname = $project->db_name;
@@ -493,7 +512,27 @@ class ProjectController extends Controller
                 if ($project->db_driver === 'mysql') {
                     \Illuminate\Support\Facades\DB::connection('students_mysql')->statement("DROP DATABASE IF EXISTS {$dbname};");
                     \Illuminate\Support\Facades\DB::connection('students_mysql')->statement("DROP USER IF EXISTS '{$dbuser}'@'%';");
+                } elseif ($project->db_driver === 'mongodb') {
+                    $checkCli = new \Symfony\Component\Process\Process(['docker', 'exec', 'uleam_mongodb_students', 'which', 'mongosh']);
+                    $checkCli->run();
+                    $mongoCli = $checkCli->isSuccessful() ? 'mongosh' : 'mongo';
+                    (new \Symfony\Component\Process\Process([
+                        'docker', 'exec', 'uleam_mongodb_students', $mongoCli,
+                        '-u', 'root', '-p', 'uleam_mongo_pass',
+                        '--authenticationDatabase', 'admin',
+                        '--eval', "db.getSiblingDB('{$dbname}').dropDatabase(); try { db.getSiblingDB('{$dbname}').dropUser('{$dbuser}'); } catch(e){}"
+                    ]))->run();
                 } else {
+                    try {
+                        \Illuminate\Support\Facades\DB::connection('students_postgres')->select("
+                            SELECT pg_terminate_backend(pg_stat_activity.pid)
+                            FROM pg_stat_activity
+                            WHERE pg_stat_activity.datname = '{$dbname}'
+                              AND pid <> pg_backend_pid();
+                        ");
+                    } catch (\Throwable $e) {
+                        // Ignorar si no había conexiones activas
+                    }
                     \Illuminate\Support\Facades\DB::connection('students_postgres')->statement("DROP DATABASE IF EXISTS {$dbname};");
                     \Illuminate\Support\Facades\DB::connection('students_postgres')->statement("DROP USER IF EXISTS {$dbuser};");
                 }
