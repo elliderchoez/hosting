@@ -926,15 +926,17 @@ class BuildProjectJob implements ShouldQueue
             }
 
             // Auto-completar instalación para proyectos con asistentes web (Zero-Click para evaluadores)
-            // 1. Archivos bandera estándar de instalación en Laravel / CMS
-            foreach (['database_created', 'installed', '.installed', 'setup_completed'] as $flag) {
+            // 1. Archivos bandera estándar de instalación en Laravel / CMS / Web Wizards
+            foreach (['database_created', 'installed', '.installed', 'setup_completed', 'install.lock', 'installed.lock', 'installed.txt'] as $flag) {
                 @touch($projectPath . '/storage/app/' . $flag);
                 @touch($projectPath . '/storage/' . $flag);
+                @touch($projectPath . '/' . $flag);
             }
 
-            // 2. Si el proyecto tiene tabla o modelo Setting, marcar flags de completado automáticamente
+            // 2. Motor de Auto-Inicialización Universal para frameworks y asistentes web
             $postInstallTinker = <<<'PHP'
 try {
+    // A. Crater Invoicing
     if (class_exists('Crater\Models\Setting')) {
         \Crater\Models\Setting::updateOrCreate(['option' => 'profile_complete'], ['value' => 'COMPLETED']);
         \Crater\Models\Setting::updateOrCreate(['option' => 'version'], ['value' => '6.0.6']);
@@ -967,26 +969,100 @@ try {
         }
     }
 
-    // Auto-detección y provisión universal de usuario administrador para pruebas
-    if (\Illuminate\Support\Facades\Schema::hasTable('users')) {
-        $firstUser = \Illuminate\Support\Facades\DB::table('users')->first();
-        if ($firstUser) {
-            \Illuminate\Support\Facades\DB::table('users')->where('id', $firstUser->id)->update([
-                'password' => \Illuminate\Support\Facades\Hash::make('password')
-            ]);
-            echo "AUTH_USER:" . $firstUser->email . PHP_EOL;
-        } else {
-            $cols = \Illuminate\Support\Facades\Schema::getColumnListing('users');
-            $data = [
-                'email' => 'admin@example.com',
-                'password' => \Illuminate\Support\Facades\Hash::make('password'),
-            ];
-            if (in_array('name', $cols)) $data['name'] = 'Admin Evaluador';
-            if (in_array('role', $cols)) $data['role'] = 'admin';
-            if (in_array('created_at', $cols)) $data['created_at'] = now();
-            if (in_array('updated_at', $cols)) $data['updated_at'] = now();
-            \Illuminate\Support\Facades\DB::table('users')->insert($data);
-            echo "AUTH_USER:admin@example.com" . PHP_EOL;
+    // B. Invoice Ninja & Sistemas Multi-Tenant con Cuentas
+    if (\Illuminate\Support\Facades\Schema::hasTable('accounts')) {
+        $accCount = \Illuminate\Support\Facades\DB::table('accounts')->count();
+        if ($accCount === 0) {
+            try {
+                \Illuminate\Support\Facades\Artisan::call('ninja:create-account', [
+                    '--email' => 'admin@example.com',
+                    '--password' => 'password',
+                ]);
+            } catch (\Throwable $e) {}
+        }
+        // Usar la interfaz Flutter Web precompilada del repositorio oficial
+        try {
+            \Illuminate\Support\Facades\DB::table('accounts')->update(['set_react_as_default_ap' => 0]);
+        } catch (\Throwable $e) {}
+    }
+
+    // C. Tablas de Configuración y Asistentes Web Generales (settings, configs, options)
+    foreach (['settings', 'configs', 'options', 'app_settings', 'system_settings'] as $table) {
+        if (\Illuminate\Support\Facades\Schema::hasTable($table)) {
+            $cols = \Illuminate\Support\Facades\Schema::getColumnListing($table);
+            $keyCol = in_array('key', $cols) ? 'key' : (in_array('option', $cols) ? 'option' : (in_array('name', $cols) ? 'name' : null));
+            $valCol = in_array('value', $cols) ? 'value' : (in_array('val', $cols) ? 'val' : null);
+            if ($keyCol && $valCol) {
+                $setupFlags = [
+                    'installed' => '1',
+                    'setup_completed' => '1',
+                    'is_installed' => '1',
+                    'app_installed' => '1',
+                    'first_run' => '0',
+                    'wizard_completed' => '1',
+                ];
+                foreach ($setupFlags as $k => $v) {
+                    if (\Illuminate\Support\Facades\DB::table($table)->where($keyCol, $k)->exists()) {
+                        \Illuminate\Support\Facades\DB::table($table)->where($keyCol, $k)->update([$valCol => $v]);
+                    }
+                }
+            }
+        }
+    }
+
+    // D. Auto-detección y provisión universal de usuario administrador para pruebas
+    $targetTables = ['users', 'admins', 'administrators', 'administradores'];
+    foreach ($targetTables as $userTable) {
+        if (\Illuminate\Support\Facades\Schema::hasTable($userTable)) {
+            $cols = \Illuminate\Support\Facades\Schema::getColumnListing($userTable);
+            $firstUser = \Illuminate\Support\Facades\DB::table($userTable)->first();
+            $updateData = [];
+            if (in_array('password', $cols)) $updateData['password'] = \Illuminate\Support\Facades\Hash::make('password');
+            if (in_array('is_admin', $cols)) $updateData['is_admin'] = 1;
+            if (in_array('admin', $cols)) $updateData['admin'] = 1;
+            if (in_array('is_superadmin', $cols)) $updateData['is_superadmin'] = 1;
+            if (in_array('role', $cols)) $updateData['role'] = 'admin';
+            if (in_array('role_id', $cols)) $updateData['role_id'] = 1;
+            if (in_array('status', $cols)) $updateData['status'] = 'active';
+            if (in_array('email_verified_at', $cols)) $updateData['email_verified_at'] = now();
+
+            if ($firstUser) {
+                \Illuminate\Support\Facades\DB::table($userTable)->where('id', $firstUser->id)->update($updateData);
+                if (isset($firstUser->email)) {
+                    echo "AUTH_USER:" . $firstUser->email . PHP_EOL;
+                }
+            } else {
+                $insertData = array_merge($updateData, [
+                    'email' => 'admin@example.com',
+                    'password' => \Illuminate\Support\Facades\Hash::make('password'),
+                ]);
+                if (in_array('name', $cols)) $insertData['name'] = 'Admin Evaluador';
+                if (in_array('first_name', $cols)) $insertData['first_name'] = 'Admin';
+                if (in_array('last_name', $cols)) $insertData['last_name'] = 'Evaluador';
+                if (in_array('created_at', $cols)) $insertData['created_at'] = now();
+                if (in_array('updated_at', $cols)) $insertData['updated_at'] = now();
+                \Illuminate\Support\Facades\DB::table($userTable)->insert($insertData);
+                echo "AUTH_USER:admin@example.com" . PHP_EOL;
+            }
+
+            // Asignación de Roles en Spatie Permission / Bouncer si están disponibles
+            if (\Illuminate\Support\Facades\Schema::hasTable('roles') && \Illuminate\Support\Facades\Schema::hasTable('model_has_roles')) {
+                try {
+                    $adminRole = \Illuminate\Support\Facades\DB::table('roles')
+                        ->where('name', 'like', '%admin%')
+                        ->orWhere('name', 'Super Admin')
+                        ->first();
+                    if ($adminRole) {
+                        $targetUserId = $firstUser ? $firstUser->id : 1;
+                        \Illuminate\Support\Facades\DB::table('model_has_roles')->updateOrInsert([
+                            'role_id' => $adminRole->id,
+                            'model_id' => $targetUserId,
+                            'model_type' => 'App\\Models\\User'
+                        ]);
+                    }
+                } catch (\Throwable $e) {}
+            }
+            break;
         }
     }
 } catch (\Throwable $e) {}
@@ -1027,9 +1103,28 @@ PHP;
 
         // 2. Django (Python)
         if (\Illuminate\Support\Facades\File::exists($projectPath . '/manage.py')) {
-            $logs .= "--- PASO 3.6: Framework Django Detectado: Ejecutando Migraciones ---\n";
+            $logs .= "--- PASO 3.6: Framework Django Detectado: Ejecutando Migraciones y Superusuario ---\n";
             
-            // Inyectar variables de entorno para la base de datos (Django suele leerlas)
+            // Inyectar variables de entorno para la base de datos y correr migraciones + superusuario
+            $djangoScript = <<<'PY'
+import os
+import django
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', os.environ.get('DJANGO_SETTINGS_MODULE', ''))
+django.setup()
+from django.contrib.auth import get_user_model
+User = get_user_model()
+try:
+    if not User.objects.filter(is_superuser=True).exists():
+        User.objects.create_superuser('admin', 'admin@example.com', 'password')
+        print('AUTH_USER:admin')
+    else:
+        u = User.objects.filter(is_superuser=True).first()
+        u.set_password('password')
+        u.save()
+        print(f'AUTH_USER:{u.username}')
+except Exception as e:
+    pass
+PY;
             $command = [
                 'docker', 'run', '--rm',
                 '--network', 'uleam_academic_network',
@@ -1041,12 +1136,17 @@ PHP;
                 '-e', "DB_DATABASE={$project->db_name}",
                 '-e', "DB_USERNAME={$project->db_user}",
                 '-e', "DB_PASSWORD={$project->db_password}",
-                // Si la app lee DATABASE_URL
                 '-e', "DATABASE_URL=" . ($project->db_driver === 'mysql' ? 'mysql' : 'postgres') . "://{$project->db_user}:{$project->db_password}@{$dbHost}:{$dbPort}/{$project->db_name}",
                 'python:3.12-alpine',
-                'sh', '-c', '.venv/bin/python manage.py migrate'
+                'sh', '-c', ".venv/bin/python manage.py migrate && .venv/bin/python -c \"{$djangoScript}\" || true"
             ];
             $this->executeMigrationCommand($command, $logs);
+
+            if (empty($project->demo_instructions) || !str_contains($project->demo_instructions, 'Clave:')) {
+                $project->demo_instructions = "Acceso predeterminado para pruebas (Django Admin):\nUsuario: admin\nClave: password\n\nEl sistema incluye base de datos y superusuario listos para evaluar.";
+                $project->save();
+            }
+
             $this->generateInitialDatabaseSnapshot($project, $projectPath);
             return;
         }
@@ -1300,6 +1400,12 @@ PHP;
             'FILESYSTEM_DISK' => 'public',
             'SANCTUM_STATEFUL_DOMAINS' => "{$project->subdomain}.localhost,localhost,127.0.0.1",
             'SESSION_DOMAIN' => '',
+            'APP_INSTALLED' => 'true',
+            'INSTALLED' => 'true',
+            'SETUP_COMPLETED' => 'true',
+            'PRECONFIGURED_INSTALL' => 'true',
+            'INSTALL' => 'false',
+            'ALREADY_INSTALLED' => 'true',
         ];
 
         // Buscar posibles ubicaciones de .env (.env en raíz, en backend, api, server)
