@@ -288,6 +288,12 @@ class BuildProjectAction
         if (File::exists($packageJsonPath)) {
             $packageJson = json_decode(File::get($packageJsonPath), true);
             if (isset($packageJson['scripts']['build'])) {
+                // Si el script de build hace npm install en subdirectorios, asegurar --legacy-peer-deps para Node 18/20
+                if (str_contains($packageJson['scripts']['build'], 'npm install') && !str_contains($packageJson['scripts']['build'], '--legacy-peer-deps')) {
+                    $packageJson['scripts']['build'] = str_replace('npm install', 'npm install --legacy-peer-deps', $packageJson['scripts']['build']);
+                    File::put($packageJsonPath, json_encode($packageJson, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+                }
+
                 $output .= "\nEjecutando npm run build...\n";
                 $pathExports = "export PATH=\$PATH:/app/node_modules/.bin:/app/api/node_modules/.bin:/app/client/node_modules/.bin:/app/frontend/node_modules/.bin:/app/backend/node_modules/.bin:/app/server/node_modules/.bin && export NODE_OPTIONS=--openssl-legacy-provider && export PUBLIC_URL=. && export CI=false";
                 $buildCommand = [
@@ -310,6 +316,41 @@ class BuildProjectAction
 
                 // 5. Post-procesamiento universal de carpetas de distribución (build, dist, out, public)
                 $this->sanitizeCompiledOutputDirectories($path, $detectedSubpaths);
+            }
+        }
+
+        // Auto-seed para aplicaciones MERN como Amazona (con data.js y routers/userRouter.js)
+        if (File::exists($path . '/backend/server.js') && File::exists($path . '/backend/data.js')) {
+            $serverJsPath = $path . '/backend/server.js';
+            $serverJs = File::get($serverJsPath);
+            if (!str_contains($serverJs, 'Auto-seed initial users and products')) {
+                $seedSnippet = <<<'JS'
+
+// Auto-seed initial users and products for Amazona if collections are empty
+mongoose.connection.once('open', async () => {
+  try {
+    const User = (await import('./models/userModel.js')).default;
+    const Product = (await import('./models/productModel.js')).default;
+    const data = (await import('./data.js')).default;
+    const userCount = await User.countDocuments();
+    if (userCount === 0) {
+      console.log('[Amazona] Auto-seeding initial users and products...');
+      const createdUsers = await User.insertMany(data.users);
+      const seller = createdUsers.find(u => u.isSeller) || createdUsers[0];
+      if (seller) {
+        const products = data.products.map(p => ({ ...p, seller: seller._id }));
+        await Product.insertMany(products);
+        console.log('[Amazona] Database auto-seeded successfully!');
+      }
+    }
+  } catch (err) {
+    console.error('[Amazona] Auto-seed notice:', err.message);
+  }
+});
+JS;
+                $serverJs .= $seedSnippet;
+                File::put($serverJsPath, $serverJs);
+                $output .= "\nAuto-sembrado de catálogo y usuarios administradores configurado para Amazona.\n";
             }
         }
 
@@ -495,6 +536,8 @@ JS;
                     'DB_DATABASE' => $project->db_name,
                     'DB_USERNAME' => $project->db_user,
                     'DB_PASSWORD' => $project->db_password,
+                    'DISABLE_FRAME_HEADER' => 'true',
+                    'AUTHENTICATION_GUARD' => 'web',
                 ];
 
                 $currentEnv = File::get($envPath);
@@ -508,24 +551,15 @@ JS;
                 File::put($envPath, $currentEnv);
             }
             $envContent = File::get($envPath);
-            if (!str_contains($envContent, 'APP_KEY=base64:') || str_contains($envContent, 'APP_KEY=SomeRandomString')) {
+            if (!str_contains($envContent, 'APP_KEY=base64:') || str_contains($envContent, 'APP_KEY=SomeRandomString') || preg_match('/^APP_KEY=\s*$/m', $envContent)) {
+                $newAppKey = 'base64:' . base64_encode(random_bytes(32));
                 if (preg_match('/^APP_KEY=.*/m', $envContent)) {
-                    $envContent = preg_replace('/^APP_KEY=.*/m', 'APP_KEY=', $envContent);
-                    File::put($envPath, $envContent);
-                } elseif (!str_contains($envContent, 'APP_KEY=')) {
-                    File::append($envPath, "\nAPP_KEY=\n");
+                    $envContent = preg_replace('/^APP_KEY=.*/m', "APP_KEY={$newAppKey}", $envContent);
+                } else {
+                    $envContent .= "\nAPP_KEY={$newAppKey}";
                 }
-                $output .= "\nDetectado Laravel sin APP_KEY válido. Generando llave de aplicación...\n";
-                $keyCommand = [
-                    'docker', 'run', '--rm',
-                    '-u', "$uid:$gid",
-                    '-v', "$path:/app",
-                    '-w', '/app',
-                    'webdevops/php:8.4',
-                    'php', 'artisan', 'key:generate', '--force'
-                ];
-                $keyResult = $this->runCommand($keyCommand);
-                $output .= $keyResult['output'] . "\n";
+                File::put($envPath, $envContent);
+                $output .= "\nGenerada llave criptográfica de aplicación (APP_KEY) para Laravel.\n";
             }
         }
 
@@ -536,32 +570,107 @@ JS;
             $scripts = $packageJson['scripts'] ?? [];
             $buildScript = isset($scripts['build']) ? 'build' : (isset($scripts['production']) ? 'production' : (isset($scripts['prod']) ? 'prod' : null));
 
+            // Detectar workspaces con script de build (ej. Firefly III con resources/assets/v3)
+            $workspaceBuild = null;
+            if (!$buildScript && isset($packageJson['workspaces']) && is_array($packageJson['workspaces'])) {
+                foreach ($packageJson['workspaces'] as $ws) {
+                    $wsPkg = $path . '/' . $ws . '/package.json';
+                    if (File::exists($wsPkg)) {
+                        $wsData = json_decode(File::get($wsPkg), true);
+                        if (isset($wsData['scripts']['build'])) {
+                            $buildScript = 'build';
+                            $workspaceBuild = $wsData['name'] ?? $ws;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Detectar si el proyecto usa Vite (en raíz o en workspaces)
+            $isViteProject = File::exists($path . '/vite.config.js') 
+                || File::exists($path . '/vite.config.ts') 
+                || File::exists($path . '/vite.config.mjs')
+                || File::exists($path . '/resources/assets/v3/vite.config.js');
+
+            $hasViteManifest = File::exists($path . '/public/build/manifest.json') 
+                || File::exists($path . '/public/build/.vite/manifest.json');
+
             // Verificar si ya existen assets precompilados en public/
             $hasPrecompiledAssets = File::exists($path . '/public/css') 
                 || File::exists($path . '/public/js') 
-                || File::exists($path . '/public/build') 
+                || $hasViteManifest 
+                || File::exists($path . '/public/packages')
                 || File::exists($path . '/public/akaunting-js')
-                || File::exists($path . '/public/mix-manifest.json');
+                || (File::exists($path . '/public/mix-manifest.json') && !$isViteProject);
 
             if ($buildScript && !$hasPrecompiledAssets) {
                 $output .= "\nDetectado package.json en proyecto PHP sin assets precompilados. Instalando dependencias de frontend...\n";
                 $npmRes = $this->installNodeDependenciesWithSnapshot($project, $path, null, $uid, $gid);
                 $output .= $npmRes['output'] . "\n";
 
-                $output .= "Compilando assets de frontend (npm run {$buildScript})...\n";
+                $buildCmdStr = $workspaceBuild 
+                    ? "export PATH=\$PATH:/app/node_modules/.bin && npm run build --workspace={$workspaceBuild}" 
+                    : "export PATH=\$PATH:/app/node_modules/.bin && npm run {$buildScript}";
+
+                $output .= "Compilando assets de frontend ({$buildCmdStr})...\n";
                 $npmBuildCmd = [
                     'docker', 'run', '--rm',
                     '-u', "$uid:$gid",
                     '-e', 'NODE_OPTIONS=--openssl-legacy-provider',
                     '-v', "$path:/app",
                     '-w', '/app',
-                    'node:20-alpine',
-                    'sh', '-c', "export PATH=\$PATH:/app/node_modules/.bin && npm run {$buildScript}"
+                    'node:20',
+                    'sh', '-c', $buildCmdStr
                 ];
                 $npmBuildResult = $this->runCommand($npmBuildCmd);
                 $output .= $npmBuildResult['output'] . "\n";
+            } elseif (File::exists($path . '/yarn.lock') && !File::exists($path . '/public/packages')) {
+                // Proyectos como Grocy que instalan paquetes web en public/packages mediante Yarn
+                $output .= "\nInstalando dependencias web de interfaz con Yarn (Grocy / PHP)...\n";
+                $yarnCmd = [
+                    'docker', 'run', '--rm',
+                    '-u', "$uid:$gid",
+                    '-v', "$path:/app",
+                    '-w', '/app',
+                    'node:20',
+                    'yarn', '--production', '--ignore-scripts', '--ignore-engines'
+                ];
+                $yarnResult = $this->runCommand($yarnCmd);
+                $output .= $yarnResult['output'] . "\n";
             } elseif ($hasPrecompiledAssets) {
                 $output .= "\nAssets precompilados detectados en public/. Omitiendo compilación pesada de Node.js para acelerar el despliegue PHP.\n";
+            }
+        }
+
+        // Compatibilidad con proyectos PHP basados en plantillas de configuración (Grocy, etc.)
+        if (File::exists($path . '/config-dist.php')) {
+            File::makeDirectory($path . '/data', 0777, true, true);
+            if (!File::exists($path . '/data/config.php')) {
+                File::copy($path . '/config-dist.php', $path . '/data/config.php');
+                $output .= "Configuración inicial creada: 'data/config.php' a partir de 'config-dist.php'.\n";
+            }
+            @chmod($path . '/data', 0777);
+            @chmod($path . '/data/config.php', 0666);
+
+            // Ajuste de compatibilidad para Grocy master (requiere PHP 8.5 en helpers/PrerequisiteChecker.php antes de su lanzamiento oficial)
+            $prereqFile = $path . '/helpers/PrerequisiteChecker.php';
+            if (File::exists($prereqFile)) {
+                $prereqContent = File::get($prereqFile);
+                if (str_contains($prereqContent, "'8.5.0'")) {
+                    $prereqContent = str_replace("'8.5.0'", "'8.4.0'", $prereqContent);
+                    File::put($prereqFile, $prereqContent);
+                    $output .= "Compatibilidad PHP 8.4 aplicada a PrerequisiteChecker de Grocy.\n";
+                }
+            }
+
+            // Ajustar SameSite en cookies de sesión de Grocy para compatibilidad con iframes
+            $authMiddleware = $path . '/middleware/Auth/BaseAuthMiddleware.php';
+            if (File::exists($authMiddleware)) {
+                $authContent = File::get($authMiddleware);
+                if (str_contains($authContent, "'samesite' => 'Lax'")) {
+                    $authContent = str_replace("'samesite' => 'Lax'", "'samesite' => 'None', 'secure' => true", $authContent);
+                    File::put($authMiddleware, $authContent);
+                }
             }
         }
 
@@ -735,7 +844,7 @@ JS;
             '-v', 'uleam_npm_cache:/tmp/npm-cache',
             '-e', 'npm_config_cache=/tmp/npm-cache',
             '-w', $workDir,
-            'node:20-alpine',
+            'node:20',
             'npm', 'install', '--no-audit', '--no-fund', '--prefer-offline'
         ];
 
@@ -1013,20 +1122,6 @@ JS;
             ];
             $migRes = $this->runCommand($migCmd);
             $output .= $migRes['output'] . "\n";
-
-            $snapshotFile = $path . '/.initial_db_snapshot.sql';
-            if (!File::exists($snapshotFile)) {
-                if ($project->db_driver === 'mysql') {
-                    $snapCmd = ['docker', 'exec', 'uleam_mysql_students', 'mysqldump', '-u', 'root', "-p{$project->db_password}", $project->db_name];
-                } else {
-                    $snapCmd = ['docker', 'exec', 'uleam_postgres_students', 'pg_dump', '-U', 'postgres', $project->db_name];
-                }
-                $snapProcess = new Process($snapCmd);
-                $snapProcess->run();
-                if ($snapProcess->isSuccessful() && strlen($snapProcess->getOutput()) > 50) {
-                    File::put($snapshotFile, $snapProcess->getOutput());
-                }
-            }
         }
 
         $command = [
@@ -1203,6 +1298,63 @@ JS;
             if ($sContent && str_contains($sContent, 'User::create([')) {
                 $sContent = str_replace('User::create([', 'User::firstOrCreate([\'email\' => \'admin@craterapp.com\'], [', $sContent);
                 @file_put_contents($usersSeeder, $sContent);
+            }
+        }
+
+        // 5. Parchear sintaxis experimental PHP 8.5 en Firefly III para ejecución estable en PHP 8.4
+        $ff3Controller = $path . '/app/Http/Controllers/Controller.php';
+        if (File::exists($ff3Controller)) {
+            $cContent = @file_get_contents($ff3Controller);
+            if ($cContent && (str_contains($cContent, '// this breaks when running < PHP 8.5') || str_contains($cContent, '|>'))) {
+                $cContent = preg_replace('/(\/\/ this breaks when running < PHP 8.5[\s\S]*?)?\$output\s*=\s*\$input[\s\S]*?strtolower\([^;]*;/', '', $cContent);
+                @file_put_contents($ff3Controller, $cContent);
+            }
+        }
+        
+        $appDir = $path . '/app';
+        if (File::isDirectory($appDir)) {
+            $phpFiles = $this->getProjectScanFiles($appDir, '*.php');
+            foreach ($phpFiles as $file) {
+                $filePath = $file->getRealPath();
+                $content = @file_get_contents($filePath);
+                if ($content && str_contains($content, '#[Override]')) {
+                    // En PHP 8.4 #[Override] solo puede aplicarse a métodos, no a propiedades
+                    $patched = preg_replace('/#\[Override\]\s*((?:(?:public|protected|private)\s+)+(?:readonly\s+)?(?:[a-zA-Z0-9_|\\\\?]+\s+)?\$)/m', '$1', $content);
+                    if ($patched !== null && $patched !== $content) {
+                        @file_put_contents($filePath, $patched);
+                    }
+                }
+            }
+        }
+
+        // 6. Generar traducciones JSON para Firefly III / frontends i18next si están ausentes
+        $langDir = $path . '/resources/lang';
+        $i18nDir = $path . '/public/v3/i18n';
+        if (File::isDirectory($langDir)) {
+            if (!File::isDirectory($i18nDir) && File::exists($path . '/resources/assets/v3')) {
+                @File::makeDirectory($i18nDir, 0755, true);
+            }
+            if (File::isDirectory($i18nDir)) {
+                foreach (File::directories($langDir) as $localeDir) {
+                    $locale = basename($localeDir);
+                    $data = [];
+                    foreach (File::files($localeDir) as $phpFile) {
+                        if ($phpFile->getExtension() === 'php') {
+                            $key = $phpFile->getBasename('.php');
+                            try {
+                                $res = (include $phpFile->getRealPath());
+                                if (is_array($res)) {
+                                    $data[$key] = $res;
+                                }
+                            } catch (\Throwable $e) {}
+                        }
+                    }
+                    if (!empty($data)) {
+                        $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                        @File::put($i18nDir . '/' . $locale . '.json', $json);
+                        @File::put($i18nDir . '/' . str_replace('_', '-', $locale) . '.json', $json);
+                    }
+                }
             }
         }
     }

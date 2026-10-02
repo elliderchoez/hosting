@@ -66,9 +66,9 @@ class StartProjectContainerAction
                 $command[] = "$projectPath:/app";
             }
 
-            // Si el contenedor fue construido con Dockerfile o contiene package.json,
+            // Si el contenedor fue construido con Dockerfile,
             // preservar el directorio de node_modules de la imagen para que el montaje host no lo oculte
-            if ($project->language === 'dockerfile' || File::exists($projectPath . '/package.json')) {
+            if ($project->language === 'dockerfile') {
                 $command[] = '-v';
                 $command[] = "$workDir/node_modules";
                 if ($workDir !== '/app') {
@@ -167,6 +167,8 @@ class StartProjectContainerAction
                     $command[] = 'MONGODB_URI=' . $mongoUri;
                     $command[] = '-e';
                     $command[] = 'MONGO_URL=' . $mongoUri;
+                    $command[] = '-e';
+                    $command[] = 'MONGODB_URL=' . $mongoUri;
                 } else {
                     $dbHost = $dbDriver === 'mysql' ? 'uleam_mysql_students' : 'uleam_postgres_students';
                     $dbPort = $dbDriver === 'mysql' ? '3306' : '5432';
@@ -329,6 +331,8 @@ JS;
                     $command = ['node', 'app.js'];
                 } elseif (File::exists($projectPath . '/client/server.js')) {
                     $command = ['node', 'client/server.js'];
+                } elseif (File::exists($projectPath . '/backend/server.js')) {
+                    $command = ['node', 'backend/server.js'];
                 } else {
                     // Detección universal de SPAs estáticas (Create React App, Vite, Vue, Angular, etc.)
                     $staticDirs = ['build', 'dist', 'out', 'public', 'client/build', 'frontend/dist', 'frontend/build'];

@@ -332,6 +332,45 @@ input.search-input-borderless:focus {
     color: #0f172a !important;
 }
 
+/* Caja de Sugerencia del Asistente en el Visualizador de Logs */
+.assistant-advice-box {
+    background-color: #eff6ff !important;
+    border: 1px solid #bfdbfe !important;
+    border-radius: 0.75rem !important;
+}
+
+.assistant-advice-box .advice-title {
+    color: #1e3a8a !important;
+    font-weight: 700 !important;
+}
+
+.assistant-advice-box .advice-desc {
+    color: #1e40af !important;
+    font-weight: 500 !important;
+    line-height: 1.5 !important;
+}
+
+.assistant-advice-box .advice-icon {
+    color: #2563eb !important;
+}
+
+.dark .assistant-advice-box {
+    background-color: rgba(30, 58, 138, 0.35) !important;
+    border-color: rgba(96, 165, 250, 0.35) !important;
+}
+
+.dark .assistant-advice-box .advice-title {
+    color: #93c5fd !important;
+}
+
+.dark .assistant-advice-box .advice-desc {
+    color: #bfdbfe !important;
+}
+
+.dark .assistant-advice-box .advice-icon {
+    color: #60a5fa !important;
+}
+
 /* 2.7 BARRA LATERAL DE CATEGORÍAS (TEMA CLARO) */
 .theme-academic .category-sidebar-card {
     background-color: #ffffff !important;

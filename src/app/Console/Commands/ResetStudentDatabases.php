@@ -135,7 +135,18 @@ class ResetStudentDatabases extends Command
                     $this->info("Base de datos '{$dbname}' recreada limpia.");
                 }
 
-                if ($driver !== 'mongodb') {
+                // Soporte para aplicaciones con base de datos SQLite embebida (Grocy, etc.)
+                $sqliteSnapshot = $projectPath . '/.initial_db_snapshot.sqlite';
+                $sqliteDb = $projectPath . '/data/grocy.db';
+                $isSqliteProject = File::exists($sqliteSnapshot) || File::exists($sqliteDb) || File::exists($projectPath . '/config-dist.php');
+                if (File::exists($sqliteSnapshot) && File::exists($sqliteDb)) {
+                    $this->info("Restaurando snapshot inicial de SQLite para {$project->name}...");
+                    @copy($sqliteSnapshot, $sqliteDb);
+                    @chmod($sqliteDb, 0777);
+                    $this->info("Base de datos SQLite restaurada limpiamente desde snapshot inicial.");
+                }
+
+                if ($driver !== 'mongodb' && !$isSqliteProject) {
                     // 2. Si es un proyecto con framework (Laravel/Django), ejecutar sus migraciones y seeders
                     if (File::exists($projectPath . '/artisan') || File::exists($projectPath . '/manage.py') || File::exists($projectPath . '/package.json')) {
                         $this->runFrameworkMigrations($project, $projectPath);

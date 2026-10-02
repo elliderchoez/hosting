@@ -28,6 +28,13 @@ class BuildProjectJob implements ShouldQueue
      */
     public $timeout = 900; // 15 minutes timeout to ensure ample headroom for complex fullstack apps
 
+    /**
+     * The number of times the job may be attempted.
+     *
+     * @var int
+     */
+    public $tries = 3;
+
     protected Deployment $deployment;
 
     /**
@@ -213,7 +220,7 @@ class BuildProjectJob implements ShouldQueue
                 }
             }
 
-            // Asegurar permisos de escritura para proyectos PHP/Laravel
+            // Asegurar permisos de escritura para proyectos PHP/Laravel y aplicaciones basadas en data/ (Grocy)
             if (\Illuminate\Support\Facades\File::isDirectory($projectPath . '/storage')) {
                 @chmod($projectPath . '/storage', 0777);
                 $chmodCmd = new Process(['chmod', '-R', '777', $projectPath . '/storage']);
@@ -223,6 +230,59 @@ class BuildProjectJob implements ShouldQueue
                 @chmod($projectPath . '/bootstrap/cache', 0777);
                 $chmodCmd2 = new Process(['chmod', '-R', '777', $projectPath . '/bootstrap/cache']);
                 $chmodCmd2->run();
+            }
+            if (\Illuminate\Support\Facades\File::isDirectory($projectPath . '/data')) {
+                @chmod($projectPath . '/data', 0777);
+                $chmodCmd3 = new Process(['chmod', '-R', '777', $projectPath . '/data']);
+                $chmodCmd3->run();
+            }
+
+            // Soporte predeterminado para Grocy (usuario admin / admin y compatibilidad PHP)
+            if (\Illuminate\Support\Facades\File::exists($projectPath . '/app.php') && \Illuminate\Support\Facades\File::exists($projectPath . '/config-dist.php')) {
+                $prereqFile = $projectPath . '/helpers/PrerequisiteChecker.php';
+                if (\Illuminate\Support\Facades\File::exists($prereqFile)) {
+                    $prereqContent = \Illuminate\Support\Facades\File::get($prereqFile);
+                    if (str_contains($prereqContent, "'8.5.0'")) {
+                        $prereqContent = str_replace("'8.5.0'", "'8.4.0'", $prereqContent);
+                        \Illuminate\Support\Facades\File::put($prereqFile, $prereqContent);
+                    }
+                }
+                $authMiddleware = $projectPath . '/middleware/Auth/BaseAuthMiddleware.php';
+                if (\Illuminate\Support\Facades\File::exists($authMiddleware)) {
+                    $authContent = \Illuminate\Support\Facades\File::get($authMiddleware);
+                    if (str_contains($authContent, "'samesite' => 'Lax'")) {
+                        $authContent = str_replace("'samesite' => 'Lax'", "'samesite' => 'None', 'secure' => true", $authContent);
+                        \Illuminate\Support\Facades\File::put($authMiddleware, $authContent);
+                    }
+                }
+                if (\Illuminate\Support\Facades\File::isDirectory($projectPath . '/public/packages')) {
+                    @chmod($projectPath . '/public/packages', 0777);
+                    $chmodCmdPackages = new Process(['chmod', '-R', '777', $projectPath . '/public/packages']);
+                    $chmodCmdPackages->run();
+                }
+                if (empty($project->demo_instructions) || !str_contains($project->demo_instructions, 'Clave:')) {
+                    $project->demo_instructions = "Acceso predeterminado para pruebas (Grocy):\nUsuario: admin\nClave: admin\n\nEl sistema incluye base de datos SQLite y gestión de inventario y hogar listos para evaluar.";
+                    $project->save();
+                    $logs .= "Credenciales predeterminadas para Grocy integradas en las instrucciones: admin / admin\n";
+                }
+            }
+
+            // Soporte predeterminado para Amazona (MERN E-Commerce)
+            if (\Illuminate\Support\Facades\File::exists($projectPath . '/backend/server.js') && \Illuminate\Support\Facades\File::exists($projectPath . '/backend/data.js')) {
+                if (empty($project->demo_instructions) || !str_contains($project->demo_instructions, 'admin@example.com')) {
+                    $project->demo_instructions = "Acceso predeterminado para pruebas (Amazona E-Commerce):\nUsuario: admin@example.com\nClave: 1234\n\nTienda completa MERN (MongoDB + Express + React + Node.js) con catálogo de productos, carrito de compras y panel de administración.";
+                    $project->save();
+                    $logs .= "Credenciales predeterminadas para Amazona integradas en las instrucciones: admin@example.com / 1234\n";
+                }
+            }
+
+            // Soporte predeterminado para Firefly III (Finanzas Personales)
+            if (\Illuminate\Support\Facades\File::exists($projectPath . '/resources/assets/v3/package.json') || \Illuminate\Support\Facades\File::exists($projectPath . '/config/firefly.php')) {
+                if (empty($project->demo_instructions) || !str_contains($project->demo_instructions, 'admin@example.com')) {
+                    $project->demo_instructions = "Acceso predeterminado para pruebas (Firefly III - Finanzas Personales):\nUsuario: admin@example.com\nClave: password\n\nSistema integral de gestión financiera y contabilidad listo para evaluar.";
+                    $project->save();
+                    $logs .= "Credenciales predeterminadas para Firefly III integradas en las instrucciones: admin@example.com / password\n";
+                }
             }
 
             $deployment->build_log = $logs;
@@ -494,10 +554,13 @@ class BuildProjectJob implements ShouldQueue
         $sqlFiles = $this->getProjectScanFiles($projectPath, '*.sql');
         $hasSql = !empty($sqlFiles);
 
-        // 2. Verificar si tiene migraciones o auto-sincronización (Laravel, Django, TypeORM, Prisma, Sequelize, Knex, Drizzle, Mongoose, etc.)
+        // 2. Verificar si tiene migraciones o auto-sincronización (Laravel, Django, TypeORM, Prisma, Sequelize, Knex, Drizzle, Mongoose, Grocy/SQLite, etc.)
         $hasMigrations = false;
         if (\Illuminate\Support\Facades\File::exists($projectPath . '/artisan') || 
-            \Illuminate\Support\Facades\File::exists($projectPath . '/manage.py')) {
+            \Illuminate\Support\Facades\File::exists($projectPath . '/manage.py') ||
+            \Illuminate\Support\Facades\File::isDirectory($projectPath . '/migrations') ||
+            \Illuminate\Support\Facades\File::isDirectory($projectPath . '/database/migrations') ||
+            \Illuminate\Support\Facades\File::exists($projectPath . '/config-dist.php')) {
             $hasMigrations = true;
         }
 
@@ -689,6 +752,12 @@ class BuildProjectJob implements ShouldQueue
         
         if ($project->db_driver === 'mongodb') {
             $logs .= "Proyecto NoSQL (MongoDB) detectado. Omitiendo importación de archivos SQL.\n\n";
+            return;
+        }
+
+        // Proyectos basados en SQLite (Grocy, etc.) gestionan sus propias migraciones internamente
+        if (\Illuminate\Support\Facades\File::exists($projectPath . '/config-dist.php') || \Illuminate\Support\Facades\File::exists($projectPath . '/data/grocy.db') || str_contains(strtolower($project->name), 'grocy')) {
+            $logs .= "Proyecto con base de datos SQLite detectado (Grocy). Las migraciones internas se gestionan automáticamente por la aplicación. Omitiendo importación en base de datos externa.\n\n";
             return;
         }
         
@@ -986,6 +1055,80 @@ try {
         } catch (\Throwable $e) {}
     }
 
+    // B2. Firefly III Auto-Setup & Upgrades
+    if (class_exists('FireflyIII\User') || class_exists('FireflyIII\Support\Facades\AppConfiguration')) {
+        try {
+            \Illuminate\Support\Facades\Artisan::call('firefly-iii:laravel-passport-keys');
+        } catch (\Throwable $e) {}
+        try {
+            \Illuminate\Support\Facades\Artisan::call('firefly-iii:upgrade-database', ['--force' => true]);
+        } catch (\Throwable $e) {}
+        try {
+            $cfg = (int) config('firefly.build_time');
+            \Illuminate\Support\Facades\DB::table('configuration')->updateOrInsert(['name' => 'ff3_build_time'], ['data' => (string)$cfg, 'updated_at' => now(), 'created_at' => now()]);
+            if (class_exists('FireflyIII\Support\Facades\AppConfiguration')) {
+                \FireflyIII\Support\Facades\AppConfiguration::set('ff3_build_time', $cfg);
+            }
+        } catch (\Throwable $e) {}
+
+        try {
+            $ffUser = \FireflyIII\User::where('email', 'admin@example.com')->first();
+            if (!$ffUser) {
+                $ffUser = \FireflyIII\User::create([
+                    'email' => 'admin@example.com',
+                    'password' => \Illuminate\Support\Facades\Hash::make('password'),
+                    'blocked' => 0
+                ]);
+            }
+            if (class_exists('FireflyIII\Models\UserGroup') && class_exists('FireflyIII\Models\UserRole')) {
+                $group = \FireflyIII\Models\UserGroup::firstOrCreate(['title' => $ffUser->email]);
+                $role = \FireflyIII\Models\UserRole::where('title', \FireflyIII\Enums\UserRoleEnum::OWNER->value)->first();
+                if ($role && class_exists('FireflyIII\Models\GroupMembership')) {
+                    \FireflyIII\Models\GroupMembership::firstOrCreate([
+                        'user_id' => $ffUser->id,
+                        'user_group_id' => $group->id,
+                        'user_role_id' => $role->id
+                    ]);
+                }
+                $ffUser->user_group_id = $group->id;
+                $ffUser->save();
+
+                // Pre-crear cuenta bancaria de prueba para ingresar directo al dashboard
+                try {
+                    $currRepo = app(\FireflyIII\Repositories\Currency\CurrencyRepositoryInterface::class);
+                    $accRepo = app(\FireflyIII\Repositories\Account\AccountRepositoryInterface::class);
+                    $currRepo->setUser($ffUser);
+                    $accRepo->setUser($ffUser);
+                    $currency = $currRepo->findByCode('USD') ?: $currRepo->first();
+                    if ($currency) {
+                        $currRepo->enable($currency);
+                        $currRepo->makePrimary($currency);
+                        $accRepo->store([
+                            'name' => 'Cuenta Principal (Demo)',
+                            'account_type_name' => 'asset',
+                            'account_role' => 'defaultAsset',
+                            'active' => true,
+                            'virtual_balance' => 0,
+                            'opening_balance' => '1500',
+                            'opening_balance_date' => now(),
+                            'currency_id' => $currency->id
+                        ]);
+                        $accounts = $accRepo->getAccountsByType([\FireflyIII\Enums\AccountTypeEnum::ASSET->value])->pluck('id')->toArray();
+                        \FireflyIII\Support\Facades\Preferences::set('frontpageAccounts', $accounts);
+                        \FireflyIII\Support\Facades\Preferences::mark();
+                    }
+                } catch (\Throwable $e) {}
+            }
+            if (class_exists('FireflyIII\Models\Role')) {
+                $ownerRole = \FireflyIII\Models\Role::where('name', 'owner')->first();
+                if ($ownerRole && !$ffUser->roles()->where('roles.id', $ownerRole->id)->exists()) {
+                    $ffUser->roles()->attach($ownerRole->id);
+                }
+            }
+            echo "AUTH_USER:admin@example.com\n";
+        } catch (\Throwable $e) {}
+    }
+
     // C. Tablas de Configuración y Asistentes Web Generales (settings, configs, options)
     foreach (['settings', 'configs', 'options', 'app_settings', 'system_settings'] as $table) {
         if (\Illuminate\Support\Facades\Schema::hasTable($table)) {
@@ -1007,6 +1150,20 @@ try {
                     }
                 }
             }
+            // Sistemas con tabla settings de una sola fila (Snipe-IT, inventarios, etc.)
+            if (in_array('site_name', $cols)) {
+                $sRecord = \Illuminate\Support\Facades\DB::table($table)->first();
+                if ($sRecord) {
+                    \Illuminate\Support\Facades\DB::table($table)->where('id', $sRecord->id)->update([
+                        'site_name' => 'Demo Asset Management'
+                    ]);
+                } else {
+                    $settingData = ['site_name' => 'Demo Asset Management'];
+                    if (in_array('created_at', $cols)) $settingData['created_at'] = now();
+                    if (in_array('updated_at', $cols)) $settingData['updated_at'] = now();
+                    \Illuminate\Support\Facades\DB::table($table)->insert($settingData);
+                }
+            }
         }
     }
 
@@ -1024,13 +1181,15 @@ try {
             if (in_array('role', $cols)) $updateData['role'] = 'admin';
             if (in_array('role_id', $cols)) $updateData['role_id'] = 1;
             if (in_array('status', $cols)) $updateData['status'] = 'active';
+            if (in_array('activated', $cols)) $updateData['activated'] = 1;
+            if (in_array('username', $cols)) $updateData['username'] = 'admin';
+            if (in_array('permissions', $cols)) $updateData['permissions'] = '{"superuser":"1","admin":"1"}';
             if (in_array('email_verified_at', $cols)) $updateData['email_verified_at'] = now();
 
             if ($firstUser) {
                 \Illuminate\Support\Facades\DB::table($userTable)->where('id', $firstUser->id)->update($updateData);
-                if (isset($firstUser->email)) {
-                    echo "AUTH_USER:" . $firstUser->email . PHP_EOL;
-                }
+                $identifier = in_array('username', $cols) ? 'admin' : ($firstUser->email ?? 'admin@example.com');
+                echo "AUTH_USER:" . $identifier . PHP_EOL;
             } else {
                 $insertData = array_merge($updateData, [
                     'email' => 'admin@example.com',
@@ -1067,6 +1226,7 @@ try {
     }
 } catch (\Throwable $e) {}
 PHP;
+            $fullBootstrapScript = "require 'vendor/autoload.php'; \$app = require_once 'bootstrap/app.php'; \$app->make(Illuminate\\Contracts\\Console\\Kernel::class)->bootstrap(); " . $postInstallTinker;
             $tinkerProcess = new Process([
                 'docker', 'run', '--rm',
                 '--network', 'uleam_academic_network',
@@ -1079,7 +1239,7 @@ PHP;
                 '-e', "DB_USERNAME={$project->db_user}",
                 '-e', "DB_PASSWORD={$project->db_password}",
                 'webdevops/php:8.4',
-                'php', '-d', 'error_reporting=E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED', 'artisan', 'tinker', '--execute=' . $postInstallTinker
+                'php', '-d', 'error_reporting=E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED', '-r', $fullBootstrapScript
             ]);
             $tinkerProcess->run();
             $tinkerOut = $tinkerProcess->getOutput();
@@ -1448,6 +1608,16 @@ PY;
                 }
             }
 
+            // Asegurar APP_KEY criptográfica válida para proyectos Laravel / PHP
+            if (!str_contains($content, 'APP_KEY=base64:') || str_contains($content, 'APP_KEY=SomeRandomString') || preg_match('/^APP_KEY=\s*$/m', $content)) {
+                $genKey = 'base64:' . base64_encode(random_bytes(32));
+                if (preg_match('/^APP_KEY=.*/m', $content)) {
+                    $content = preg_replace('/^APP_KEY=.*/m', "APP_KEY={$genKey}", $content);
+                } else {
+                    $content .= "\nAPP_KEY={$genKey}";
+                }
+            }
+
             \Illuminate\Support\Facades\File::put($envPath, $content);
             $rel = str_replace($projectPath, '', $envPath);
             $logs .= "Variables de conexión a base de datos inyectadas automáticamente en: {$rel}\n";
@@ -1461,6 +1631,14 @@ PY;
      */
     private function generateInitialDatabaseSnapshot(Project $project, string $projectPath): void
     {
+        // Soporte para SQLite (Grocy, etc.)
+        $sqliteDb = $projectPath . '/data/grocy.db';
+        $sqliteSnapshot = $projectPath . '/.initial_db_snapshot.sqlite';
+        if (\Illuminate\Support\Facades\File::exists($sqliteDb) && !\Illuminate\Support\Facades\File::exists($sqliteSnapshot)) {
+            @copy($sqliteDb, $sqliteSnapshot);
+            @chmod($sqliteSnapshot, 0777);
+        }
+
         $snapshotFile = $projectPath . '/.initial_db_snapshot.sql';
         if (\Illuminate\Support\Facades\File::exists($snapshotFile)) {
             return;
