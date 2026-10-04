@@ -315,7 +315,7 @@ class BuildProjectJob implements ShouldQueue
             }
 
             $deployment->status = 'success';
-            $deployment->build_log = $logs . "\n=== COMPILACIÓN EXITOSA ===";
+            $deployment->build_log = $this->sanitizeLogs($logs, $projectPath) . "\n=== COMPILACIÓN EXITOSA ===";
             $deployment->duration_seconds = $duration;
             $deployment->save();
 
@@ -325,14 +325,14 @@ class BuildProjectJob implements ShouldQueue
             } else {
                 $logs .= "\nExcepción Crítica: " . $e->getMessage() . "\n" . $e->getTraceAsString();
             }
-            $this->failBuild($project, $deployment, $logs, $startTime);
+            $this->failBuild($project, $deployment, $logs, $startTime, $projectPath);
         }
     }
 
     /**
      * Marcar compilación como fallida y actualizar estado.
      */
-    private function failBuild(Project $project, Deployment $deployment, string $logs, float $startTime): void
+    private function failBuild(Project $project, Deployment $deployment, string $logs, float $startTime, string $projectPath = ''): void
     {
         $endTime = microtime(true);
         $duration = (int)($endTime - $startTime);
@@ -340,10 +340,24 @@ class BuildProjectJob implements ShouldQueue
         $project->status = 'failed';
         $project->save();
 
+        $cleanLogs = $projectPath ? $this->sanitizeLogs($logs, $projectPath) : $this->sanitizeLogs($logs);
         $deployment->status = 'failed';
-        $deployment->build_log = $logs . "\n=== COMPILACIÓN FALLIDA ===";
+        $deployment->build_log = $cleanLogs . "\n=== COMPILACIÓN FALLIDA ===";
         $deployment->duration_seconds = $duration;
         $deployment->save();
+    }
+
+    /**
+     * Sanitizar los logs para ocultar rutas internas del servidor host (/home/usuario/...)
+     * y mantener una presentación profesional y limpia.
+     */
+    private function sanitizeLogs(string $logs, string $projectPath = ''): string
+    {
+        if ($projectPath) {
+            $logs = str_replace($projectPath . '/', '', $logs);
+            $logs = str_replace($projectPath, '.', $logs);
+        }
+        return preg_replace('/\/home\/[^\/]+\/[^\/\s\'"]+\/src\/storage\/app\/projects\/[^\/\s\'"]+/', '.', $logs);
     }
 
     /**
@@ -377,7 +391,7 @@ class BuildProjectJob implements ShouldQueue
             // no es necesario buscar carpetas anidadas ni aplanar la estructura.
             $rootScore = $this->calculateProjectScore($projectPath);
             if ($rootScore >= 10) {
-                return "Los archivos del proyecto ya están en la raíz (Puntaje: {$rootScore}). No requiere optimización.";
+                return "Estructura del proyecto verificada (Archivos en la raíz).";
             }
 
             // Find the best project directory recursively (up to depth 3)
@@ -386,19 +400,19 @@ class BuildProjectJob implements ShouldQueue
             $bestScore = $bestResult['score'];
 
             if ($bestScore < 5) {
-                return "No se detectaron suficientes indicadores de proyecto anidado (Puntaje: {$bestScore}). Manteniendo estructura original.";
+                return "Estructura estándar de proyecto detectada.";
             }
 
             // If the best path is already the root directory, no action needed
             if (realpath($bestPath) === realpath($projectPath)) {
-                return "Los archivos del proyecto ya están en la raíz. No requiere optimización.";
+                return "Estructura del proyecto verificada (Archivos en la raíz).";
             }
 
             $relativeBestPath = str_replace($projectPath . '/', '', $bestPath);
-            $log = "Directorio de proyecto anidado detectado automáticamente: '{$relativeBestPath}' (Puntaje: {$bestScore})\n";
+            $log = "Directorio de proyecto anidado detectado: '{$relativeBestPath}'\n";
         }
 
-        $log .= "Promoviendo archivos desde '{$relativeBestPath}' hacia la raíz del proyecto...\n";
+        $log .= "Optimizando estructura: Moviendo archivos desde '{$relativeBestPath}' hacia la raíz...\n";
 
         try {
             $tempPath = storage_path("app/projects/temp_flatten_" . uniqid());
@@ -650,9 +664,9 @@ class BuildProjectJob implements ShouldQueue
             // MySQL limits usernames to 32 characters. We use a shorter prefix and a truncated UUID (26 characters total)
             $project->db_user = "u_" . substr($uuidClean, 0, 24);
             $project->db_password = \Illuminate\Support\Str::random(24);
-            $logs .= "Generando nuevas credenciales de base de datos para el proyecto.\n";
+            $logs .= "Configurando credenciales dedicadas para el proyecto.\n";
         } else {
-            $logs .= "Usando credenciales de base de datos existentes.\n";
+            $logs .= "Conectando a base de datos existente del proyecto.\n";
         }
         $project->save();
 
@@ -662,7 +676,7 @@ class BuildProjectJob implements ShouldQueue
 
         try {
             if ($driver === 'mongodb') {
-                $logs .= "Asegurando base de datos MongoDB central '{$dbname}'...\n";
+                $logs .= "Configurando base de datos aislada en MongoDB...\n";
                 
                 // Detectar binario disponible (mongo en v4.4/v5 o mongosh en v6+)
                 $checkCli = new \Symfony\Component\Process\Process(['docker', 'exec', 'uleam_mongodb_students', 'which', 'mongosh']);
@@ -692,9 +706,9 @@ class BuildProjectJob implements ShouldQueue
                     throw new \Exception("Error en {$mongoCli} al aprovisionar MongoDB: " . $process->getErrorOutput());
                 }
                 
-                $logs .= "Base de datos MongoDB '{$dbname}' y usuario '{$dbuser}' recreados limpios con éxito.\n";
+                $logs .= "Base de datos MongoDB lista para el proyecto.\n";
             } elseif ($driver === 'mysql') {
-                $logs .= "Asegurando base de datos MySQL central '{$dbname}'...\n";
+                $logs .= "Configurando base de datos aislada en MySQL...\n";
                 // 1. Recrear DB de forma limpia
                 \Illuminate\Support\Facades\DB::connection('students_mysql')->statement("DROP DATABASE IF EXISTS {$dbname};");
                 \Illuminate\Support\Facades\DB::connection('students_mysql')->statement("CREATE DATABASE {$dbname};");
@@ -714,10 +728,10 @@ class BuildProjectJob implements ShouldQueue
                 \Illuminate\Support\Facades\DB::connection('students_mysql')->statement(
                     "FLUSH PRIVILEGES;"
                 );
-                $logs .= "Base de datos MySQL '{$dbname}' recreada limpia con éxito.\n";
+                $logs .= "Base de datos MySQL lista para el proyecto.\n";
             } else {
                 // PostgreSQL
-                $logs .= "Asegurando existencia del usuario de base de datos '{$dbuser}' en Postgres...\n";
+                $logs .= "Configurando permisos y acceso en PostgreSQL...\n";
                 \Illuminate\Support\Facades\DB::connection('students_postgres')->statement("
                     DO \$\$
                     BEGIN
@@ -730,7 +744,6 @@ class BuildProjectJob implements ShouldQueue
                     \$\$;
                 ");
 
-                $logs .= "Preparando base de datos Postgres limpia '{$dbname}'...\n";
                 try {
                     \Illuminate\Support\Facades\DB::connection('students_postgres')->select("
                         SELECT pg_terminate_backend(pg_stat_activity.pid)
@@ -745,7 +758,7 @@ class BuildProjectJob implements ShouldQueue
                 \Illuminate\Support\Facades\DB::connection('students_postgres')->statement("DROP DATABASE IF EXISTS {$dbname};");
                 \Illuminate\Support\Facades\DB::connection('students_postgres')->statement("CREATE DATABASE {$dbname} OWNER {$dbuser};");
                 \Illuminate\Support\Facades\DB::connection('students_postgres')->statement("GRANT ALL PRIVILEGES ON DATABASE {$dbname} TO {$dbuser};");
-                $logs .= "Base de datos Postgres '{$dbname}' recreada limpia con éxito.\n";
+                $logs .= "Base de datos PostgreSQL lista para el proyecto.\n";
             }
             
             $logs .= "Aprovisionamiento de base de datos completado exitosamente.\n\n";
@@ -1751,13 +1764,17 @@ RB;
                 continue;
             }
 
+            $relDir = ltrim(str_replace($projectPath, '', $dir), '/');
+            $relEnvPath = $relDir ? "{$relDir}/.env" : ".env";
             $envPath = $dir . '/.env';
+
             // Si no existe .env, buscar plantillas de ejemplo (.env.example, .env.sample, etc.)
             if (!\Illuminate\Support\Facades\File::exists($envPath)) {
                 foreach (['/.env.example', '/.env.sample', '/.env.local', '/.env.dist'] as $sample) {
                     if (\Illuminate\Support\Facades\File::exists($dir . $sample)) {
                         \Illuminate\Support\Facades\File::copy($dir . $sample, $envPath);
-                        $logs .= "Creado '{$dir}/.env' a partir de plantilla '{$sample}'.\n";
+                        $sampleName = basename($sample);
+                        $logs .= "Archivo de entorno '{$relEnvPath}' generado a partir de '{$sampleName}'.\n";
                         break;
                     }
                 }
@@ -1789,8 +1806,7 @@ RB;
             }
 
             \Illuminate\Support\Facades\File::put($envPath, $content);
-            $rel = str_replace($projectPath, '', $envPath);
-            $logs .= "Variables de conexión a base de datos inyectadas automáticamente en: {$rel}\n";
+            $logs .= "Variables de entorno configuradas exitosamente en: {$relEnvPath}\n";
         }
         $logs .= "\n";
     }

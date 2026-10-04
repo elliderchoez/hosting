@@ -60,7 +60,7 @@ class CloneRepositoryAction
             
             return [
                 'success' => true,
-                'output' => "Repositorio clonado con éxito.\n" . $process->getOutput() . "\n" . $process->getErrorOutput()
+                'output' => "Código fuente descargado exitosamente (Rama: {$branch})."
             ];
         } catch (ProcessFailedException $exception) {
             $errorOutput = $process->getErrorOutput() . ' ' . $process->getOutput();
@@ -87,7 +87,7 @@ class CloneRepositoryAction
                 if ($fallbackProc->isSuccessful()) {
                     return [
                         'success' => true,
-                        'output' => "Aviso: Rama '{$branch}' no encontrada. Se clonó exitosamente la rama principal por defecto del repositorio.\n" . $fallbackProc->getOutput()
+                        'output' => "Aviso: Rama '{$branch}' no encontrada. Se clonó exitosamente la rama principal por defecto del repositorio."
                     ];
                 }
             }

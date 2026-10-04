@@ -21,7 +21,7 @@ class StartProjectContainerAction
     public function execute(Project $project, string $projectPath, string $domain): array
     {
         $containerName = $this->getContainerName($project);
-        $output = "Iniciando contenedor $containerName...\n";
+        $output = "Iniciando servidor de la aplicación...\n";
 
         try {
             // 1. Ensure Docker Network exists
@@ -336,7 +336,7 @@ class StartProjectContainerAction
             }
 
             $projectUrl = "https://{$project->subdomain}.{$domain}";
-            $output .= "Contenedor iniciado y verificado exitosamente (En ejecucion) con ID: $containerId\n\n";
+            $output .= "Servidor web verificado y activo (En ejecución).\n\n";
             $output .= "=======================================================\n";
             $output .= "PROYECTO DESPLEGADO CON EXITO\n";
             $output .= "Tu aplicacion se encuentra en ejecucion y lista para ser evaluada.\n";
