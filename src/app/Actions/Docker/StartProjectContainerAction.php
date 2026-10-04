@@ -54,9 +54,9 @@ class StartProjectContainerAction
                 '--name', $containerName,
                 '--runtime', $runtime,
                 '--network', 'uleam_academic_network',
-                '--memory', '256m',
-                '--cpus', '0.5',
-                '--pids-limit', '50',
+                '--memory', ($project->language === 'ruby' ? '1024m' : '256m'),
+                '--cpus', ($project->language === 'ruby' ? '1.0' : '0.5'),
+                '--pids-limit', ($project->language === 'ruby' ? '200' : '50'),
                 '-v', "$projectPath:$workDir", // Montar en su WORKDIR como lectura y escritura
             ];
 
@@ -128,8 +128,13 @@ class StartProjectContainerAction
             // ───────────────────────────────────────────────────────────────────────────
 
             // Asociación al servicio balanceador de carga
+            $serviceName = "{$project->id}-service";
             $command[] = '--label';
-            $command[] = "traefik.http.services.{$project->id}-service.loadbalancer.server.port={$settings['port']}";
+            $command[] = "traefik.http.services.{$serviceName}.loadbalancer.server.port={$settings['port']}";
+            $command[] = '--label';
+            $command[] = "traefik.http.routers.{$project->id}.service={$serviceName}";
+            $command[] = '--label';
+            $command[] = "traefik.http.routers.{$project->id}-local.service={$serviceName}";
 
             // Add environment variables if needed
             $command[] = '-e';
@@ -170,7 +175,7 @@ class StartProjectContainerAction
                     $command[] = '-e';
                     $command[] = 'MONGODB_URL=' . $mongoUri;
                 } else {
-                    $dbHost = $dbDriver === 'mysql' ? 'uleam_mysql_students' : 'uleam_postgres_students';
+                    $dbHost = $dbDriver === 'mysql' ? 'uleam_mysql_students' : ($project->language === 'ruby' ? 'uleam-postgres-students' : 'uleam_postgres_students');
                     $dbPort = $dbDriver === 'mysql' ? '3306' : '5432';
                     $dbUrlScheme = $dbDriver === 'mysql' ? 'mysql' : 'postgres';
 
@@ -194,8 +199,43 @@ class StartProjectContainerAction
                     $command[] = 'DB_PASS=' . $project->db_password;
                     $command[] = '-e';
                     $command[] = 'DATABASE_URL=' . $dbUrlScheme . '://' . $project->db_user . ':' . $project->db_password . '@' . $dbHost . ':' . $dbPort . '/' . $project->db_name;
+                    if ($dbDriver === 'pgsql' || $dbDriver === 'postgres') {
+                        $command[] = '-e';
+                        $command[] = 'POSTGRES_HOST=' . $dbHost;
+                        $command[] = '-e';
+                        $command[] = 'POSTGRES_PORT=' . $dbPort;
+                        $command[] = '-e';
+                        $command[] = 'POSTGRES_DATABASE=' . $project->db_name;
+                        $command[] = '-e';
+                        $command[] = 'POSTGRES_USERNAME=' . $project->db_user;
+                        $command[] = '-e';
+                        $command[] = 'POSTGRES_DB=' . $project->db_name;
+                        $command[] = '-e';
+                        $command[] = 'POSTGRES_USER=' . $project->db_user;
+                        $command[] = '-e';
+                        $command[] = 'POSTGRES_PASSWORD=' . $project->db_password;
+                        $command[] = '-e';
+                        $command[] = 'PGHOST=' . $dbHost;
+                        $command[] = '-e';
+                        $command[] = 'PGPORT=' . $dbPort;
+                        $command[] = '-e';
+                        $command[] = 'PGDATABASE=' . $project->db_name;
+                        $command[] = '-e';
+                        $command[] = 'PGUSER=' . $project->db_user;
+                        $command[] = '-e';
+                        $command[] = 'PGPASSWORD=' . $project->db_password;
+                    }
                 }
             }
+
+            // Inyectar servicio de Redis universitario para colas y WebSockets
+            $redisHost = ($project->language === 'ruby') ? 'uleam-redis-students' : 'uleam_redis_students';
+            $command[] = '-e';
+            $command[] = "REDIS_URL=redis://{$redisHost}:6379";
+            $command[] = '-e';
+            $command[] = "REDIS_HOST={$redisHost}";
+            $command[] = '-e';
+            $command[] = 'REDIS_PORT=6379';
 
             // Para proyectos Node.js asegurar compatibilidad con OpenSSL 3.0, Webpack y secretos comunes
             if ($project->language === 'nodejs') {
@@ -212,6 +252,29 @@ class StartProjectContainerAction
             if ($project->language === 'php') {
                 $command[] = '-e';
                 $command[] = 'PHP_CLI_SERVER_WORKERS=4';
+            }
+
+            if ($project->language === 'ruby') {
+                $command[] = '-e';
+                $command[] = 'RAILS_ENV=production';
+                $command[] = '-e';
+                $command[] = 'RACK_ENV=production';
+                $command[] = '-e';
+                $command[] = 'RAILS_SERVE_STATIC_FILES=true';
+                $command[] = '-e';
+                $command[] = 'RAILS_LOG_TO_STDOUT=true';
+                $command[] = '-e';
+                $command[] = 'RAILS_FORCE_SSL=false';
+                $command[] = '-e';
+                $command[] = 'RAILS_ASSUME_SSL=false';
+                $command[] = '-e';
+                $command[] = 'DISABLE_SSL=true';
+                $command[] = '-e';
+                $command[] = 'SECRET_KEY_BASE=uleam_rails_secret_key_base_' . md5($project->id);
+                $command[] = '-e';
+                $command[] = 'PORT=3000';
+                $command[] = '-e';
+                $command[] = 'BUNDLE_PATH=vendor/bundle';
             }
 
             // Variables de entorno para optimización de memoria (256MB) y compatibilidad Python/Django/Node
@@ -235,7 +298,50 @@ class StartProjectContainerAction
             $process->mustRun();
 
             $containerId = trim($process->getOutput());
-            $output .= "Contenedor iniciado exitosamente con ID: $containerId\n";
+
+            // Liveness Probe: Verificar durante 4 segundos que el contenedor se mantenga en ejecucion
+            $isAlive = true;
+            $exitCode = null;
+
+            for ($i = 0; $i < 4; $i++) {
+                sleep(1);
+                $inspect = new Process(['docker', 'inspect', '--format', '{{.State.Status}} {{.State.ExitCode}}', $containerName]);
+                $inspect->run();
+                $stateOutput = trim($inspect->getOutput());
+                $parts = explode(' ', $stateOutput);
+                $status = $parts[0] ?? '';
+                $exitCode = $parts[1] ?? '0';
+
+                if ($status === 'exited' || $status === 'dead' || ($exitCode !== '0' && $exitCode !== '')) {
+                    $isAlive = false;
+                    break;
+                }
+            }
+
+            if (!$isAlive) {
+                $logsProcess = new Process(['docker', 'logs', '--tail', '100', $containerName]);
+                $logsProcess->run();
+                $crashLogs = trim($logsProcess->getOutput() . "\n" . $logsProcess->getErrorOutput());
+
+                // Limpiar el contenedor fallido
+                (new Process(['docker', 'rm', '-f', $containerName]))->run();
+
+                $output .= $this->formatFriendlyCrashDiagnosis($crashLogs, $project, (string)$exitCode);
+
+                return [
+                    'success' => false,
+                    'container_id' => null,
+                    'output' => $output
+                ];
+            }
+
+            $projectUrl = "https://{$project->subdomain}.{$domain}";
+            $output .= "Contenedor iniciado y verificado exitosamente (En ejecucion) con ID: $containerId\n\n";
+            $output .= "=======================================================\n";
+            $output .= "PROYECTO DESPLEGADO CON EXITO\n";
+            $output .= "Tu aplicacion se encuentra en ejecucion y lista para ser evaluada.\n";
+            $output .= "URL: {$projectUrl}\n";
+            $output .= "=======================================================\n";
 
             return [
                 'success' => true,
@@ -402,6 +508,37 @@ PHP;
                     'command' => $command
                 ];
 
+            case 'ruby':
+                @unlink($projectPath . '/tmp/pids/server.pid');
+                $railsBin = File::exists($projectPath . '/bin/rails') ? 'bin/rails' : 'rails';
+                $command = ['sh', '-c', "rm -f tmp/pids/server.pid && exec bundle exec {$railsBin} server -b 0.0.0.0 -p 3000 -e production"];
+                if (!File::exists($projectPath . '/bin/rails') && !File::exists($projectPath . '/config/environment.rb')) {
+                    if (File::exists($projectPath . '/config.ru')) {
+                        $command = ['bundle', 'exec', 'rackup', '-o', '0.0.0.0', '-p', '3000', '-E', 'production'];
+                    } elseif (File::exists($projectPath . '/app.rb')) {
+                        $command = ['ruby', 'app.rb', '-o', '0.0.0.0', '-p', '3000'];
+                    }
+                }
+                $rubyImage = 'uleam_ruby:3.3';
+                if (File::exists($projectPath . '/.ruby-version') && str_starts_with(trim(File::get($projectPath . '/.ruby-version')), '4')) {
+                    $rubyImage = 'uleam_ruby:4.0';
+                } elseif (File::exists($projectPath . '/.ruby-version') && str_starts_with(trim(File::get($projectPath . '/.ruby-version')), '3.4')) {
+                    $rubyImage = 'uleam_ruby:3.4';
+                } elseif (File::exists($projectPath . '/.ruby-version') && str_starts_with(trim(File::get($projectPath . '/.ruby-version')), '2.')) {
+                    $rubyImage = 'uleam_ruby:2.7';
+                } elseif (File::exists($projectPath . '/Gemfile') && preg_match("/ruby\s+['\"]4/", File::get($projectPath . '/Gemfile'))) {
+                    $rubyImage = 'uleam_ruby:4.0';
+                } elseif (File::exists($projectPath . '/Gemfile') && preg_match("/ruby\s+['\"]3\.4/", File::get($projectPath . '/Gemfile'))) {
+                    $rubyImage = 'uleam_ruby:3.4';
+                } elseif (File::exists($projectPath . '/Gemfile') && preg_match("/ruby\s+['\"]2\./", File::get($projectPath . '/Gemfile'))) {
+                    $rubyImage = 'uleam_ruby:2.7';
+                }
+                return [
+                    'image' => $rubyImage,
+                    'port' => 3000,
+                    'command' => $command
+                ];
+
             case 'python':
                 // Check if main.py, app.py or manage.py exists
                 $command = ['python', 'main.py'];
@@ -525,5 +662,94 @@ PHP;
             }
         }
         return [];
+    }
+
+    /**
+     * Analiza los logs de colapso y genera un diagnóstico comprensible y pedagógico para el estudiante.
+     */
+    private function formatFriendlyCrashDiagnosis(string $crashLogs, Project $project, string $exitCode): string
+    {
+        $logLower = strtolower($crashLogs);
+
+        // Extraer la ultima linea significativa de error para casos no catalogados
+        $lastErrorLine = '';
+        if (!empty($crashLogs)) {
+            $lines = array_filter(array_map('trim', explode("\n", $crashLogs)));
+            $reversed = array_reverse($lines);
+            foreach ($reversed as $l) {
+                if (strlen($l) > 6 && !str_starts_with($l, 'from ') && !str_starts_with($l, 'at ') && !str_starts_with($l, '#')) {
+                    $lastErrorLine = $l;
+                    break;
+                }
+            }
+            if (empty($lastErrorLine) && !empty($reversed)) {
+                $lastErrorLine = $reversed[0];
+            }
+        }
+
+        $titulo = "Error Inesperado en la Aplicacion";
+        $quePaso = "Tu servidor se inicio pero se cerro repentinamente al intentar ejecutarse.";
+        if (!empty($lastErrorLine)) {
+            $quePaso .= "\nDetalle reportado por el servidor: \"{$lastErrorLine}\"";
+        }
+        $solucion = "- Revisa el mensaje anterior para corregir el archivo o variable correspondiente.\n- Prueba ejecutar tu proyecto localmente para validar que el servidor inicie correctamente y luego haz un nuevo push.";
+
+        // Caso 1: Software no soportado o que requiere binarios de sistema ajenos al hosting web (Leptonica, libvips, poppler, tesseract, etc.)
+        if (str_contains($logLower, 'libleptonica') || str_contains($logLower, 'leptonica') || 
+            str_contains($logLower, 'cannot open shared object file') || str_contains($logLower, 'shared object file') ||
+            str_contains($logLower, 'could not open library') || str_contains($logLower, 'libvips') ||
+            str_contains($logLower, 'libgomp') || str_contains($logLower, 'tesseract')) {
+            $titulo = "Tipo de Proyecto No Soportado (Arquitectura Incompatible)";
+            $quePaso = "Este repositorio no es una aplicacion web estandar, sino un software especializado (appliance) que exige herramientas binarias de C/C++ de bajo nivel. La plataforma esta diseñada exclusivamente para el despliegue de aplicaciones y sitios web academicos.";
+            $solucion = "- Despliega unicamente proyectos de desarrollo web academico (Laravel, Node.js, Django, React, Rails, etc.) basados en librerias estandar del lenguaje.\n- El software empresarial de terceros o herramientas con dependencias nativas de bajo nivel del sistema operativo no son compatibles con este entorno de hosting.";
+        }
+        // Caso 2: Error de conexión a la Base de Datos
+        elseif (str_contains($logLower, 'connection refused') || str_contains($logLower, 'connectionbad') || 
+                str_contains($logLower, 'econnrefused') || str_contains($logLower, 'password authentication failed') ||
+                str_contains($logLower, 'could not connect to server') || str_contains($logLower, 'access denied for user')) {
+            $titulo = "Error de Conexión con la Base de Datos";
+            $quePaso = "El servidor intentó conectarse a la base de datos pero la conexión fue rechazada o las credenciales no son válidas.";
+            $solucion = "- Verifica que tu base de datos esté encendida en la plataforma.\n- Revisa las variables de entorno en la configuración para confirmar que DB_HOST, DB_PORT, DB_USERNAME y DB_PASSWORD sean los asignados por el sistema.";
+        }
+        // Caso 3: Módulos o dependencias faltantes
+        elseif (str_contains($logLower, 'cannot find module') || str_contains($logLower, 'modulenotfounderror') || 
+                str_contains($logLower, 'no module named') || str_contains($logLower, 'cannot load such file') ||
+                str_contains($logLower, 'loaderror') || str_contains($logLower, 'class not found')) {
+            $titulo = "Dependencia o Módulo No Instalado";
+            $quePaso = "El código intenta importar un paquete o módulo que no se encuentra instalado en las dependencias.";
+            $solucion = "- Declara todas tus librerías en tu archivo de configuración (package.json, requirements.txt, Gemfile o composer.json).\n- Asegúrate de hacer 'git commit' y 'git push' de dicho archivo en tu repositorio.";
+        }
+        // Caso 4: Falta el comando de inicio o script start
+        elseif (str_contains($logLower, 'missing script: "start"') || str_contains($logLower, 'command not found') || $exitCode === '127') {
+            $titulo = "Archivo o Comando de Inicio No Encontrado";
+            $quePaso = "La plataforma intentó iniciar tu proyecto pero no encontró el script de inicio principal.";
+            $solucion = "- En Node.js: Asegúrate de tener la clave \"start\" dentro de \"scripts\" en tu package.json (ej: \"start\": \"node index.js\").\n- En Python o PHP: Asegúrate de que el archivo principal (app.py, main.py, index.php) esté en la raíz de tu proyecto.";
+        }
+        // Caso 5: Error de Sintaxis o Excepción no controlada en el código
+        elseif (str_contains($logLower, 'syntaxerror') || str_contains($logLower, 'parse error') || str_contains($logLower, 'syntax error') ||
+                str_contains($logLower, 'indentationerror')) {
+            $titulo = "Error de Sintaxis en el Código";
+            $quePaso = "El código de tu aplicación contiene un error de sintaxis que impide al intérprete ejecutar el proyecto.";
+            $solucion = "- Corrige el error de sintaxis en tu computadora localmente y haz un nuevo push a GitHub.";
+        }
+        // Caso 6: Conflicto de puerto
+        elseif (str_contains($logLower, 'eaddrinuse') || str_contains($logLower, 'address already in use')) {
+            $titulo = "Conflicto de Puerto de Red";
+            $quePaso = "La aplicación intentó abrir un puerto que ya estaba en uso o no disponible.";
+            $solucion = "- Configura tu servidor para escuchar en la variable de entorno PORT (ej: process.env.PORT || 3000).";
+        }
+
+        $headerText = str_contains($titulo, 'No Soportado') ? $titulo : "ERROR AL INICIAR EL SERVIDOR: {$titulo}";
+
+        $out = "\n=======================================================\n";
+        $out .= "{$headerText}\n";
+        $out .= "=======================================================\n\n";
+        $out .= "QUE PASO:\n";
+        $out .= "{$quePaso}\n\n";
+        $out .= "COMO SOLUCIONARLO:\n";
+        $out .= "{$solucion}\n";
+        $out .= "=======================================================\n";
+
+        return $out;
     }
 }

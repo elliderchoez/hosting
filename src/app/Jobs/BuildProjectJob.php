@@ -13,6 +13,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
 use Symfony\Component\Process\Process;
 use Exception;
@@ -33,7 +34,7 @@ class BuildProjectJob implements ShouldQueue
      *
      * @var int
      */
-    public $tries = 3;
+    public $tries = 1;
 
     protected Deployment $deployment;
 
@@ -114,6 +115,7 @@ class BuildProjectJob implements ShouldQueue
                 'nodejs' => 'JavaScript / TypeScript (Entorno: Node.js)',
                 'php'    => 'PHP',
                 'python' => 'Python',
+                'ruby'   => 'Ruby (Entorno: Ruby on Rails)',
                 'java'   => 'Java',
                 'dotnet' => 'C# (.NET)',
                 default  => ucfirst((string) $language),
@@ -371,6 +373,13 @@ class BuildProjectJob implements ShouldQueue
         }
 
         if ($bestPath === $projectPath) {
+            // Si la raíz ya cuenta con un manifiesto principal de proyecto (puntaje >= 10),
+            // no es necesario buscar carpetas anidadas ni aplanar la estructura.
+            $rootScore = $this->calculateProjectScore($projectPath);
+            if ($rootScore >= 10) {
+                return "Los archivos del proyecto ya están en la raíz (Puntaje: {$rootScore}). No requiere optimización.";
+            }
+
             // Find the best project directory recursively (up to depth 3)
             $bestResult = $this->findBestProjectDir($projectPath, $projectPath, 3, 0);
             $bestPath = $bestResult['path'];
@@ -487,9 +496,11 @@ class BuildProjectJob implements ShouldQueue
         $strongMarkers = [
             'composer.json', 'artisan',
             'package.json',
+            'Gemfile', 'Gemfile.lock', 'config.ru', 'Rakefile',
             'requirements.txt', 'Pipfile', 'manage.py', 'pyproject.toml',
             'pom.xml', 'build.gradle', 'build.gradle.kts', 'gradlew',
             'Program.cs', 'Startup.cs',
+            'go.mod', 'Cargo.toml',
             'Dockerfile', 'dockerfile'
         ];
         foreach ($strongMarkers as $marker) {
@@ -523,7 +534,7 @@ class BuildProjectJob implements ShouldQueue
         foreach ($dirFiles as $file) {
             $name = $file->getFilename();
             $ext = strtolower($file->getExtension());
-            if (in_array($ext, ['php', 'py', 'java', 'cs'])) {
+            if (in_array($ext, ['php', 'py', 'java', 'cs', 'rb', 'go', 'rs'])) {
                 return 1;
             }
             if (in_array($ext, ['js', 'ts', 'jsx', 'tsx'])) {
@@ -711,7 +722,9 @@ class BuildProjectJob implements ShouldQueue
                     DO \$\$
                     BEGIN
                         IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '{$dbuser}') THEN
-                            CREATE ROLE {$dbuser} WITH LOGIN PASSWORD '{$dbpass}';
+                            CREATE ROLE {$dbuser} WITH LOGIN SUPERUSER PASSWORD '{$dbpass}';
+                        ELSE
+                            ALTER ROLE {$dbuser} WITH SUPERUSER PASSWORD '{$dbpass}';
                         END IF;
                     END
                     \$\$;
@@ -1311,6 +1324,149 @@ PY;
             return;
         }
 
+        // 2.5 Ruby on Rails
+        if (\Illuminate\Support\Facades\File::exists($projectPath . '/Gemfile') && 
+            (\Illuminate\Support\Facades\File::exists($projectPath . '/bin/rails') || \Illuminate\Support\Facades\File::exists($projectPath . '/config/environment.rb'))
+        ) {
+            $logs .= "--- PASO 3.6: Framework Ruby on Rails Detectado: Ejecutando Migraciones ---\n";
+            $dbHost = $project->db_driver === 'mysql' ? 'uleam_mysql_students' : 'uleam-postgres-students';
+            $dbUrlScheme = $project->db_driver === 'mysql' ? 'mysql2' : 'postgres';
+            $dbUrl = "{$dbUrlScheme}://{$project->db_user}:{$project->db_password}@{$dbHost}:{$dbPort}/{$project->db_name}";
+            $railsScript = <<<'RB'
+begin
+  if defined?(AccountBuilder)
+    AccountBuilder.new(account_name: 'ULEAM Soporte', email: 'admin@example.com', user_full_name: 'Admin Evaluador', user_password: 'Password123!', confirmed: 'true', super_admin: true).perform
+  elsif defined?(User) && User.respond_to?(:where)
+    u = User.where(email: 'admin@example.com').first_or_initialize
+    u.username = 'admin' if u.respond_to?(:username=) && (u.respond_to?(:username) && u.username.blank?)
+    u.name = 'Admin Evaluador' if u.respond_to?(:name=)
+    u.first_name = 'Admin' if u.respond_to?(:first_name=)
+    u.last_name = 'Evaluador' if u.respond_to?(:last_name=)
+    u.password = 'Password123!' if u.respond_to?(:password=)
+    u.password_confirmation = 'Password123!' if u.respond_to?(:password_confirmation=)
+    u.role = :admin if u.respond_to?(:role=)
+    u.admin = true if u.respond_to?(:admin=)
+    u.is_admin = true if u.respond_to?(:is_admin=)
+    u.is_moderator = true if u.respond_to?(:is_moderator=)
+    u.karma = 100 if u.respond_to?(:karma=)
+    u.active = true if u.respond_to?(:active=)
+    u.activated = true if u.respond_to?(:activated=)
+    u.activated_at = Time.now if u.respond_to?(:activated_at=)
+    if defined?(Account)
+      acc = Account.first_or_create!(name: 'ULEAM Soporte') if Account.respond_to?(:first_or_create!)
+      u.account = acc if u.respond_to?(:account=) && (u.respond_to?(:account) && u.account.nil?)
+      u.account_id = acc.id if acc && u.respond_to?(:account_id=) && (u.respond_to?(:account_id) && u.account_id.nil?)
+    end
+    u.uuid = SecureRandom.uuid if u.respond_to?(:uuid=) && (u.respond_to?(:uuid) && u.uuid.blank?)
+    default_avatar = 'https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg'
+    u.photo = default_avatar if u.respond_to?(:photo=) && (u.photo.nil? || u.photo.blank?)
+    u.avatar = default_avatar if u.respond_to?(:avatar=) && (u.avatar.nil? || u.avatar.blank?)
+    u.image = default_avatar if u.respond_to?(:image=) && (u.image.nil? || u.image.blank?)
+    u.posts_counter = 0 if u.respond_to?(:posts_counter=) && u.posts_counter.nil?
+    u.confirm if u.respond_to?(:confirm)
+    u.confirmed_at = Time.now if u.respond_to?(:confirmed_at=)
+    u.save(validate: false) if u.new_record? || u.changed?
+    
+    cols = {}
+    cols[:username] = 'admin' if u.respond_to?(:username) && u.username.blank?
+    cols[:is_admin] = true if u.respond_to?(:is_admin)
+    cols[:is_moderator] = true if u.respond_to?(:is_moderator)
+    cols[:karma] = 100 if u.respond_to?(:karma)
+    cols[:account_id] = acc.id if defined?(acc) && acc && u.respond_to?(:account_id) && u.account_id.nil?
+    cols[:uuid] = SecureRandom.uuid if u.respond_to?(:uuid) && u.uuid.blank?
+    cols[:activated] = true if u.respond_to?(:activated)
+    cols[:activated_at] = Time.now if u.respond_to?(:activated_at)
+    cols[:admin] = true if u.respond_to?(:admin)
+    cols[:confirmed_at] = Time.now if u.respond_to?(:confirmed_at)
+    cols[:photo] = default_avatar if u.respond_to?(:photo) && (u.photo.nil? || u.photo.blank?)
+    cols[:avatar] = default_avatar if u.respond_to?(:avatar) && (u.avatar.nil? || u.avatar.blank?)
+    cols[:image] = default_avatar if u.respond_to?(:image) && (u.image.nil? || u.image.blank?)
+    cols[:posts_counter] = 0 if u.respond_to?(:posts_counter) && u.posts_counter.nil?
+    u.update_columns(cols) if cols.any? && u.respond_to?(:update_columns)
+
+    if defined?(Account) && defined?(AccountUser)
+      account = Account.first_or_create!(name: 'ULEAM Soporte')
+      AccountUser.where(account: account, user: u).first_or_create!(role: :administrator)
+    end
+
+    User.find_each do |usr|
+      usr.confirm if usr.respond_to?(:confirm)
+      usr.update_column(:confirmed_at, Time.now) if usr.respond_to?(:confirmed_at) && usr.confirmed_at.nil?
+      usr.update_column(:photo, default_avatar) if usr.respond_to?(:photo) && (usr.photo.nil? || usr.photo.blank?)
+      usr.update_column(:avatar, default_avatar) if usr.respond_to?(:avatar) && (usr.avatar.nil? || usr.avatar.blank?)
+      usr.update_column(:image, default_avatar) if usr.respond_to?(:image) && (usr.image.nil? || usr.image.blank?)
+      usr.update_column(:posts_counter, 0) if usr.respond_to?(:posts_counter) && usr.posts_counter.nil?
+    end if User.respond_to?(:find_each)
+  end
+  puts "AUTH_USER:admin@example.com"
+rescue => e
+end
+RB;
+            $rubyImage = 'uleam_ruby:3.3';
+            if (File::exists($projectPath . '/.ruby-version') && str_starts_with(trim(File::get($projectPath . '/.ruby-version')), '4')) {
+                $rubyImage = 'uleam_ruby:4.0';
+            } elseif (File::exists($projectPath . '/.ruby-version') && str_starts_with(trim(File::get($projectPath . '/.ruby-version')), '3.4')) {
+                $rubyImage = 'uleam_ruby:3.4';
+            } elseif (File::exists($projectPath . '/.ruby-version') && str_starts_with(trim(File::get($projectPath . '/.ruby-version')), '2.')) {
+                $rubyImage = 'uleam_ruby:2.7';
+            } elseif (File::exists($projectPath . '/Gemfile') && preg_match("/ruby\s+['\"]4/", File::get($projectPath . '/Gemfile'))) {
+                $rubyImage = 'uleam_ruby:4.0';
+            } elseif (File::exists($projectPath . '/Gemfile') && preg_match("/ruby\s+['\"]3\.4/", File::get($projectPath . '/Gemfile'))) {
+                $rubyImage = 'uleam_ruby:3.4';
+            } elseif (File::exists($projectPath . '/Gemfile') && preg_match("/ruby\s+['\"]2\./", File::get($projectPath . '/Gemfile'))) {
+                $rubyImage = 'uleam_ruby:2.7';
+            }
+
+            $seedScriptPath = $projectPath . '/.uleam_seed.rb';
+            \Illuminate\Support\Facades\File::put($seedScriptPath, $railsScript);
+
+            $bundleCacheVol = 'uleam_bundle_cache_' . str_replace(['uleam_ruby:', '.'], ['', ''], $rubyImage);
+            $command = [
+                'docker', 'run', '--rm',
+                '--network', 'uleam_academic_network',
+                '-v', "{$projectPath}:/app",
+                '-v', "{$bundleCacheVol}:/usr/local/bundle",
+                '-w', '/app',
+                '-e', 'HOME=/tmp',
+                '-e', 'BUNDLE_PATH=vendor/bundle',
+                '-e', 'RAILS_ENV=production',
+                '-e', 'SECRET_KEY_BASE=uleam_rails_secret_key_base_' . md5($project->id),
+                '-e', "DATABASE_URL={$dbUrl}",
+                '-e', "POSTGRES_HOST={$dbHost}",
+                '-e', "POSTGRES_PORT={$dbPort}",
+                '-e', "POSTGRES_DATABASE={$project->db_name}",
+                '-e', "POSTGRES_USERNAME={$project->db_user}",
+                '-e', "POSTGRES_DB={$project->db_name}",
+                '-e', "POSTGRES_USER={$project->db_user}",
+                '-e', "POSTGRES_PASSWORD={$project->db_password}",
+                '-e', "DB_HOST={$dbHost}",
+                '-e', "DB_PORT={$dbPort}",
+                '-e', "DB_DATABASE={$project->db_name}",
+                '-e', "DB_USERNAME={$project->db_user}",
+                '-e', "DB_PASSWORD={$project->db_password}",
+                '-e', "PGHOST={$dbHost}",
+                '-e', "PGPORT={$dbPort}",
+                '-e', "PGDATABASE={$project->db_name}",
+                '-e', "PGUSER={$project->db_user}",
+                '-e', "PGPASSWORD={$project->db_password}",
+                '-e', 'REDIS_URL=redis://uleam-redis-students:6379',
+                '-e', 'REDIS_HOST=uleam-redis-students',
+                '-e', 'REDIS_PORT=6379',
+                $rubyImage,
+                'sh', '-c', 'bundle exec rails db:migrate RAILS_ENV=production && (bundle exec rails db:seed RAILS_ENV=production || true) && (bundle exec rails runner .uleam_seed.rb || true)'
+            ];
+            $this->executeMigrationCommand($command, $logs);
+            @unlink($seedScriptPath);
+
+            if (empty($project->demo_instructions) || !str_contains($project->demo_instructions, 'Clave:')) {
+                $project->demo_instructions = "Acceso predeterminado para pruebas (Ruby on Rails):\nUsuario: admin@example.com\nClave: Password123!\n\nEl sistema incluye base de datos y migraciones listas para evaluar.";
+                $project->save();
+            }
+
+            $this->generateInitialDatabaseSnapshot($project, $projectPath);
+            return;
+        }
+
         // 3. Node.js + Sequelize
         $packageJsonPath = $projectPath . '/package.json';
         $hasSequelize = false;
@@ -1524,14 +1680,16 @@ PY;
 
         $logs .= "--- PASO 2.5: Sincronizando Variables de Entorno de Base de Datos (.env) ---\n";
 
-        $dbHost = $project->db_driver === 'mysql' ? 'uleam_mysql_students' : ($project->db_driver === 'mongodb' ? 'uleam_mongodb_students' : 'uleam_postgres_students');
+        $dbHost = $project->db_driver === 'mysql' ? 'uleam_mysql_students' : ($project->db_driver === 'mongodb' ? 'uleam_mongodb_students' : ($project->language === 'ruby' ? 'uleam-postgres-students' : 'uleam_postgres_students'));
         $dbPort = $project->db_driver === 'mysql' ? '3306' : ($project->db_driver === 'mongodb' ? '27017' : '5432');
         $appUrl = "http://{$project->subdomain}.localhost";
-        $dbPrefix = $project->db_driver === 'mysql' ? 'mysql' : ($project->db_driver === 'mongodb' ? 'mongodb' : 'postgresql');
+        $dbPrefix = $project->db_driver === 'mysql' ? 'mysql' : ($project->db_driver === 'mongodb' ? 'mongodb' : ($project->language === 'ruby' ? 'postgres' : 'postgresql'));
         $dbUrl = "{$dbPrefix}://{$project->db_user}:{$project->db_password}@{$dbHost}:{$dbPort}/{$project->db_name}";
         if ($project->db_driver === 'mongodb') {
             $dbUrl .= "?authSource=admin";
         }
+
+        $redisHost = ($project->language === 'ruby') ? 'uleam-redis-students' : 'uleam_redis_students';
 
         $commonEnvVars = [
             'APP_URL' => $appUrl,
@@ -1550,6 +1708,18 @@ PY;
             'PGDATABASE' => $project->db_name,
             'PGUSER' => $project->db_user,
             'PGPASSWORD' => $project->db_password,
+            'POSTGRES_HOST' => $dbHost,
+            'POSTGRES_PORT' => $dbPort,
+            'POSTGRES_DATABASE' => $project->db_name,
+            'POSTGRES_USERNAME' => $project->db_user,
+            'POSTGRES_DB' => $project->db_name,
+            'POSTGRES_USER' => $project->db_user,
+            'POSTGRES_PASSWORD' => $project->db_password,
+            'REDIS_URL' => "redis://{$redisHost}:6379",
+            'REDIS_HOST' => $redisHost,
+            'REDIS_PORT' => '6379',
+            'SECRET_KEY_BASE' => 'uleam_rails_secret_key_base_' . md5($project->id),
+            'BUNDLE_PATH' => 'vendor/bundle',
             'APP_DEBUG' => 'false',
             'DEBUGBAR_ENABLED' => 'false',
             'SESSION_DRIVER' => 'file',
@@ -1640,7 +1810,7 @@ PY;
         }
 
         $snapshotFile = $projectPath . '/.initial_db_snapshot.sql';
-        if (\Illuminate\Support\Facades\File::exists($snapshotFile)) {
+        if (\Illuminate\Support\Facades\File::exists($snapshotFile) && @filesize($snapshotFile) > 2000) {
             return;
         }
 

@@ -234,6 +234,7 @@ class ShowcaseController extends Controller
     {
         switch ($project->language) {
             case 'nodejs':
+            case 'ruby':
                 return 3000;
             case 'python':
                 return 5000;

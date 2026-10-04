@@ -37,12 +37,21 @@ class DetectLanguageAction
             return 'python';
         }
 
-        // 3. Detect Node.js
+        // 3. Detect Ruby (Prioritized over Node.js because Rails projects often have package.json for Vite/JS/Tailwind)
+        if (File::exists($projectPath . '/Gemfile') || 
+            File::exists($projectPath . '/config.ru') || 
+            File::exists($projectPath . '/Rakefile') || 
+            File::exists($projectPath . '/.ruby-version')
+        ) {
+            return 'ruby';
+        }
+
+        // 4. Detect Node.js
         if (File::exists($projectPath . '/package.json')) {
             return 'nodejs';
         }
 
-        // 4. Detect Java (Maven or Gradle)
+        // 5. Detect Java (Maven or Gradle)
         if (File::exists($projectPath . '/pom.xml') ||
             File::exists($projectPath . '/build.gradle') ||
             File::exists($projectPath . '/build.gradle.kts') ||
@@ -51,7 +60,7 @@ class DetectLanguageAction
             return 'java';
         }
 
-        // 5. Detect .NET (ASP.NET Core / C#)
+        // 6. Detect .NET (ASP.NET Core / C#)
         $rootFiles = File::files($projectPath);
         foreach ($rootFiles as $file) {
             $ext = $file->getExtension();
@@ -59,15 +68,16 @@ class DetectLanguageAction
                 return 'dotnet';
             }
         }
-        // 6. Detect Go
+        // 7. Detect Go
         if (File::exists($projectPath . '/go.mod') || File::exists($projectPath . '/main.go')) {
             return 'go';
         }
 
-        // 7. Inspect Dockerfile base image if present
+        // 8. Inspect Dockerfile base image if present
         $dockerfilePath = File::exists($projectPath . '/Dockerfile') ? $projectPath . '/Dockerfile' : (File::exists($projectPath . '/dockerfile') ? $projectPath . '/dockerfile' : null);
         if ($dockerfilePath) {
             $dockerContent = strtolower(@file_get_contents($dockerfilePath) ?: '');
+            if (str_contains($dockerContent, 'ruby') || str_contains($dockerContent, 'rails')) return 'ruby';
             if (str_contains($dockerContent, 'node:') || str_contains($dockerContent, 'node-') || str_contains($dockerContent, 'node ')) return 'nodejs';
             if (str_contains($dockerContent, 'python:') || str_contains($dockerContent, 'python-') || str_contains($dockerContent, 'python ')) return 'python';
             if (str_contains($dockerContent, 'php:') || str_contains($dockerContent, 'php-') || str_contains($dockerContent, 'php ')) return 'php';
@@ -77,9 +87,12 @@ class DetectLanguageAction
         }
 
 
-        // 7. Last resort: scan file extensions in root
+        // 9. Last resort: scan file extensions in root
         foreach ($rootFiles as $file) {
             $extension = $file->getExtension();
+            if ($extension === 'rb') {
+                return 'ruby';
+            }
             if ($extension === 'php') {
                 return 'php';
             }
@@ -100,7 +113,7 @@ class DetectLanguageAction
             }
         }
 
-        // 8. Scan immediate subdirectories for multi-folder frontend projects (e.g., web/index.html, script.js)
+        // 10. Scan immediate subdirectories for multi-folder frontend projects (e.g., web/index.html, script.js)
         try {
             $allFiles = File::allFiles($projectPath);
             foreach ($allFiles as $file) {
@@ -112,6 +125,7 @@ class DetectLanguageAction
                 if (in_array($ext, ['js', 'ts', 'jsx', 'tsx', 'html'])) {
                     return 'nodejs';
                 }
+                if ($ext === 'rb') return 'ruby';
                 if ($ext === 'php') return 'php';
                 if ($ext === 'py') return 'python';
                 if ($ext === 'java') return 'java';

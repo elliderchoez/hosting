@@ -308,7 +308,10 @@ export default function Dashboard({ auth, profile, projects }) {
             .then(() => {
                 router.reload();
             })
-            .catch(err => alert("Error al iniciar el contenedor. Revisa los logs."));
+            .catch(err => {
+                const errorLog = err.response?.data?.log || err.response?.data?.error || "Error al iniciar el contenedor. Revisa los logs.";
+                alert(errorLog);
+            });
     };
 
     // Stop container
@@ -1508,9 +1511,13 @@ function parseLogs(logText) {
         return [{ title: 'Bitácora del Despliegue', content: logText, defaultOpen: true }];
     }
 
+    // El resultado general del build determina con precisión absoluta si existió un fallo real
+    const isBuildSuccessful = logText.includes('=== COMPILACIÓN EXITOSA ===');
+    const isBuildFailed = logText.includes('=== COMPILACIÓN FALLIDA ===');
+
     const headerText = logText.substring(0, matches[0].index).trim();
     if (headerText) {
-        steps.push({ title: 'Preparando Entorno', content: headerText, defaultOpen: false });
+        steps.push({ title: 'Preparando Entorno', content: headerText, hasError: false, defaultOpen: false });
     }
 
     for (let i = 0; i < matches.length; i++) {
@@ -1522,36 +1529,22 @@ function parseLogs(logText) {
 
         const content = logText.substring(start, end).trim();
 
-        // Detección precisa de errores reales (evitando falsos positivos por rutas de archivos o warnings)
-        const lines = content.split('\n');
-        const hasError = lines.some(line => {
-            const trimmed = line.trim().toLowerCase();
-            if (!trimmed) return false;
-            // Ignorar líneas de progreso de compiladores (ej. webpack progress)
-            if (trimmed.includes('[webpack.progress]') || trimmed.startsWith('<s>')) return false;
-            // Ignorar warnings y notices benignos de npm / composer / deprecaciones
-            if (trimmed.startsWith('npm warn') || trimmed.startsWith('npm notice') || trimmed.startsWith('warning:') || trimmed.includes('deprecated')) return false;
-            // Ignorar nombres de archivos de código que incluyan la palabra error (ej. PageError.jsx, createError.js, etc.)
-            if (/(\/|\\)[^ ]*(error|exception)[^ ]*\.(js|jsx|ts|tsx|vue|php|css|html)/i.test(trimmed)) return false;
-            // Ignorar funciones de manejo o contadores en cero
-            if (trimmed.includes('error-handler') || trimmed.includes('error_reporting') || trimmed.includes('0 errors') || trimmed.includes('no errors')) return false;
-            // Ignorar migraciones de Laravel exitosas (ej. 2021_..._create_failed_jobs_table .. DONE)
-            if (trimmed.endsWith('done') || trimmed.includes('.. done') || trimmed.includes('... done')) return false;
-            // Ignorar nombres de tablas de Laravel para colas fallidas o logs
-            if (trimmed.includes('failed_jobs') || trimmed.includes('timeout_error')) return false;
+        // 1. Si el paso contiene un fallo explícito o advertencia de fallo, se marca con error
+        // 2. Si la compilación falló en general, el paso que abortó la ejecución también se marca con error
+        const contentLower = content.toLowerCase();
+        let hasError = false;
 
-            // Detectar errores críticos auténticos
-            return trimmed.startsWith('npm err!') ||
-                   trimmed.startsWith('npm error') ||
-                   trimmed.includes('fatal error') ||
-                   trimmed.includes('uncaught exception') ||
-                   trimmed.includes('compilación fallida') ||
-                   trimmed.includes('build failed') ||
-                   trimmed.includes('command failed') ||
-                   /\berror:\b/i.test(trimmed) ||
-                   /\berror\s+in\b/i.test(trimmed) ||
-                   (trimmed.includes('failed') && !trimmed.includes('0 failed'));
-        });
+        if (contentLower.includes('advertencia/fallo') || contentLower.includes('error al iniciar') || contentLower.includes('fallo al ejecutar') || contentLower.includes('fatal error')) {
+            hasError = true;
+        } else if (isBuildFailed) {
+            hasError = (i === matches.length - 1);
+        } else if (!isBuildSuccessful) {
+            const lines = content.split('\n');
+            hasError = lines.some(line => {
+                const trimmed = line.trim().toLowerCase();
+                return trimmed.includes('fatal error') || trimmed.includes('uncaught exception') || trimmed.includes('compilación fallida');
+            });
+        }
 
         steps.push({
             title: currentMatch.title,
@@ -1587,6 +1580,30 @@ function getQuickFixAdvice(content) {
             desc: "La base de datos se conectó con éxito, pero la consulta busca una tabla que no existe en el esquema. Asegúrate de incluir la estructura de la base de datos (CREATE TABLE) dentro de tu script .sql o archivo de migración."
         };
     }
+    if (text.includes('libleptonica') || text.includes('cannot open shared object') || text.includes('librería nativa del sistema faltante')) {
+        return {
+            title: "Guía de Solución: Dependencia Nativa del Sistema Faltante",
+            desc: "Tu aplicación intenta cargar librerías de C/C++ del sistema operativo (ej: OCR, procesamiento pesado de imágenes o PDFs con Leptonica/Tesseract). Los proyectos de este tipo están pensados para correr en contenedores personalizados con Dockerfile. Para proyectos web estándar, utiliza librerías puras del lenguaje que no requieran binarios externos del sistema."
+        };
+    }
+    if (text.includes('error de conexión con la base de datos') || text.includes('connection refused') || text.includes('connectionbad')) {
+        return {
+            title: "Guía de Solución: Conexión con Base de Datos Rechazada",
+            desc: "Tu servidor no pudo conectarse con la base de datos. Verifica que el servicio de base de datos asignado en la plataforma esté encendido y que las variables DB_HOST, DB_PORT, DB_USERNAME y DB_PASSWORD en tu proyecto coincidan con las de tu panel."
+        };
+    }
+    if (text.includes('cannot find module') || text.includes('modulenotfounderror') || text.includes('dependencia o módulo no instalado')) {
+        return {
+            title: "Guía de Solución: Librería No Instalada",
+            desc: "Tu código intenta importar un paquete que no se encuentra instalado. Declara la librería en package.json, requirements.txt, Gemfile o composer.json y sube los cambios a tu repositorio."
+        };
+    }
+    if (text.includes('no se pudo iniciar el servidor')) {
+        return {
+            title: "Guía de Solución: El Servidor No Pudo Arrancar",
+            desc: "El contenedor fue generado pero el proceso del servidor se cerró al instante. Revisa los puntos de '¿Qué pasó?' y '¿Cómo solucionarlo?' para ver la causa exacta y resolverla."
+        };
+    }
 
     return null;
 }
@@ -1619,17 +1636,6 @@ function LogStep({ step }) {
 
             {isOpen && (
                 <div className="border-t border-slate-850 p-4 bg-slate-950">
-                    {advice && (
-                        <div className="assistant-advice-box mb-3.5 p-3.5 rounded-xl text-xs flex items-start space-x-3 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 shadow-sm">
-                            <svg className="advice-icon w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
-                            </svg>
-                            <div>
-                                <div className="advice-title font-bold text-blue-950 dark:text-blue-200 mb-1 text-[13px]">{advice.title}</div>
-                                <div className="advice-desc leading-relaxed text-blue-900 dark:text-blue-300 font-medium">{advice.desc}</div>
-                            </div>
-                        </div>
-                    )}
                     <pre className="font-mono text-xs text-slate-300 whitespace-pre-wrap leading-relaxed">
                         {step.content || '(Sin mensajes de log)'}
                     </pre>

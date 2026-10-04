@@ -37,6 +37,8 @@ class BuildProjectAction
                 return $this->buildPhp($project, $projectPath, $uid, $gid);
             case 'python':
                 return $this->buildPython($projectPath, $uid, $gid);
+            case 'ruby':
+                return $this->buildRuby($project, $projectPath, $uid, $gid);
             case 'java':
                 return $this->buildJava($projectPath, $uid, $gid);
             case 'dotnet':
@@ -731,6 +733,269 @@ JS;
     }
 
     /**
+     * Build Ruby on Rails application (bundle install && asset precompilation)
+     */
+    private function buildRuby(Project $project, string $path, string $uid, string $gid): array
+    {
+        $hasGemfile = File::exists($path . '/Gemfile');
+        if (!$hasGemfile) {
+            return [
+                'success' => true,
+                'output' => "No se encontró Gemfile. Omitiendo instalación de dependencias de Ruby."
+            ];
+        }
+
+        $this->ensureCacheVolumes();
+        $output = "Instalando dependencias de Ruby / Rails (bundle install)...\n";
+
+        $rubyImage = 'uleam_ruby:3.3';
+        if (File::exists($path . '/.ruby-version')) {
+            $ver = trim(File::get($path . '/.ruby-version'));
+            if (str_starts_with($ver, '4')) {
+                $rubyImage = 'uleam_ruby:4.0';
+            } elseif (str_starts_with($ver, '3.4')) {
+                $rubyImage = 'uleam_ruby:3.4';
+            } elseif (str_starts_with($ver, '2.')) {
+                $rubyImage = 'uleam_ruby:2.7';
+            }
+        } elseif (File::exists($path . '/Gemfile')) {
+            $gemfileContent = File::get($path . '/Gemfile');
+            if (preg_match("/ruby\s+['\"]4/", $gemfileContent)) {
+                $rubyImage = 'uleam_ruby:4.0';
+            } elseif (preg_match("/ruby\s+['\"]3\.4/", $gemfileContent)) {
+                $rubyImage = 'uleam_ruby:3.4';
+            } elseif (preg_match("/ruby\s+['\"]2\./", $gemfileContent)) {
+                $rubyImage = 'uleam_ruby:2.7';
+            }
+        }
+
+        // Persistir la versión detectada de Ruby en .ruby-version para que los siguientes pasos (migraciones y arranque) usen exactamente esta misma imagen
+        if (!File::exists($path . '/.ruby-version')) {
+            File::put($path . '/.ruby-version', str_replace('uleam_ruby:', '', $rubyImage));
+        }
+
+        // Adaptar de antemano cualquier restricción rígida de versión de Ruby en Gemfile (ej. ruby '2.7.5' vs 2.7.8)
+        $gemfile = $path . '/Gemfile';
+        if (File::exists($gemfile)) {
+            $content = File::get($gemfile);
+            if (preg_match('/^[ \t]*ruby[ \t]+.*$/m', $content)) {
+                $content = preg_replace('/^[ \t]*ruby[ \t]+.*$/m', '# [ULEAM_ADAPTED_RUBY_VERSION]', $content);
+                File::put($gemfile, $content);
+            }
+        }
+
+        // Sanear controladores de Rails ante posibles errores de sintaxis comunes (ej: protect from forgery sin guiones bajos)
+        $appControllersPath = $path . '/app/controllers';
+        if (File::isDirectory($appControllersPath)) {
+            $controllerFiles = File::allFiles($appControllersPath);
+            foreach ($controllerFiles as $file) {
+                if ($file->getExtension() === 'rb') {
+                    $cText = File::get($file->getRealPath());
+                    if (str_contains($cText, 'protect from forgery')) {
+                        File::put($file->getRealPath(), str_replace('protect from forgery', 'protect_from_forgery', $cText));
+                    }
+                }
+            }
+        }
+
+        // 1. Bundle install con caché persistente aislado por versión de Ruby
+        $bundleCacheVol = 'uleam_bundle_cache_' . str_replace(['uleam_ruby:', '.'], ['', ''], $rubyImage);
+        $bundleCommand = [
+            'docker', 'run', '--rm',
+            '-u', "$uid:$gid",
+            '-v', "$path:/app",
+            '-v', "{$bundleCacheVol}:/usr/local/bundle",
+            '-e', 'BUNDLE_SILENCE_ROOT_WARNING=1',
+            '-e', 'CFLAGS=-Wno-incompatible-pointer-types -Wno-int-conversion -Wno-error=incompatible-pointer-types',
+            '-e', 'CXXFLAGS=-Wno-incompatible-pointer-types -Wno-int-conversion -Wno-error=incompatible-pointer-types',
+            '-w', '/app',
+            $rubyImage,
+            'sh', '-c', 'bundle config set --local build.sqlite3 "--with-cflags=\'-Wno-incompatible-pointer-types -Wno-int-conversion\'" && bundle config set --local build.nio4r "--with-cflags=\'-Wno-incompatible-pointer-types\'" && bundle config set --local path vendor/bundle && bundle install --jobs 4 --retry 3'
+        ];
+
+        $bundleResult = $this->runCommand($bundleCommand);
+        $output .= $bundleResult['output'] . "\n";
+        if (!$bundleResult['success']) {
+            return [
+                'success' => false,
+                'output' => $output
+            ];
+        }
+
+        // Aplicar parches de compatibilidad en gemas y estructura (devise-secure_password, Rails 7.2 monkey patches)
+        $this->patchRubyGemsAndProject($path);
+
+        $secretKey = 'uleam_rails_secret_key_base_' . md5($project->id);
+
+        // 2. Si el proyecto tiene package.json para frontend assets (Vite / Webpack / esbuild / Rollup)
+        if (File::exists($path . '/package.json')) {
+            $pkgJson = @file_get_contents($path . '/package.json') ?: '';
+            $isFrontendBundler = str_contains($pkgJson, 'vite') || 
+                                 str_contains($pkgJson, 'webpack') || 
+                                 str_contains($pkgJson, 'esbuild') || 
+                                 str_contains($pkgJson, 'rollup') ||
+                                 str_contains($pkgJson, 'tailwindcss');
+            if ($isFrontendBundler) {
+                $output .= "Detectado package.json con compilador frontend en proyecto Rails. Instalando dependencias y compilando assets...\n";
+                $nodeCmd = 'if [ -f pnpm-lock.yaml ]; then pnpm install --no-frozen-lockfile && (pnpm exec vite build || bundle exec bin/vite build || pnpm build || true); elif [ -f yarn.lock ]; then yarn install && (yarn vite build || bundle exec bin/vite build || yarn build || true); else npm install --prefer-offline --no-audit && (npx vite build || bundle exec bin/vite build || npm run build || true); fi';
+                $npmCommand = [
+                    'docker', 'run', '--rm',
+                    '--network', 'uleam_academic_network',
+                    '-u', "$uid:$gid",
+                    '-v', "$path:/app",
+                    '-v', 'uleam_npm_cache:/tmp/npm-cache',
+                    '-v', "{$bundleCacheVol}:/usr/local/bundle",
+                    '-e', 'HOME=/tmp',
+                    '-e', 'PNPM_HOME=/tmp/.pnpm',
+                    '-e', 'NODE_OPTIONS=--max-old-space-size=4096',
+                    '-e', 'npm_config_cache=/tmp/npm-cache',
+                    '-e', 'BUNDLE_PATH=vendor/bundle',
+                    '-e', 'RAILS_ENV=production',
+                    '-e', 'RUN_MIGRATIONS=false',
+                    '-e', "SECRET_KEY_BASE={$secretKey}",
+                    '-e', 'REDIS_URL=redis://uleam-redis-students:6379',
+                    '-e', 'REDIS_HOST=uleam-redis-students',
+                    '-w', '/app',
+                    $rubyImage,
+                    'sh', '-c', $nodeCmd
+                ];
+                $npmResult = $this->runCommand($npmCommand);
+                $output .= $npmResult['output'] . "\n";
+            }
+        }
+
+        // 3. Precompilar assets de Rails si es un proyecto Rails
+        if (File::exists($path . '/bin/rails') || File::exists($path . '/config/environment.rb')) {
+            $output .= "Precompilando assets de Rails (assets:precompile)...\n";
+            $assetCommand = [
+                'docker', 'run', '--rm',
+                '--network', 'uleam_academic_network',
+                '-u', "$uid:$gid",
+                '-v', "$path:/app",
+                '-v', "{$bundleCacheVol}:/usr/local/bundle",
+                '-e', 'HOME=/tmp',
+                '-e', 'NODE_OPTIONS=--max-old-space-size=4096',
+                '-e', 'BUNDLE_PATH=vendor/bundle',
+                '-e', 'RAILS_ENV=production',
+                '-e', 'NODE_ENV=production',
+                '-e', 'RUN_MIGRATIONS=false',
+                '-e', "SECRET_KEY_BASE={$secretKey}",
+                '-e', 'DATABASE_URL=postgres://dummy:dummy@uleam-postgres-students:5432/dummy',
+                '-e', 'REDIS_URL=redis://uleam-redis-students:6379',
+                '-e', 'REDIS_HOST=uleam-redis-students',
+                '-w', '/app',
+                $rubyImage,
+                'sh', '-c', 'bundle exec rails assets:precompile RAILS_ENV=production NODE_ENV=production || true'
+            ];
+            $assetResult = $this->runCommand($assetCommand);
+            $output .= $assetResult['output'] . "\n";
+        }
+
+        return [
+            'success' => true,
+            'output' => $output
+        ];
+    }
+
+    /**
+     * Aplica parches automáticos de compatibilidad para gemas y proyectos Ruby / Rails (ej. Chatwoot, Rails 7.2)
+     */
+    private function patchRubyGemsAndProject(string $path): void
+    {
+        // 1. Compatibilidad para gemas con naming quirk (ej. devise-secure_password)
+        $gemDirs = glob($path . '/vendor/bundle/ruby/*/gems/devise-secure_password-*');
+        foreach ($gemDirs as $gDir) {
+            $origFile = $gDir . '/lib/devise/secure_password.rb';
+            $targetFile = $gDir . '/lib/devise-secure_password.rb';
+            if (File::exists($origFile) && !File::exists($targetFile)) {
+                @copy($origFile, $targetFile);
+            }
+        }
+
+        // 2. Monkey patch de SchemaDumper para Rails 7.2
+        $schemaDumper = $path . '/config/initializers/monkey_patches/schema_dumper.rb';
+        if (File::exists($schemaDumper)) {
+            $content = File::get($schemaDumper);
+            if (str_contains($content, '< ConnectionAdapters::SchemaDumper')) {
+                $content = str_replace('< ConnectionAdapters::SchemaDumper', '', $content);
+                File::put($schemaDumper, $content);
+            }
+        }
+
+        // 3. ActsAsTaggableOn cache migration patch
+        $taggableMigrations = glob($path . '/db/migrate/*_add_cached_labels_list.rb');
+        foreach ($taggableMigrations as $mFile) {
+            if (File::exists($mFile)) {
+                $mContent = File::get($mFile);
+                if (str_contains($mContent, 'ActsAsTaggableOn::Taggable::Cache.included(Conversation)') && !str_contains($mContent, 'rescue nil')) {
+                    $mContent = str_replace(
+                        'ActsAsTaggableOn::Taggable::Cache.included(Conversation)',
+                        'ActsAsTaggableOn::Taggable::Cache.included(Conversation) rescue nil',
+                        $mContent
+                    );
+                    File::put($mFile, $mContent);
+                }
+            }
+        }
+
+        // 4. Vite config ESM compatibility (.mts) para proyectos Rails con vite_ruby
+        $viteTs = $path . '/vite.config.ts';
+        $viteMts = $path . '/vite.config.mts';
+        if (File::exists($viteTs) && !File::exists($viteMts)) {
+            @copy($viteTs, $viteMts);
+        }
+
+        // 5. Si el proyecto Rails no tiene definida una ruta raíz (ej. APIs headless como Spree),
+        // proveer una ruta root por defecto para evitar pantalla blanca/404 al evaluador
+        $routesFile = $path . '/config/routes.rb';
+        if (File::exists($routesFile)) {
+            $routesContent = File::get($routesFile);
+            if (!preg_match('/^\s*root\s+to:/m', $routesContent) && !preg_match('/^\s*root\s+[\'":]/m', $routesContent)) {
+                $rootInjection = "\n  # Fallback root landing page para APIs headless (Nexus Academic)\n" .
+                    "  root to: proc { [200, { 'Content-Type' => 'text/html; charset=utf-8' }, ['<!DOCTYPE html><html lang=\"es\"><head><meta charset=\"UTF-8\"><title>Backend API Activo</title><style>body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;box-sizing:border-box;}div{text-align:center;background:#1e293b;padding:2.5rem;border-radius:1rem;border:1px solid #334155;max-width:550px;box-shadow:0 20px 25px -5px rgba(0,0,0,0.5);}h1{color:#38bdf8;margin-top:0;font-size:1.8rem;}p{color:#94a3b8;line-height:1.6;}a{color:#818cf8;text-decoration:none;font-weight:600;}a:hover{text-decoration:underline;}.badge{display:inline-block;background:#065f46;color:#34d399;padding:4px 12px;border-radius:9999px;font-size:0.85rem;font-weight:bold;margin-bottom:1rem;}</style></head><body><div><span class=\"badge\">● Backend API Activo</span><h1>🚀 Servicio en Ejecución</h1><p>El backend está ejecutándose correctamente en Nexus Academic.</p><p>Este proyecto está configurado como un servicio API headless.</p><p style=\"margin-top:1.5rem;\"><a href=\"/up\">🩺 Ver Healthcheck (/up)</a></p></div></body></html>']] }\nend";
+                $routesContent = preg_replace('/end\s*$/', $rootInjection, trim($routesContent));
+                File::put($routesFile, $routesContent);
+            }
+        }
+
+        // 6. Optimización de production.rb para entornos educativos / hosting local
+        $prodConfig = $path . '/config/environments/production.rb';
+        if (File::exists($prodConfig)) {
+            $content = File::get($prodConfig);
+            // Desactivar force_ssl estricto para evitar loops 301 en HTTP si el proyecto no corre bajo SSL directo
+            if (str_contains($content, 'config.force_ssl = true')) {
+                $content = str_replace('config.force_ssl = true', 'config.force_ssl = false', $content);
+            }
+            // Fallback de Active Storage a :local si está configurado en :amazon sin credenciales AWS
+            if (str_contains($content, 'config.active_storage.service = :amazon')) {
+                $content = str_replace('config.active_storage.service = :amazon', 'config.active_storage.service = ENV[\'AWS_BUCKET\'].present? ? :amazon : :local', $content);
+            }
+            File::put($prodConfig, $content);
+        }
+
+        // 7. Autocompletar dependencias frontend faltantes en Webpacker (ej. jquery, bootstrap en Rails 6)
+        $appPackJs = $path . '/app/javascript/packs/application.js';
+        $pkgJsonPath = $path . '/package.json';
+        if (File::exists($appPackJs) && File::exists($pkgJsonPath)) {
+            $packContent = File::get($appPackJs);
+            $pkgJson = json_decode(File::get($pkgJsonPath), true) ?: [];
+            $deps = array_merge($pkgJson['dependencies'] ?? [], $pkgJson['devDependencies'] ?? []);
+            $modified = false;
+            if (str_contains($packContent, 'jquery') && !isset($deps['jquery'])) {
+                $pkgJson['dependencies']['jquery'] = '^3.5.1';
+                $modified = true;
+            }
+            if (str_contains($packContent, 'bootstrap') && !isset($deps['bootstrap'])) {
+                $pkgJson['dependencies']['bootstrap'] = '^3.4.1';
+                $modified = true;
+            }
+            if ($modified) {
+                File::put($pkgJsonPath, json_encode($pkgJson, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            }
+        }
+    }
+
+    /**
      * Execute a shell command and return its output.
      */
     private function runCommand(array $command, int $timeout = 600): array
@@ -767,7 +1032,10 @@ JS;
             return;
         }
 
-        $volumes = ['uleam_npm_cache', 'uleam_composer_cache', 'uleam_pip_cache', 'uleam_m2_cache', 'uleam_gradle_cache', 'uleam_nuget_cache'];
+        $volumes = [
+            'uleam_npm_cache', 'uleam_composer_cache', 'uleam_pip_cache', 'uleam_m2_cache', 'uleam_gradle_cache', 'uleam_nuget_cache',
+            'uleam_bundle_cache_27', 'uleam_bundle_cache_33', 'uleam_bundle_cache_34', 'uleam_bundle_cache_40'
+        ];
         foreach ($volumes as $vol) {
             $this->runCommand(['docker', 'volume', 'create', $vol]);
         }
@@ -780,7 +1048,11 @@ JS;
             '-v', 'uleam_m2_cache:/m2',
             '-v', 'uleam_gradle_cache:/gradle',
             '-v', 'uleam_nuget_cache:/nuget',
-            'alpine', 'chmod', '-R', '777', '/npm', '/composer', '/pip', '/m2', '/gradle', '/nuget'
+            '-v', 'uleam_bundle_cache_27:/bundle27',
+            '-v', 'uleam_bundle_cache_33:/bundle33',
+            '-v', 'uleam_bundle_cache_34:/bundle34',
+            '-v', 'uleam_bundle_cache_40:/bundle40',
+            'alpine', 'chmod', '-R', '777', '/npm', '/composer', '/pip', '/m2', '/gradle', '/nuget', '/bundle27', '/bundle33', '/bundle34', '/bundle40'
         ]);
 
         $ensured = true;

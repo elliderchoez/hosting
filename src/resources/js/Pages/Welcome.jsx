@@ -116,6 +116,7 @@ const LANGUAGE_OPTIONS = [
     { id: 'php', name: 'PHP' },
     { id: 'nodejs', name: 'JavaScript / TypeScript' },
     { id: 'python', name: 'Python' },
+    { id: 'ruby', name: 'Ruby' },
     { id: 'java', name: 'Java' },
     { id: 'dotnet', name: 'C# (.NET)' },
     { id: 'go', name: 'Go (Golang)' },
@@ -124,6 +125,7 @@ const LANGUAGE_OPTIONS = [
 const FRAMEWORK_OPTIONS = [
     { id: 'all', name: 'Todos los frameworks' },
     { id: 'laravel', name: 'Laravel' },
+    { id: 'rails', name: 'Ruby on Rails' },
     { id: 'fullstack', name: 'Fullstack (React / Node)' },
     { id: 'react', name: 'React' },
     { id: 'vue', name: 'Vue.js' },
@@ -305,6 +307,7 @@ export default function Welcome({ auth, projects = [] }) {
             php: 0,
             nodejs: 0,
             python: 0,
+            ruby: 0,
             java: 0,
             dotnet: 0,
             go: 0,
@@ -317,6 +320,8 @@ export default function Welcome({ auth, projects = [] }) {
                 counts.nodejs++;
             } else if (lang === 'python') {
                 counts.python++;
+            } else if (lang === 'ruby') {
+                counts.ruby++;
             } else if (lang === 'java') {
                 counts.java++;
             } else if (['dotnet', 'csharp', 'c#'].includes(lang)) {
@@ -332,6 +337,7 @@ export default function Welcome({ auth, projects = [] }) {
     const frameworkCounts = useMemo(() => {
         const counts = {
             laravel: 0,
+            rails: 0,
             fullstack: 0,
             react: 0,
             vue: 0,
@@ -348,6 +354,7 @@ export default function Welcome({ auth, projects = [] }) {
             const isFullstack = fw === 'react-node' || fw === 'fullstack' || fw.includes('fullstack') || isJira;
 
             if (fw === 'laravel' || fw.includes('laravel')) counts.laravel++;
+            else if (fw === 'rails' || fw.includes('rails')) counts.rails++;
             else if (isFullstack) counts.fullstack++;
             else if (fw === 'react' || fw === 'nextjs' || pName.includes('calculator')) counts.react++;
             else if (fw === 'vue') counts.vue++;
@@ -418,6 +425,7 @@ export default function Welcome({ auth, projects = [] }) {
                 const isFullstack = fw === 'react-node' || fw === 'fullstack' || fw.includes('fullstack') || isJira;
 
                 if (selectedFramework === 'laravel') matchesFramework = fw === 'laravel' || fw.includes('laravel');
+                else if (selectedFramework === 'rails') matchesFramework = fw === 'rails' || fw.includes('rails');
                 else if (selectedFramework === 'fullstack') matchesFramework = isFullstack;
                 else if (selectedFramework === 'react') matchesFramework = (fw === 'react' || fw === 'nextjs' || fw.includes('react') || pName.includes('calculator') || isFullstack);
                 else if (selectedFramework === 'vue') matchesFramework = fw === 'vue' || fw.includes('vue');
@@ -1789,6 +1797,25 @@ function DotNetLogo() {
     );
 }
 
+function RubyLogo({ className = "w-8 h-8" }) {
+    return (
+        <div className="w-14 h-14 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 p-2.5 flex items-center justify-center shadow-xs" title="Ruby">
+            <svg className={className} viewBox="0 0 24 24" fill="none">
+                <path d="M6 3h12l4 6-10 12L2 9l4-6z" fill="#CC342D" fillOpacity="0.2" stroke="#CC342D" strokeWidth="1.8" strokeLinejoin="round" />
+                <path d="M2 9h20M12 21L7.5 9M12 21l4.5-12M6 3l1.5 6M18 3l-1.5 6M9 3l3 6M15 3l-3 6" stroke="#CC342D" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+        </div>
+    );
+}
+
+function RailsLogo({ className = "w-8 h-8" }) {
+    return (
+        <div className="w-16 h-12 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-300 dark:border-red-800/80 flex items-center justify-center shadow-xs px-2" title="Ruby on Rails">
+            <span className="font-sans font-black text-red-700 dark:text-red-400 text-xs tracking-tight">RAILS</span>
+        </div>
+    );
+}
+
 function DockerLogo({ className = "w-9 h-9" }) {
     return (
         <div className="w-16 h-14 rounded-2xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800/60 flex items-center justify-center shadow-xs" title="Docker">
@@ -2074,6 +2101,35 @@ function getTechInfo(project) {
             cardVisual: (
                 <div className="flex items-center justify-center">
                     <GoLogo />
+                </div>
+            )
+        };
+    }
+
+    // 7. Ruby / Ruby on Rails
+    if (lang === 'ruby') {
+        if (fw === 'rails' || fw.includes('rails')) {
+            return {
+                name: 'Ruby on Rails',
+                pillName: 'Ruby on Rails',
+                dotColor: 'bg-rose-600',
+                shortInfo: 'Ruby on Rails',
+                cardVisual: (
+                    <div className="flex items-center justify-center gap-3">
+                        <RubyLogo />
+                        <RailsLogo />
+                    </div>
+                )
+            };
+        }
+        return {
+            name: 'Ruby Nativo',
+            pillName: 'Ruby',
+            dotColor: 'bg-rose-500',
+            shortInfo: 'Ruby Nativo',
+            cardVisual: (
+                <div className="flex items-center justify-center">
+                    <RubyLogo />
                 </div>
             )
         };

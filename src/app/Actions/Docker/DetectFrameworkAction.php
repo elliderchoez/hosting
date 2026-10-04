@@ -130,7 +130,34 @@ class DetectFrameworkAction
             return 'aspnet';
         }
 
+        // 6. Ruby frameworks
+        if ($lang === 'ruby') {
+            if (File::exists($projectPath . '/bin/rails') || 
+                File::exists($projectPath . '/config/environment.rb') || 
+                $this->gemfileHas($projectPath, 'rails')
+            ) {
+                return 'rails';
+            }
+            if ($this->gemfileHas($projectPath, 'sinatra')) {
+                return 'sinatra';
+            }
+            if ($this->gemfileHas($projectPath, 'hanami')) {
+                return 'hanami';
+            }
+            return null;
+        }
+
         return null;
+    }
+
+    private function gemfileHas(string $projectPath, string $gem): bool
+    {
+        $path = $projectPath . '/Gemfile';
+        if (!File::exists($path)) {
+            return false;
+        }
+        $content = @file_get_contents($path);
+        return $content && (str_contains(strtolower($content), "gem '$gem'") || str_contains(strtolower($content), "gem \"$gem\""));
     }
 
     private function composerHas(string $projectPath, string $package): bool

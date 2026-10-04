@@ -147,8 +147,13 @@ class ResetStudentDatabases extends Command
                 }
 
                 if ($driver !== 'mongodb' && !$isSqliteProject) {
-                    // 2. Si es un proyecto con framework (Laravel/Django), ejecutar sus migraciones y seeders
-                    if (File::exists($projectPath . '/artisan') || File::exists($projectPath . '/manage.py') || File::exists($projectPath . '/package.json')) {
+                    // 2. Si es un proyecto con framework (Laravel/Django/Rails/Node) o cuenta con snapshot inicial
+                    if (File::exists($projectPath . '/.initial_db_snapshot.sql') ||
+                        File::exists($projectPath . '/artisan') || 
+                        File::exists($projectPath . '/manage.py') || 
+                        File::exists($projectPath . '/package.json') ||
+                        File::exists($projectPath . '/Gemfile')
+                    ) {
                         $this->runFrameworkMigrations($project, $projectPath);
                     }
 
@@ -358,6 +363,65 @@ class ResetStudentDatabases extends Command
                     '-e', "DATABASE_URL=" . ($driver === 'mysql' ? 'mysql' : 'postgres') . "://{$dbuser}:{$dbpass}@{$dbHost}:{$dbPort}/{$dbname}",
                     'python:3.11-alpine',
                     'sh', '-c', '.venv/bin/python manage.py migrate'
+                ];
+            }
+            $this->executeMigrationCommand($command);
+            return;
+        }
+
+        // 2.5 Ruby on Rails
+        if (File::exists($projectPath . '/Gemfile') && (File::exists($projectPath . '/bin/rails') || File::exists($projectPath . '/config/environment.rb'))) {
+            if ($isRunning) {
+                $command = [
+                    'docker', 'exec', $containerName,
+                    'sh', '-c', 'bundle exec rails db:migrate RAILS_ENV=production'
+                ];
+            } else {
+                $dbHost = $driver === 'mysql' ? 'uleam_mysql_students' : 'uleam-postgres-students';
+                $dbUrlScheme = $driver === 'mysql' ? 'mysql2' : 'postgres';
+                $dbUrl = "{$dbUrlScheme}://{$dbuser}:{$dbpass}@{$dbHost}:{$dbPort}/{$dbname}";
+                $rubyImage = 'uleam_ruby:3.3';
+                if (File::exists($projectPath . '/.ruby-version') && str_starts_with(trim(File::get($projectPath . '/.ruby-version')), '4')) {
+                    $rubyImage = 'uleam_ruby:4.0';
+                } elseif (File::exists($projectPath . '/.ruby-version') && str_starts_with(trim(File::get($projectPath . '/.ruby-version')), '3.4')) {
+                    $rubyImage = 'uleam_ruby:3.4';
+                } elseif (File::exists($projectPath . '/.ruby-version') && str_starts_with(trim(File::get($projectPath . '/.ruby-version')), '2.')) {
+                    $rubyImage = 'uleam_ruby:2.7';
+                } elseif (File::exists($projectPath . '/Gemfile') && preg_match("/ruby\s+['\"]4/", File::get($projectPath . '/Gemfile'))) {
+                    $rubyImage = 'uleam_ruby:4.0';
+                } elseif (File::exists($projectPath . '/Gemfile') && preg_match("/ruby\s+['\"]3\.4/", File::get($projectPath . '/Gemfile'))) {
+                    $rubyImage = 'uleam_ruby:3.4';
+                } elseif (File::exists($projectPath . '/Gemfile') && preg_match("/ruby\s+['\"]2\./", File::get($projectPath . '/Gemfile'))) {
+                    $rubyImage = 'uleam_ruby:2.7';
+                }
+
+                $bundleCacheVol = 'uleam_bundle_cache_' . str_replace(['uleam_ruby:', '.'], ['', ''], $rubyImage);
+                $command = [
+                    'docker', 'run', '--rm',
+                    '--network', 'uleam_academic_network',
+                    '-v', "{$projectPath}:/app",
+                    '-v', "{$bundleCacheVol}:/usr/local/bundle",
+                    '-w', '/app',
+                    '-e', 'BUNDLE_PATH=vendor/bundle',
+                    '-e', 'RAILS_ENV=production',
+                    '-e', "DATABASE_URL={$dbUrl}",
+                    '-e', "POSTGRES_HOST={$dbHost}",
+                    '-e', "POSTGRES_PORT={$dbPort}",
+                    '-e', "POSTGRES_DATABASE={$dbname}",
+                    '-e', "POSTGRES_USERNAME={$dbuser}",
+                    '-e', "POSTGRES_PASSWORD={$dbpass}",
+                    '-e', "DB_HOST={$dbHost}",
+                    '-e', "DB_PORT={$dbPort}",
+                    '-e', "DB_DATABASE={$dbname}",
+                    '-e', "DB_USERNAME={$dbuser}",
+                    '-e', "DB_PASSWORD={$dbpass}",
+                    '-e', "PGHOST={$dbHost}",
+                    '-e', "PGPORT={$dbPort}",
+                    '-e', "PGDATABASE={$dbname}",
+                    '-e', "PGUSER={$dbuser}",
+                    '-e', "PGPASSWORD={$dbpass}",
+                    $rubyImage,
+                    'sh', '-c', 'bundle exec rails db:migrate RAILS_ENV=production'
                 ];
             }
             $this->executeMigrationCommand($command);

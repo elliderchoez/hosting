@@ -21,8 +21,19 @@ class CloneRepositoryAction
     {
         // 1. Clean existing folder if it exists
         if (is_dir($destinationPath) || file_exists($destinationPath)) {
-            $rmProcess = Process::fromShellCommandLine('rm -rf ' . escapeshellarg($destinationPath));
+            @chmod($destinationPath, 0777);
+            $rmProcess = Process::fromShellCommandLine('chmod -R u+w ' . escapeshellarg($destinationPath) . ' 2>/dev/null; rm -rf ' . escapeshellarg($destinationPath));
             $rmProcess->run();
+            if (is_dir($destinationPath)) {
+                $parentDir = dirname($destinationPath);
+                $folderName = basename($destinationPath);
+                $dockerRm = new Process([
+                    'docker', 'run', '--rm',
+                    '-v', "{$parentDir}:/projects",
+                    'alpine', 'rm', '-rf', "/projects/{$folderName}"
+                ]);
+                $dockerRm->run();
+            }
             if (is_dir($destinationPath)) {
                 File::deleteDirectory($destinationPath);
             }
