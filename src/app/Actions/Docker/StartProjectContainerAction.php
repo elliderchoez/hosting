@@ -175,55 +175,68 @@ class StartProjectContainerAction
                     $command[] = '-e';
                     $command[] = 'MONGODB_URL=' . $mongoUri;
                 } else {
-                    $dbHost = $dbDriver === 'mysql' ? 'uleam_mysql_students' : ($project->language === 'ruby' ? 'uleam-postgres-students' : 'uleam_postgres_students');
-                    $dbPort = $dbDriver === 'mysql' ? '3306' : '5432';
-                    $dbUrlScheme = $dbDriver === 'mysql' ? 'mysql' : 'postgres';
+                    $isRubySqlite = false;
+                    if ($project->language === 'ruby') {
+                        $dbYml = $projectPath . '/config/database.yml';
+                        if (File::exists($dbYml)) {
+                            $dbYamlContent = File::get($dbYml);
+                            if (str_contains($dbYamlContent, 'sqlite3') && !str_contains($dbYamlContent, 'postgresql') && !str_contains($dbYamlContent, 'postgres') && !str_contains($dbYamlContent, 'mysql')) {
+                                $isRubySqlite = true;
+                            }
+                        }
+                    }
 
-                    $command[] = '-e';
-                    $command[] = 'DB_CONNECTION=' . $dbDriver;
-                    $command[] = '-e';
-                    $command[] = 'DB_HOST=' . $dbHost;
-                    $command[] = '-e';
-                    $command[] = 'DB_PORT=' . $dbPort;
-                    $command[] = '-e';
-                    $command[] = 'DB_DATABASE=' . $project->db_name;
-                    $command[] = '-e';
-                    $command[] = 'DB_USERNAME=' . $project->db_user;
-                    $command[] = '-e';
-                    $command[] = 'DB_PASSWORD=' . $project->db_password;
-                    $command[] = '-e';
-                    $command[] = 'DB_USER=' . $project->db_user;
-                    $command[] = '-e';
-                    $command[] = 'DB_NAME=' . $project->db_name;
-                    $command[] = '-e';
-                    $command[] = 'DB_PASS=' . $project->db_password;
-                    $command[] = '-e';
-                    $command[] = 'DATABASE_URL=' . $dbUrlScheme . '://' . $project->db_user . ':' . $project->db_password . '@' . $dbHost . ':' . $dbPort . '/' . $project->db_name;
-                    if ($dbDriver === 'pgsql' || $dbDriver === 'postgres') {
+                    if (!$isRubySqlite) {
+                        $dbHost = $dbDriver === 'mysql' ? 'uleam_mysql_students' : ($project->language === 'ruby' ? 'uleam-postgres-students' : 'uleam_postgres_students');
+                        $dbPort = $dbDriver === 'mysql' ? '3306' : '5432';
+                        $dbUrlScheme = $dbDriver === 'mysql' ? 'mysql' : 'postgres';
+
                         $command[] = '-e';
-                        $command[] = 'POSTGRES_HOST=' . $dbHost;
+                        $command[] = 'DB_CONNECTION=' . $dbDriver;
                         $command[] = '-e';
-                        $command[] = 'POSTGRES_PORT=' . $dbPort;
+                        $command[] = 'DB_HOST=' . $dbHost;
                         $command[] = '-e';
-                        $command[] = 'POSTGRES_DATABASE=' . $project->db_name;
+                        $command[] = 'DB_PORT=' . $dbPort;
                         $command[] = '-e';
-                        $command[] = 'POSTGRES_USERNAME=' . $project->db_user;
+                        $command[] = 'DB_DATABASE=' . $project->db_name;
                         $command[] = '-e';
-                        $command[] = 'POSTGRES_DB=' . $project->db_name;
+                        $command[] = 'DB_USERNAME=' . $project->db_user;
                         $command[] = '-e';
-                        $command[] = 'POSTGRES_USER=' . $project->db_user;
+                        $command[] = 'DB_PASSWORD=' . $project->db_password;
                         $command[] = '-e';
-                        $command[] = 'POSTGRES_PASSWORD=' . $project->db_password;
+                        $command[] = 'DB_USER=' . $project->db_user;
                         $command[] = '-e';
-                        $command[] = 'PGHOST=' . $dbHost;
+                        $command[] = 'DB_NAME=' . $project->db_name;
                         $command[] = '-e';
-                        $command[] = 'PGPORT=' . $dbPort;
+                        $command[] = 'DB_PASS=' . $project->db_password;
                         $command[] = '-e';
-                        $command[] = 'PGDATABASE=' . $project->db_name;
-                        $command[] = '-e';
-                        $command[] = 'PGUSER=' . $project->db_user;
-                        $command[] = '-e';
-                        $command[] = 'PGPASSWORD=' . $project->db_password;
+                        $command[] = 'DATABASE_URL=' . $dbUrlScheme . '://' . $project->db_user . ':' . $project->db_password . '@' . $dbHost . ':' . $dbPort . '/' . $project->db_name;
+                        if ($dbDriver === 'pgsql' || $dbDriver === 'postgres') {
+                            $command[] = '-e';
+                            $command[] = 'POSTGRES_HOST=' . $dbHost;
+                            $command[] = '-e';
+                            $command[] = 'POSTGRES_PORT=' . $dbPort;
+                            $command[] = '-e';
+                            $command[] = 'POSTGRES_DATABASE=' . $project->db_name;
+                            $command[] = '-e';
+                            $command[] = 'POSTGRES_USERNAME=' . $project->db_user;
+                            $command[] = '-e';
+                            $command[] = 'POSTGRES_DB=' . $project->db_name;
+                            $command[] = '-e';
+                            $command[] = 'POSTGRES_USER=' . $project->db_user;
+                            $command[] = '-e';
+                            $command[] = 'POSTGRES_PASSWORD=' . $project->db_password;
+                            $command[] = '-e';
+                            $command[] = 'PGHOST=' . $dbHost;
+                            $command[] = '-e';
+                            $command[] = 'PGPORT=' . $dbPort;
+                            $command[] = '-e';
+                            $command[] = 'PGDATABASE=' . $project->db_name;
+                            $command[] = '-e';
+                            $command[] = 'PGUSER=' . $project->db_user;
+                            $command[] = '-e';
+                            $command[] = 'PGPASSWORD=' . $project->db_password;
+                        }
                     }
                 }
             }
@@ -255,6 +268,13 @@ class StartProjectContainerAction
             }
 
             if ($project->language === 'ruby') {
+                File::ensureDirectoryExists($projectPath . '/log', 0777);
+                @chmod($projectPath . '/log', 0777);
+                File::ensureDirectoryExists($projectPath . '/tmp/pids', 0777);
+                @chmod($projectPath . '/tmp/pids', 0777);
+                File::ensureDirectoryExists($projectPath . '/storage', 0777);
+                @chmod($projectPath . '/storage', 0777);
+
                 $command[] = '-e';
                 $command[] = 'RAILS_ENV=production';
                 $command[] = '-e';
@@ -275,6 +295,12 @@ class StartProjectContainerAction
                 $command[] = 'PORT=3000';
                 $command[] = '-e';
                 $command[] = 'BUNDLE_PATH=vendor/bundle';
+                $command[] = '-e';
+                $command[] = 'PIDFILE=tmp/pids/server.pid';
+                $command[] = '-e';
+                $command[] = 'PUMA_WORKERS=0';
+                $command[] = '-e';
+                $command[] = 'RAILS_MAX_THREADS=5';
             }
 
             // Variables de entorno para optimización de memoria (256MB) y compatibilidad Python/Django/Node
@@ -299,11 +325,11 @@ class StartProjectContainerAction
 
             $containerId = trim($process->getOutput());
 
-            // Liveness Probe: Verificar durante 4 segundos que el contenedor se mantenga en ejecucion
+            // Liveness Probe: Verificar durante 8 segundos que el contenedor se mantenga en ejecucion
             $isAlive = true;
             $exitCode = null;
 
-            for ($i = 0; $i < 4; $i++) {
+            for ($i = 0; $i < 8; $i++) {
                 sleep(1);
                 $inspect = new Process(['docker', 'inspect', '--format', '{{.State.Status}} {{.State.ExitCode}}', $containerName]);
                 $inspect->run();

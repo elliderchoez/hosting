@@ -112,7 +112,7 @@ class ResetStudentDatabases extends Command
                     \Illuminate\Support\Facades\DB::connection('students_mysql')->statement("GRANT ALL PRIVILEGES ON {$dbname}.* TO '{$dbuser}'@'%';");
                     \Illuminate\Support\Facades\DB::connection('students_mysql')->statement("FLUSH PRIVILEGES;");
                     $this->info("Base de datos '{$dbname}' recreada limpia.");
-                } else {
+                } elseif (in_array($driver, ['pgsql', 'postgres', 'postgresql'])) {
                     // Postgres
                     \Illuminate\Support\Facades\DB::connection('students_postgres')->statement("
                         DO \$\$
@@ -133,20 +133,74 @@ class ResetStudentDatabases extends Command
                     \Illuminate\Support\Facades\DB::connection('students_postgres')->statement("CREATE DATABASE {$dbname} OWNER {$dbuser};");
                     \Illuminate\Support\Facades\DB::connection('students_postgres')->statement("GRANT ALL PRIVILEGES ON DATABASE {$dbname} TO {$dbuser};");
                     $this->info("Base de datos '{$dbname}' recreada limpia.");
+                } elseif ($driver === 'sqlite') {
+                    $this->info("Proyecto con SQLite detectado.");
                 }
 
-                // Soporte para aplicaciones con base de datos SQLite embebida (Grocy, etc.)
-                $sqliteSnapshot = $projectPath . '/.initial_db_snapshot.sqlite';
-                $sqliteDb = $projectPath . '/data/grocy.db';
-                $isSqliteProject = File::exists($sqliteSnapshot) || File::exists($sqliteDb) || File::exists($projectPath . '/config-dist.php');
-                if (File::exists($sqliteSnapshot) && File::exists($sqliteDb)) {
-                    $this->info("Restaurando snapshot inicial de SQLite para {$project->name}...");
-                    @copy($sqliteSnapshot, $sqliteDb);
-                    @chmod($sqliteDb, 0777);
-                    $this->info("Base de datos SQLite restaurada limpiamente desde snapshot inicial.");
+                $containerName = "project-{$project->id}";
+                $checkRunning = new Process(['docker', 'inspect', '-f', '{{.State.Running}}', $containerName]);
+                $checkRunning->run();
+                $isContainerRunning = trim($checkRunning->getOutput()) === 'true';
+
+                // Soporte universal para aplicaciones con base de datos SQLite embebida (Grocy, Rails, etc.)
+                $sqliteSnapshots = array_merge(
+                    glob($projectPath . '/data/.*.snapshot') ?: [],
+                    glob($projectPath . '/storage/.*.snapshot') ?: [],
+                    glob($projectPath . '/db/.*.snapshot') ?: [],
+                    glob($projectPath . '/db/*/.*.snapshot') ?: [],
+                    glob($projectPath . '/database/.*.snapshot') ?: [],
+                    glob($projectPath . '/.*.snapshot') ?: []
+                );
+
+                $sqliteSnapshotLegacy = $projectPath . '/.initial_db_snapshot.sqlite';
+                $sqliteDbLegacy = $projectPath . '/data/grocy.db';
+                $isSqliteProject = $driver === 'sqlite' || !empty($sqliteSnapshots) || File::exists($sqliteSnapshotLegacy) || File::exists($sqliteDbLegacy) || File::exists($projectPath . '/config-dist.php');
+
+                $sqliteRestored = false;
+                if (!empty($sqliteSnapshots) || (File::exists($sqliteSnapshotLegacy) && File::exists($sqliteDbLegacy))) {
+                    // Detener el contenedor brevemente para liberar sockets, locks y archivos WAL
+                    if ($isContainerRunning) {
+                        $stopProc = new Process(['docker', 'stop', '-t', '2', $containerName]);
+                        $stopProc->run();
+                    }
+
+                    foreach ($sqliteSnapshots as $snap) {
+                        $baseTarget = preg_replace('/^\./', '', basename($snap, '.snapshot'));
+                        $targetFile = dirname($snap) . '/' . $baseTarget;
+                        if (File::exists($snap)) {
+                            @unlink($targetFile . '-wal');
+                            @unlink($targetFile . '-shm');
+                            @unlink($targetFile);
+                            if (!@copy($snap, $targetFile)) {
+                                (new Process(['docker', 'run', '--rm', '-v', dirname($snap) . ':/dir', 'alpine', 'sh', '-c', "rm -f /dir/{$baseTarget}-wal /dir/{$baseTarget}-shm /dir/{$baseTarget} && cp /dir/." . basename($snap) . " /dir/{$baseTarget} && chmod 777 /dir/{$baseTarget}"]))->run();
+                            }
+                            @chmod($targetFile, 0777);
+                            $this->invalidateActiveSessionsSqlite($targetFile);
+                            $sqliteRestored = true;
+                            $this->info("Base de datos SQLite restaurada: {$baseTarget}");
+                        }
+                    }
+
+                    if (File::exists($sqliteSnapshotLegacy) && File::exists($sqliteDbLegacy)) {
+                        @unlink($sqliteDbLegacy . '-wal');
+                        @unlink($sqliteDbLegacy . '-shm');
+                        @unlink($sqliteDbLegacy);
+                        @copy($sqliteSnapshotLegacy, $sqliteDbLegacy);
+                        @chmod($sqliteDbLegacy, 0777);
+                        $this->invalidateActiveSessionsSqlite($sqliteDbLegacy);
+                        $sqliteRestored = true;
+                        $this->info("Base de datos SQLite restaurada limpiamente desde snapshot inicial.");
+                    }
+
+                    if ($isContainerRunning) {
+                        $startProc = new Process(['docker', 'start', $containerName]);
+                        $startProc->run();
+                        $this->info("Contenedor '{$containerName}' reiniciado con base de datos SQLite limpia.");
+                        sleep(2);
+                    }
                 }
 
-                if ($driver !== 'mongodb' && !$isSqliteProject) {
+                if ($driver !== 'mongodb' && !$sqliteRestored) {
                     // 2. Si es un proyecto con framework (Laravel/Django/Rails/Node) o cuenta con snapshot inicial
                     if (File::exists($projectPath . '/.initial_db_snapshot.sql') ||
                         File::exists($projectPath . '/artisan') || 
@@ -213,16 +267,23 @@ class ResetStudentDatabases extends Command
                     }
                 }
 
-                // Si el contenedor está activo, reiniciarlo para que reconecte a la base de datos limpia y regenere esquemas/conexiones
-                $containerName = "project-{$project->id}";
-                $checkRunning = new Process(['docker', 'inspect', '-f', '{{.State.Running}}', $containerName]);
-                $checkRunning->run();
-                if (trim($checkRunning->getOutput()) === 'true') {
-                    $restartProc = new Process(['docker', 'restart', '-t', '2', $containerName]);
-                    $restartProc->run();
-                    $this->info("Contenedor '{$containerName}' reiniciado tras restablecer la base de datos.");
-                    // Mantener el bloqueo activo brevemente para permitir que los servicios internos (como APIs secundarias o TypeORM) inicien
-                    sleep(2);
+                // Invalidar sesiones persistentes en base de datos y purgar sesiones en disco
+                $this->invalidateActiveSessionsSql($project);
+                $this->cleanDiskSessions($projectPath);
+                $this->info("Sesiones activas invalidadas para obligar a un inicio de sesión limpio.");
+
+                // Si el contenedor está activo y no fue SQLite (que ya se reinició limpiamente con stop/start), reiniciarlo para que reconecte
+                if (!$sqliteRestored) {
+                    $containerName = "project-{$project->id}";
+                    $checkRunning = new Process(['docker', 'inspect', '-f', '{{.State.Running}}', $containerName]);
+                    $checkRunning->run();
+                    if (trim($checkRunning->getOutput()) === 'true') {
+                        $restartProc = new Process(['docker', 'restart', '-t', '2', $containerName]);
+                        $restartProc->run();
+                        $this->info("Contenedor '{$containerName}' reiniciado tras restablecer la base de datos.");
+                        // Mantener el bloqueo activo brevemente para permitir que los servicios internos inicien
+                        sleep(2);
+                    }
                 }
 
             } catch (\Exception $e) {
@@ -482,6 +543,98 @@ class ResetStudentDatabases extends Command
             $this->info("Migraciones ejecutadas exitosamente.");
         } else {
             $this->warn("Advertencia/Fallo en migraciones: " . $process->getErrorOutput());
+        }
+    }
+
+    /**
+     * Invalida las sesiones activas en bases de datos SQLite (Rails, Grocy, etc.)
+     */
+    private function invalidateActiveSessionsSqlite(string $filePath): void
+    {
+        try {
+            $db = new \PDO("sqlite:" . $filePath);
+            $db->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_SILENT);
+
+            foreach (['users', 'usuarios', 'accounts', 'members', 'profiles'] as $table) {
+                $stmt = $db->query("PRAGMA table_info({$table})");
+                if ($stmt) {
+                    $cols = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+                    $colNames = array_column($cols, 'name');
+                    if (in_array('session_token', $colNames)) {
+                        $db->exec("UPDATE {$table} SET session_token = lower(hex(randomblob(30))) WHERE session_token IS NOT NULL");
+                    }
+                    if (in_array('remember_token', $colNames)) {
+                        $db->exec("UPDATE {$table} SET remember_token = NULL");
+                    }
+                }
+            }
+
+            foreach (['sessions', 'sesiones', 'django_session', 'user_sessions', 'auth_tokens'] as $sTable) {
+                $db->exec("DELETE FROM {$sTable}");
+            }
+        } catch (\Throwable $e) {}
+    }
+
+    /**
+     * Invalida sesiones activas en MySQL / PostgreSQL
+     */
+    private function invalidateActiveSessionsSql(Project $project): void
+    {
+        try {
+            $driver = $project->db_driver;
+            $dbname = $project->db_name;
+            if (!$dbname) return;
+
+            if ($driver === 'mysql') {
+                \Illuminate\Support\Facades\DB::connection('students_mysql')->statement("SET FOREIGN_KEY_CHECKS=0;");
+                foreach (['sessions', 'sesiones', 'django_session', 'user_sessions'] as $t) {
+                    try {
+                        \Illuminate\Support\Facades\DB::connection('students_mysql')->statement("TRUNCATE TABLE `{$dbname}`.`{$t}`");
+                    } catch (\Throwable $e) {}
+                }
+                try {
+                    \Illuminate\Support\Facades\DB::connection('students_mysql')->statement("UPDATE `{$dbname}`.`users` SET remember_token = NULL WHERE remember_token IS NOT NULL");
+                } catch (\Throwable $e) {}
+                try {
+                    \Illuminate\Support\Facades\DB::connection('students_mysql')->statement("UPDATE `{$dbname}`.`users` SET session_token = MD5(RAND()) WHERE session_token IS NOT NULL");
+                } catch (\Throwable $e) {}
+                \Illuminate\Support\Facades\DB::connection('students_mysql')->statement("SET FOREIGN_KEY_CHECKS=1;");
+            } elseif (in_array($driver, ['pgsql', 'postgres', 'postgresql'])) {
+                foreach (['sessions', 'sesiones', 'django_session', 'user_sessions'] as $t) {
+                    try {
+                        \Illuminate\Support\Facades\DB::connection('students_postgres')->statement("TRUNCATE TABLE {$t} CASCADE");
+                    } catch (\Throwable $e) {}
+                }
+                try {
+                    \Illuminate\Support\Facades\DB::connection('students_postgres')->statement("UPDATE users SET remember_token = NULL WHERE remember_token IS NOT NULL");
+                } catch (\Throwable $e) {}
+                try {
+                    \Illuminate\Support\Facades\DB::connection('students_postgres')->statement("UPDATE users SET session_token = md5(random()::text) WHERE session_token IS NOT NULL");
+                } catch (\Throwable $e) {}
+            }
+        } catch (\Throwable $e) {}
+    }
+
+    /**
+     * Purga archivos de sesión en disco (Laravel, PHP nativo, etc.)
+     */
+    private function cleanDiskSessions(string $projectPath): void
+    {
+        $sessionDirs = [
+            $projectPath . '/storage/framework/sessions',
+            $projectPath . '/tmp/sessions',
+            $projectPath . '/data/sessions',
+            $projectPath . '/var/sessions',
+            $projectPath . '/runtime/session',
+        ];
+        foreach ($sessionDirs as $dir) {
+            if (\Illuminate\Support\Facades\File::isDirectory($dir)) {
+                foreach (\Illuminate\Support\Facades\File::files($dir) as $f) {
+                    if ($f->getFilename() !== '.gitignore') {
+                        @unlink($f->getRealPath());
+                    }
+                }
+            }
         }
     }
 }

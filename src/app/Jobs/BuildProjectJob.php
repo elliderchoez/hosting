@@ -135,7 +135,38 @@ class BuildProjectJob implements ShouldQueue
             $project->save();
 
             $deployment->build_log = $logs;
-            $deployment->save();
+            // Auto-configurar archivos de configuración de muestra en Rails (database.yml, credentials, etc.)
+            if (!\Illuminate\Support\Facades\File::exists($projectPath . '/config/database.yml')) {
+                if (\Illuminate\Support\Facades\File::exists($projectPath . '/config/database.yml.sample')) {
+                    @copy($projectPath . '/config/database.yml.sample', $projectPath . '/config/database.yml');
+                } elseif (\Illuminate\Support\Facades\File::exists($projectPath . '/config/database.yml.example')) {
+                    @copy($projectPath . '/config/database.yml.example', $projectPath . '/config/database.yml');
+                } elseif (\Illuminate\Support\Facades\File::exists($projectPath . '/config/database.example.yml')) {
+                    @copy($projectPath . '/config/database.example.yml', $projectPath . '/config/database.yml');
+                }
+            }
+            if (!\Illuminate\Support\Facades\File::exists($projectPath . '/config/credentials.yml.enc')) {
+                if (\Illuminate\Support\Facades\File::exists($projectPath . '/config/credentials.yml.enc.sample')) {
+                    @copy($projectPath . '/config/credentials.yml.enc.sample', $projectPath . '/config/credentials.yml.enc');
+                }
+            }
+            \Illuminate\Support\Facades\File::ensureDirectoryExists($projectPath . '/storage', 0777);
+            @chmod($projectPath . '/storage', 0777);
+            \Illuminate\Support\Facades\File::ensureDirectoryExists($projectPath . '/log', 0777);
+            @chmod($projectPath . '/log', 0777);
+            \Illuminate\Support\Facades\File::ensureDirectoryExists($projectPath . '/tmp/pids', 0777);
+            @chmod($projectPath . '/tmp/pids', 0777);
+            \Illuminate\Support\Facades\File::ensureDirectoryExists($projectPath . '/db', 0777);
+            @chmod($projectPath . '/db', 0777);
+
+            // Deshabilitar Rack::Attack para evitar 429 Throttling al navegar y evaluar proyectos en Docker
+            $rackAttackFile = $projectPath . '/config/initializers/rack_attack.rb';
+            if (\Illuminate\Support\Facades\File::exists($rackAttackFile)) {
+                $rackContent = \Illuminate\Support\Facades\File::get($rackAttackFile);
+                if (!str_contains($rackContent, 'Rack::Attack.enabled = false')) {
+                    \Illuminate\Support\Facades\File::put($rackAttackFile, "Rack::Attack.enabled = false\nRack::Attack.safelist('allow_all') { true }\n" . $rackContent);
+                }
+            }
 
             // Aprovisionar base de datos
             $this->provisionDatabase($project, $projectPath, $logs);
@@ -168,7 +199,9 @@ class BuildProjectJob implements ShouldQueue
                         \Illuminate\Support\Facades\File::put($configPath, $content);
                     }
                 }
-                    // Auto-parchear config/cors.php de proyectos Laravel para aceptar
+            }
+
+            // Auto-parchear config/cors.php de proyectos Laravel para aceptar
             // cualquier origen *.localhost y *.nexus-academic.software automáticamente,
             // eliminando la necesidad de que el estudiante configure FRONTEND_URL.
             $corsConfigPath = $projectPath . '/config/cors.php';
@@ -195,7 +228,7 @@ class BuildProjectJob implements ShouldQueue
                     \Illuminate\Support\Facades\File::put($corsConfigPath, $corsContent);
                     $logs .= "CORS habilitado automáticamente para *.localhost y *.nexus-academic.software.\n";
                 }
-            }          }
+            }
 
             $buildResult = $buildAction->execute($project, $projectPath);
             $logs .= $buildResult['output'] . "\n";
@@ -585,6 +618,9 @@ class BuildProjectJob implements ShouldQueue
             \Illuminate\Support\Facades\File::exists($projectPath . '/manage.py') ||
             \Illuminate\Support\Facades\File::isDirectory($projectPath . '/migrations') ||
             \Illuminate\Support\Facades\File::isDirectory($projectPath . '/database/migrations') ||
+            \Illuminate\Support\Facades\File::isDirectory($projectPath . '/db/migrate') ||
+            \Illuminate\Support\Facades\File::isDirectory($projectPath . '/db/cache_migrate') ||
+            \Illuminate\Support\Facades\File::exists($projectPath . '/Gemfile') ||
             \Illuminate\Support\Facades\File::exists($projectPath . '/config-dist.php')) {
             $hasMigrations = true;
         }
@@ -675,7 +711,14 @@ class BuildProjectJob implements ShouldQueue
         $dbpass = $project->db_password;
 
         try {
-            if ($driver === 'mongodb') {
+            if ($driver === 'sqlite' || $driver === 'sqlite3') {
+                $logs .= "Configurando base de datos local SQLite para el proyecto...\n";
+                \Illuminate\Support\Facades\File::ensureDirectoryExists($projectPath . '/storage', 0777);
+                @chmod($projectPath . '/storage', 0777);
+                \Illuminate\Support\Facades\File::ensureDirectoryExists($projectPath . '/db', 0777);
+                @chmod($projectPath . '/db', 0777);
+                $logs .= "Base de datos SQLite local lista para el proyecto.\n";
+            } elseif ($driver === 'mongodb') {
                 $logs .= "Configurando base de datos aislada en MongoDB...\n";
                 
                 // Detectar binario disponible (mongo en v4.4/v5 o mongosh en v6+)
@@ -1347,71 +1390,104 @@ PY;
             $dbUrl = "{$dbUrlScheme}://{$project->db_user}:{$project->db_password}@{$dbHost}:{$dbPort}/{$project->db_name}";
             $railsScript = <<<'RB'
 begin
-  if defined?(AccountBuilder)
-    AccountBuilder.new(account_name: 'ULEAM Soporte', email: 'admin@example.com', user_full_name: 'Admin Evaluador', user_password: 'Password123!', confirmed: 'true', super_admin: true).perform
-  elsif defined?(User) && User.respond_to?(:where)
-    u = User.where(email: 'admin@example.com').first_or_initialize
-    u.username = 'admin' if u.respond_to?(:username=) && (u.respond_to?(:username) && u.username.blank?)
-    u.name = 'Admin Evaluador' if u.respond_to?(:name=)
-    u.first_name = 'Admin' if u.respond_to?(:first_name=)
-    u.last_name = 'Evaluador' if u.respond_to?(:last_name=)
-    u.password = 'Password123!' if u.respond_to?(:password=)
-    u.password_confirmation = 'Password123!' if u.respond_to?(:password_confirmation=)
-    u.role = :admin if u.respond_to?(:role=)
-    u.admin = true if u.respond_to?(:admin=)
-    u.is_admin = true if u.respond_to?(:is_admin=)
-    u.is_moderator = true if u.respond_to?(:is_moderator=)
-    u.karma = 100 if u.respond_to?(:karma=)
-    u.active = true if u.respond_to?(:active=)
-    u.activated = true if u.respond_to?(:activated=)
-    u.activated_at = Time.now if u.respond_to?(:activated_at=)
-    if defined?(Account)
-      acc = Account.first_or_create!(name: 'ULEAM Soporte') if Account.respond_to?(:first_or_create!)
-      u.account = acc if u.respond_to?(:account=) && (u.respond_to?(:account) && u.account.nil?)
-      u.account_id = acc.id if acc && u.respond_to?(:account_id=) && (u.respond_to?(:account_id) && u.account_id.nil?)
-    end
-    u.uuid = SecureRandom.uuid if u.respond_to?(:uuid=) && (u.respond_to?(:uuid) && u.uuid.blank?)
-    default_avatar = 'https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg'
-    u.photo = default_avatar if u.respond_to?(:photo=) && (u.photo.nil? || u.photo.blank?)
-    u.avatar = default_avatar if u.respond_to?(:avatar=) && (u.avatar.nil? || u.avatar.blank?)
-    u.image = default_avatar if u.respond_to?(:image=) && (u.image.nil? || u.image.blank?)
-    u.posts_counter = 0 if u.respond_to?(:posts_counter=) && u.posts_counter.nil?
-    u.confirm if u.respond_to?(:confirm)
-    u.confirmed_at = Time.now if u.respond_to?(:confirmed_at=)
-    u.save(validate: false) if u.new_record? || u.changed?
-    
-    cols = {}
-    cols[:username] = 'admin' if u.respond_to?(:username) && u.username.blank?
-    cols[:is_admin] = true if u.respond_to?(:is_admin)
-    cols[:is_moderator] = true if u.respond_to?(:is_moderator)
-    cols[:karma] = 100 if u.respond_to?(:karma)
-    cols[:account_id] = acc.id if defined?(acc) && acc && u.respond_to?(:account_id) && u.account_id.nil?
-    cols[:uuid] = SecureRandom.uuid if u.respond_to?(:uuid) && u.uuid.blank?
-    cols[:activated] = true if u.respond_to?(:activated)
-    cols[:activated_at] = Time.now if u.respond_to?(:activated_at)
-    cols[:admin] = true if u.respond_to?(:admin)
-    cols[:confirmed_at] = Time.now if u.respond_to?(:confirmed_at)
-    cols[:photo] = default_avatar if u.respond_to?(:photo) && (u.photo.nil? || u.photo.blank?)
-    cols[:avatar] = default_avatar if u.respond_to?(:avatar) && (u.avatar.nil? || u.avatar.blank?)
-    cols[:image] = default_avatar if u.respond_to?(:image) && (u.image.nil? || u.image.blank?)
-    cols[:posts_counter] = 0 if u.respond_to?(:posts_counter) && u.posts_counter.nil?
-    u.update_columns(cols) if cols.any? && u.respond_to?(:update_columns)
-
-    if defined?(Account) && defined?(AccountUser)
-      account = Account.first_or_create!(name: 'ULEAM Soporte')
-      AccountUser.where(account: account, user: u).first_or_create!(role: :administrator)
-    end
-
+  # 1. Update all existing users (from db/seeds.rb or migrations) to have Password123!
+  if defined?(User)
     User.find_each do |usr|
-      usr.confirm if usr.respond_to?(:confirm)
-      usr.update_column(:confirmed_at, Time.now) if usr.respond_to?(:confirmed_at) && usr.confirmed_at.nil?
-      usr.update_column(:photo, default_avatar) if usr.respond_to?(:photo) && (usr.photo.nil? || usr.photo.blank?)
-      usr.update_column(:avatar, default_avatar) if usr.respond_to?(:avatar) && (usr.avatar.nil? || usr.avatar.blank?)
-      usr.update_column(:image, default_avatar) if usr.respond_to?(:image) && (usr.image.nil? || usr.image.blank?)
-      usr.update_column(:posts_counter, 0) if usr.respond_to?(:posts_counter) && usr.posts_counter.nil?
-    end if User.respond_to?(:find_each)
+      begin
+        usr.password = 'Password123!' if usr.respond_to?(:password=)
+        usr.password_confirmation = 'Password123!' if usr.respond_to?(:password_confirmation=)
+        usr.is_admin = true if usr.respond_to?(:is_admin=)
+        usr.is_moderator = true if usr.respond_to?(:is_moderator=)
+        usr.admin = true if usr.respond_to?(:admin=)
+        usr.active = true if usr.respond_to?(:active=)
+        usr.confirm if usr.respond_to?(:confirm)
+        usr.confirmed_at = Time.now if usr.respond_to?(:confirmed_at=)
+        usr.save(validate: false) rescue nil
+        if usr.respond_to?(:authenticate) && !usr.authenticate('Password123!')
+          usr.update_column(:password_digest, BCrypt::Password.create('Password123!')) rescue nil
+        end
+      rescue => e
+      end
+    end
   end
-  puts "AUTH_USER:admin@example.com"
+rescue => e
+end
+
+begin
+  # 2. Targeted update for known default seed usernames
+  if defined?(User) && User.respond_to?(:find_by)
+    ['test', 'admin', 'administrator', 'user', 'demo'].each do |uname|
+      begin
+        usr = User.find_by(username: uname) || User.find_by(email: "#{uname}@example.com")
+        if usr
+          usr.password = 'Password123!' if usr.respond_to?(:password=)
+          usr.password_confirmation = 'Password123!' if usr.respond_to?(:password_confirmation=)
+          usr.is_admin = true if usr.respond_to?(:is_admin=)
+          usr.is_moderator = true if usr.respond_to?(:is_moderator=)
+          usr.admin = true if usr.respond_to?(:admin=)
+          usr.active = true if usr.respond_to?(:active=)
+          usr.confirm if usr.respond_to?(:confirm)
+          usr.confirmed_at = Time.now if usr.respond_to?(:confirmed_at=)
+          usr.save(validate: false) rescue nil
+          if usr.respond_to?(:authenticate) && !usr.authenticate('Password123!')
+            usr.update_column(:password_digest, BCrypt::Password.create('Password123!')) rescue nil
+          end
+        end
+      rescue => e
+      end
+    end
+  end
+rescue => e
+end
+
+begin
+  # 3. If Chatwoot AccountBuilder exists
+  if defined?(AccountBuilder)
+    AccountBuilder.new(account_name: 'ULEAM Soporte', email: 'admin@example.com', user_full_name: 'Admin Evaluador', user_password: 'Password123!', confirmed: 'true', super_admin: true).perform rescue nil
+  elsif defined?(User) && User.respond_to?(:where)
+    # If no users exist in database, create admin@example.com
+    if User.count == 0
+      u = User.where(email: 'admin@example.com').first_or_initialize
+      u.username = 'eval_admin' if u.respond_to?(:username=) && (u.respond_to?(:username) && u.username.blank?)
+      u.name = 'Admin Evaluador' if u.respond_to?(:name=)
+      u.first_name = 'Admin' if u.respond_to?(:first_name=)
+      u.last_name = 'Evaluador' if u.respond_to?(:last_name=)
+      u.password = 'Password123!' if u.respond_to?(:password=)
+      u.password_confirmation = 'Password123!' if u.respond_to?(:password_confirmation=)
+      u.role = :admin if u.respond_to?(:role=)
+      u.admin = true if u.respond_to?(:admin=)
+      u.is_admin = true if u.respond_to?(:is_admin=)
+      u.is_moderator = true if u.respond_to?(:is_moderator=)
+      u.karma = 100 if u.respond_to?(:karma=)
+      u.active = true if u.respond_to?(:active=)
+      u.activated = true if u.respond_to?(:activated=)
+      u.activated_at = Time.now if u.respond_to?(:activated_at=)
+      u.save(validate: false) rescue (u.save rescue nil)
+      
+      if u.persisted?
+        cols = {}
+        cols[:is_admin] = true if u.respond_to?(:is_admin)
+        cols[:is_moderator] = true if u.respond_to?(:is_moderator)
+        cols[:karma] = 100 if u.respond_to?(:karma)
+        cols[:activated] = true if u.respond_to?(:activated)
+        cols[:admin] = true if u.respond_to?(:admin)
+        cols[:confirmed_at] = Time.now if u.respond_to?(:confirmed_at)
+        u.update_columns(cols) rescue nil if cols.any?
+      end
+    end
+  end
+rescue => e
+end
+
+begin
+  # 4. Output the authenticated user identifier for demo_instructions
+  if defined?(User)
+    active_user = User.find_by(username: 'test') || User.find_by(email: 'test@example.com') || User.find_by(username: 'admin') || User.find_by(email: 'admin@example.com') || User.first
+    if active_user
+      ident = (active_user.respond_to?(:email) && active_user.email.present?) ? active_user.email : active_user.username
+      puts "AUTH_USER:#{ident}"
+    end
+  end
 rescue => e
 end
 RB;
@@ -1433,6 +1509,23 @@ RB;
             $seedScriptPath = $projectPath . '/.uleam_seed.rb';
             \Illuminate\Support\Facades\File::put($seedScriptPath, $railsScript);
 
+            $isSqlite = false;
+            if (\Illuminate\Support\Facades\File::exists($projectPath . '/config/database.yml')) {
+                $dbYaml = \Illuminate\Support\Facades\File::get($projectPath . '/config/database.yml');
+                if (str_contains($dbYaml, 'sqlite3') && !str_contains($dbYaml, 'postgresql') && !str_contains($dbYaml, 'postgres') && !str_contains($dbYaml, 'mysql')) {
+                    $isSqlite = true;
+                }
+            }
+
+            \Illuminate\Support\Facades\File::ensureDirectoryExists($projectPath . '/log', 0777);
+            @chmod($projectPath . '/log', 0777);
+            \Illuminate\Support\Facades\File::ensureDirectoryExists($projectPath . '/storage', 0777);
+            @chmod($projectPath . '/storage', 0777);
+            \Illuminate\Support\Facades\File::ensureDirectoryExists($projectPath . '/tmp/pids', 0777);
+            @chmod($projectPath . '/tmp/pids', 0777);
+            \Illuminate\Support\Facades\File::ensureDirectoryExists($projectPath . '/db', 0777);
+            @chmod($projectPath . '/db', 0777);
+
             $bundleCacheVol = 'uleam_bundle_cache_' . str_replace(['uleam_ruby:', '.'], ['', ''], $rubyImage);
             $command = [
                 'docker', 'run', '--rm',
@@ -1443,36 +1536,70 @@ RB;
                 '-e', 'HOME=/tmp',
                 '-e', 'BUNDLE_PATH=vendor/bundle',
                 '-e', 'RAILS_ENV=production',
+                '-e', 'PIDFILE=tmp/pids/server.pid',
+                '-e', 'PUMA_WORKERS=0',
                 '-e', 'SECRET_KEY_BASE=uleam_rails_secret_key_base_' . md5($project->id),
-                '-e', "DATABASE_URL={$dbUrl}",
-                '-e', "POSTGRES_HOST={$dbHost}",
-                '-e', "POSTGRES_PORT={$dbPort}",
-                '-e', "POSTGRES_DATABASE={$project->db_name}",
-                '-e', "POSTGRES_USERNAME={$project->db_user}",
-                '-e', "POSTGRES_DB={$project->db_name}",
-                '-e', "POSTGRES_USER={$project->db_user}",
-                '-e', "POSTGRES_PASSWORD={$project->db_password}",
-                '-e', "DB_HOST={$dbHost}",
-                '-e', "DB_PORT={$dbPort}",
-                '-e', "DB_DATABASE={$project->db_name}",
-                '-e', "DB_USERNAME={$project->db_user}",
-                '-e', "DB_PASSWORD={$project->db_password}",
-                '-e', "PGHOST={$dbHost}",
-                '-e', "PGPORT={$dbPort}",
-                '-e', "PGDATABASE={$project->db_name}",
-                '-e', "PGUSER={$project->db_user}",
-                '-e', "PGPASSWORD={$project->db_password}",
-                '-e', 'REDIS_URL=redis://uleam-redis-students:6379',
-                '-e', 'REDIS_HOST=uleam-redis-students',
-                '-e', 'REDIS_PORT=6379',
-                $rubyImage,
-                'sh', '-c', 'bundle exec rails db:migrate RAILS_ENV=production && (bundle exec rails db:seed RAILS_ENV=production || true) && (bundle exec rails runner .uleam_seed.rb || true)'
             ];
+
+            if (!$isSqlite) {
+                $command[] = '-e';
+                $command[] = "DATABASE_URL={$dbUrl}";
+                $command[] = '-e';
+                $command[] = "POSTGRES_HOST={$dbHost}";
+                $command[] = '-e';
+                $command[] = "POSTGRES_PORT={$dbPort}";
+                $command[] = '-e';
+                $command[] = "POSTGRES_DATABASE={$project->db_name}";
+                $command[] = '-e';
+                $command[] = "POSTGRES_USERNAME={$project->db_user}";
+                $command[] = '-e';
+                $command[] = "POSTGRES_DB={$project->db_name}";
+                $command[] = '-e';
+                $command[] = "POSTGRES_USER={$project->db_user}";
+                $command[] = '-e';
+                $command[] = "POSTGRES_PASSWORD={$project->db_password}";
+                $command[] = '-e';
+                $command[] = "DB_HOST={$dbHost}";
+                $command[] = '-e';
+                $command[] = "DB_PORT={$dbPort}";
+                $command[] = '-e';
+                $command[] = "DB_DATABASE={$project->db_name}";
+                $command[] = '-e';
+                $command[] = "DB_USERNAME={$project->db_user}";
+                $command[] = '-e';
+                $command[] = "DB_PASSWORD={$project->db_password}";
+                $command[] = '-e';
+                $command[] = "PGHOST={$dbHost}";
+                $command[] = '-e';
+                $command[] = "PGPORT={$dbPort}";
+                $command[] = '-e';
+                $command[] = "PGDATABASE={$project->db_name}";
+                $command[] = '-e';
+                $command[] = "PGUSER={$project->db_user}";
+                $command[] = '-e';
+                $command[] = "PGPASSWORD={$project->db_password}";
+            }
+
+            $command[] = '-e';
+            $command[] = 'REDIS_URL=redis://uleam-redis-students:6379';
+            $command[] = '-e';
+            $command[] = 'REDIS_HOST=uleam-redis-students';
+            $command[] = '-e';
+            $command[] = 'REDIS_PORT=6379';
+            $command[] = $rubyImage;
+            $command[] = 'sh';
+            $command[] = '-c';
+            $command[] = 'bundle exec rails db:migrate RAILS_ENV=production && (bundle exec rails db:seed RAILS_ENV=production || true) && (bundle exec rails runner .uleam_seed.rb || true)';
             $this->executeMigrationCommand($command, $logs);
             @unlink($seedScriptPath);
 
-            if (empty($project->demo_instructions) || !str_contains($project->demo_instructions, 'Clave:')) {
-                $project->demo_instructions = "Acceso predeterminado para pruebas (Ruby on Rails):\nUsuario: admin@example.com\nClave: Password123!\n\nEl sistema incluye base de datos y migraciones listas para evaluar.";
+            if (preg_match('/AUTH_USER:([^\r\n]+)/', $logs, $authMatches)) {
+                $authEmail = trim($authMatches[1]);
+                $alt = str_contains($authEmail, '@') ? " (o " . explode('@', $authEmail)[0] . ")" : "";
+                $project->demo_instructions = "Acceso predeterminado para pruebas (Ruby on Rails):\nUsuario: {$authEmail}{$alt}\nClave: Password123!\n\nEl sistema incluye base de datos, semillas y migraciones listas para evaluar.";
+                $project->save();
+            } elseif (empty($project->demo_instructions) || !str_contains($project->demo_instructions, 'Clave:')) {
+                $project->demo_instructions = "Acceso predeterminado para pruebas (Ruby on Rails):\nUsuario: test@example.com (o test)\nClave: Password123!\n\nEl sistema incluye base de datos, semillas y migraciones listas para evaluar.";
                 $project->save();
             }
 
@@ -1633,6 +1760,21 @@ RB;
                 return 'mysql';
             }
             if (str_contains($configContent, "'default' => env('DB_CONNECTION', 'pgsql')") || str_contains($configContent, "'default' => 'pgsql'")) {
+                return 'pgsql';
+            }
+        }
+
+        // 4b. Check config/database.yml in Ruby on Rails
+        $dbYmlPath = $projectPath . '/config/database.yml';
+        if (\Illuminate\Support\Facades\File::exists($dbYmlPath)) {
+            $ymlContent = \Illuminate\Support\Facades\File::get($dbYmlPath);
+            if (str_contains($ymlContent, 'sqlite3') && !str_contains($ymlContent, 'postgresql') && !str_contains($ymlContent, 'postgres') && !str_contains($ymlContent, 'mysql')) {
+                return 'sqlite';
+            }
+            if (str_contains($ymlContent, 'mysql')) {
+                return 'mysql';
+            }
+            if (str_contains($ymlContent, 'postgresql') || str_contains($ymlContent, 'postgres')) {
                 return 'pgsql';
             }
         }
@@ -1817,12 +1959,24 @@ RB;
      */
     private function generateInitialDatabaseSnapshot(Project $project, string $projectPath): void
     {
-        // Soporte para SQLite (Grocy, etc.)
-        $sqliteDb = $projectPath . '/data/grocy.db';
-        $sqliteSnapshot = $projectPath . '/.initial_db_snapshot.sqlite';
-        if (\Illuminate\Support\Facades\File::exists($sqliteDb) && !\Illuminate\Support\Facades\File::exists($sqliteSnapshot)) {
-            @copy($sqliteDb, $sqliteSnapshot);
-            @chmod($sqliteSnapshot, 0777);
+        // Soporte para SQLite (Grocy, Rails, etc.)
+        $sqliteFiles = array_merge(
+            glob($projectPath . '/data/*.db') ?: [],
+            glob($projectPath . '/storage/*.sqlite3') ?: [],
+            glob($projectPath . '/storage/*.db') ?: [],
+            glob($projectPath . '/db/*.sqlite3') ?: [],
+            glob($projectPath . '/db/*/*.sqlite3') ?: [],
+            glob($projectPath . '/database/*.sqlite*') ?: [],
+            glob($projectPath . '/*.sqlite3') ?: [],
+            glob($projectPath . '/*.sqlite') ?: []
+        );
+        foreach ($sqliteFiles as $sFile) {
+            $base = basename($sFile);
+            $snapshot = dirname($sFile) . '/.' . $base . '.snapshot';
+            if (!\Illuminate\Support\Facades\File::exists($snapshot) && @filesize($sFile) > 100) {
+                @copy($sFile, $snapshot);
+                @chmod($snapshot, 0777);
+            }
         }
 
         $snapshotFile = $projectPath . '/.initial_db_snapshot.sql';

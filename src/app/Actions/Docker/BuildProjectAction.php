@@ -798,6 +798,26 @@ JS;
             }
         }
 
+        // Auto-configurar archivos de configuración de muestra en Rails (database.yml, credentials, etc.)
+        if (!File::exists($path . '/config/database.yml')) {
+            if (File::exists($path . '/config/database.yml.sample')) {
+                @copy($path . '/config/database.yml.sample', $path . '/config/database.yml');
+            } elseif (File::exists($path . '/config/database.yml.example')) {
+                @copy($path . '/config/database.yml.example', $path . '/config/database.yml');
+            } elseif (File::exists($path . '/config/database.example.yml')) {
+                @copy($path . '/config/database.example.yml', $path . '/config/database.yml');
+            }
+        }
+        if (!File::exists($path . '/config/credentials.yml.enc')) {
+            if (File::exists($path . '/config/credentials.yml.enc.sample')) {
+                @copy($path . '/config/credentials.yml.enc.sample', $path . '/config/credentials.yml.enc');
+            }
+        }
+        File::ensureDirectoryExists($path . '/storage', 0777);
+        @chmod($path . '/storage', 0777);
+        File::ensureDirectoryExists($path . '/tmp/pids', 0777);
+        @chmod($path . '/tmp/pids', 0777);
+
         // 1. Bundle install con caché persistente aislado por versión de Ruby
         $bundleCacheVol = 'uleam_bundle_cache_' . str_replace(['uleam_ruby:', '.'], ['', ''], $rubyImage);
         $bundleCommand = [
@@ -867,6 +887,20 @@ JS;
         // 3. Precompilar assets de Rails si es un proyecto Rails
         if (File::exists($path . '/bin/rails') || File::exists($path . '/config/environment.rb')) {
             $output .= "Precompilando assets de Rails (assets:precompile)...\n";
+            File::ensureDirectoryExists($path . '/log', 0777);
+            @chmod($path . '/log', 0777);
+            File::ensureDirectoryExists($path . '/storage', 0777);
+            @chmod($path . '/storage', 0777);
+            File::ensureDirectoryExists($path . '/tmp/pids', 0777);
+            @chmod($path . '/tmp/pids', 0777);
+
+            $isPostgres = false;
+            if (File::exists($path . '/config/database.yml')) {
+                $dbYaml = File::get($path . '/config/database.yml');
+                if (str_contains($dbYaml, 'postgresql') || str_contains($dbYaml, 'postgres')) {
+                    $isPostgres = true;
+                }
+            }
             $assetCommand = [
                 'docker', 'run', '--rm',
                 '--network', 'uleam_academic_network',
@@ -879,16 +913,41 @@ JS;
                 '-e', 'RAILS_ENV=production',
                 '-e', 'NODE_ENV=production',
                 '-e', 'RUN_MIGRATIONS=false',
+                '-e', 'PIDFILE=tmp/pids/server.pid',
+                '-e', 'PUMA_WORKERS=0',
                 '-e', "SECRET_KEY_BASE={$secretKey}",
-                '-e', 'DATABASE_URL=postgres://dummy:dummy@uleam-postgres-students:5432/dummy',
                 '-e', 'REDIS_URL=redis://uleam-redis-students:6379',
                 '-e', 'REDIS_HOST=uleam-redis-students',
-                '-w', '/app',
-                $rubyImage,
-                'sh', '-c', 'bundle exec rails assets:precompile RAILS_ENV=production NODE_ENV=production || true'
             ];
+            if ($isPostgres) {
+                $assetCommand[] = '-e';
+                $assetCommand[] = 'DATABASE_URL=postgres://dummy:dummy@uleam-postgres-students:5432/dummy';
+            }
+            $assetCommand[] = '-w';
+            $assetCommand[] = '/app';
+            $assetCommand[] = $rubyImage;
+            $assetCommand[] = 'sh';
+            $assetCommand[] = '-c';
+            $assetCommand[] = 'bundle exec rails assets:precompile RAILS_ENV=production NODE_ENV=production || true';
             $assetResult = $this->runCommand($assetCommand);
             $output .= $assetResult['output'] . "\n";
+
+            // Crear symlinks en public/ para assets estáticos si la app los enlaza sin hash
+            $assetsDir = $path . '/public/assets';
+            if (File::isDirectory($assetsDir)) {
+                $cssFiles = glob($assetsDir . '/application-*.css');
+                if (!empty($cssFiles) && !File::exists($path . '/public/application.css')) {
+                    @symlink('assets/' . basename($cssFiles[0]), $path . '/public/application.css');
+                }
+                $systemCss = glob($assetsDir . '/system-system-*.css');
+                if (!empty($systemCss) && !File::exists($path . '/public/system-system.css')) {
+                    @symlink('assets/' . basename($systemCss[0]), $path . '/public/system-system.css');
+                }
+                $jsFiles = glob($assetsDir . '/application-*.js');
+                if (!empty($jsFiles) && !File::exists($path . '/public/application.js')) {
+                    @symlink('assets/' . basename($jsFiles[0]), $path . '/public/application.js');
+                }
+            }
         }
 
         return [
@@ -958,7 +1017,7 @@ JS;
             }
         }
 
-        // 6. Optimización de production.rb para entornos educativos / hosting local
+        // 6. Optimización de production.rb y application.rb para entornos educativos / hosting local
         $prodConfig = $path . '/config/environments/production.rb';
         if (File::exists($prodConfig)) {
             $content = File::get($prodConfig);
@@ -966,11 +1025,23 @@ JS;
             if (str_contains($content, 'config.force_ssl = true')) {
                 $content = str_replace('config.force_ssl = true', 'config.force_ssl = false', $content);
             }
+            if (str_contains($content, 'config.assume_ssl = true')) {
+                $content = str_replace('config.assume_ssl = true', 'config.assume_ssl = (ENV["RAILS_ASSUME_SSL"] != "false" && ENV["DISABLE_SSL"] != "true")', $content);
+            }
             // Fallback de Active Storage a :local si está configurado en :amazon sin credenciales AWS
             if (str_contains($content, 'config.active_storage.service = :amazon')) {
                 $content = str_replace('config.active_storage.service = :amazon', 'config.active_storage.service = ENV[\'AWS_BUCKET\'].present? ? :amazon : :local', $content);
             }
             File::put($prodConfig, $content);
+        }
+
+        $appConfig = $path . '/config/application.rb';
+        if (File::exists($appConfig)) {
+            $appContent = File::get($appConfig);
+            if (preg_match('/def\s+ssl\?\s+true\s+end/s', $appContent)) {
+                $appContent = preg_replace('/def\s+ssl\?\s+true\s+end/s', "def ssl?\n    return false if ENV[\"DISABLE_SSL\"] == \"true\" || ENV[\"RAILS_FORCE_SSL\"] == \"false\"\n    true\n  end", $appContent);
+                File::put($appConfig, $appContent);
+            }
         }
 
         // 7. Autocompletar dependencias frontend faltantes en Webpacker (ej. jquery, bootstrap en Rails 6)
