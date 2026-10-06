@@ -211,8 +211,10 @@ class ResetStudentDatabases extends Command
                         $this->runFrameworkMigrations($project, $projectPath);
                     }
 
-                    // 3. Buscar archivos .sql de respaldo legítimos e importarlos (si no fueron gestionados por framework)
-                    if (!File::exists($projectPath . '/artisan')) {
+                    // 3. Buscar archivos .sql de respaldo legítimos e importarlos (si no fueron gestionados por framework o snapshot)
+                    $hasFramework = File::exists($projectPath . '/artisan') || File::exists($projectPath . '/Gemfile') || File::exists($projectPath . '/manage.py');
+                    $hasSnapshot = File::exists($projectPath . '/.initial_db_snapshot.sql');
+                    if (!$hasFramework && !$hasSnapshot) {
                         $sqlFiles = [];
                         try {
                             $finder = new \Symfony\Component\Finder\Finder();
@@ -344,6 +346,8 @@ class ResetStudentDatabases extends Command
             $proc->run();
             if ($proc->isSuccessful()) {
                 $this->info("Snapshot inicial restaurado con éxito.");
+                $this->invalidateActiveSessionsSql($project);
+                $this->cleanDiskSessions($projectPath);
                 return;
             } else {
                 $this->warn("Aviso al restaurar snapshot: " . $proc->getErrorOutput() . " - Reintentando con migraciones estándar.");
@@ -438,7 +442,7 @@ class ResetStudentDatabases extends Command
                     'sh', '-c', 'bundle exec rails db:migrate RAILS_ENV=production'
                 ];
             } else {
-                $dbHost = $driver === 'mysql' ? 'uleam_mysql_students' : 'uleam-postgres-students';
+                $dbHost = $driver === 'mysql' ? 'uleam-mysql-students' : 'uleam-postgres-students';
                 $dbUrlScheme = $driver === 'mysql' ? 'mysql2' : 'postgres';
                 $dbUrl = "{$dbUrlScheme}://{$dbuser}:{$dbpass}@{$dbHost}:{$dbPort}/{$dbname}";
                 $rubyImage = 'uleam_ruby:3.3';
@@ -566,6 +570,9 @@ class ResetStudentDatabases extends Command
                     if (in_array('remember_token', $colNames)) {
                         $db->exec("UPDATE {$table} SET remember_token = NULL");
                     }
+                    if (in_array('remember_created_at', $colNames)) {
+                        $db->exec("UPDATE {$table} SET remember_created_at = NULL");
+                    }
                 }
             }
 
@@ -596,7 +603,19 @@ class ResetStudentDatabases extends Command
                     \Illuminate\Support\Facades\DB::connection('students_mysql')->statement("UPDATE `{$dbname}`.`users` SET remember_token = NULL WHERE remember_token IS NOT NULL");
                 } catch (\Throwable $e) {}
                 try {
+                    \Illuminate\Support\Facades\DB::connection('students_mysql')->statement("UPDATE `{$dbname}`.`users` SET remember_created_at = NULL WHERE remember_created_at IS NOT NULL");
+                } catch (\Throwable $e) {}
+                try {
                     \Illuminate\Support\Facades\DB::connection('students_mysql')->statement("UPDATE `{$dbname}`.`users` SET session_token = MD5(RAND()) WHERE session_token IS NOT NULL");
+                } catch (\Throwable $e) {}
+                try {
+                    \Illuminate\Support\Facades\DB::connection('students_mysql')->statement("UPDATE `{$dbname}`.`users` SET authentication_token = NULL WHERE authentication_token IS NOT NULL");
+                } catch (\Throwable $e) {}
+                try {
+                    \Illuminate\Support\Facades\DB::connection('students_mysql')->statement("UPDATE `{$dbname}`.`settings` SET value = MD5(RAND()) WHERE name IN ('secret_token', 'secret_key_base', 'session_secret')");
+                } catch (\Throwable $e) {}
+                try {
+                    \Illuminate\Support\Facades\DB::connection('students_mysql')->statement("UPDATE `{$dbname}`.`configurations` SET value = MD5(RAND()) WHERE name IN ('secret_token', 'secret_key_base', 'session_secret')");
                 } catch (\Throwable $e) {}
                 \Illuminate\Support\Facades\DB::connection('students_mysql')->statement("SET FOREIGN_KEY_CHECKS=1;");
             } elseif (in_array($driver, ['pgsql', 'postgres', 'postgresql'])) {
@@ -607,6 +626,18 @@ class ResetStudentDatabases extends Command
                 }
                 try {
                     \Illuminate\Support\Facades\DB::connection('students_postgres')->statement("UPDATE users SET remember_token = NULL WHERE remember_token IS NOT NULL");
+                } catch (\Throwable $e) {}
+                try {
+                    \Illuminate\Support\Facades\DB::connection('students_postgres')->statement("UPDATE users SET remember_created_at = NULL WHERE remember_created_at IS NOT NULL");
+                } catch (\Throwable $e) {}
+                try {
+                    \Illuminate\Support\Facades\DB::connection('students_postgres')->statement("UPDATE users SET authentication_token = NULL WHERE authentication_token IS NOT NULL");
+                } catch (\Throwable $e) {}
+                try {
+                    \Illuminate\Support\Facades\DB::connection('students_postgres')->statement("UPDATE settings SET value = md5(random()::text) WHERE name IN ('secret_token', 'secret_key_base', 'session_secret')");
+                } catch (\Throwable $e) {}
+                try {
+                    \Illuminate\Support\Facades\DB::connection('students_postgres')->statement("UPDATE configurations SET value = md5(random()::text) WHERE name IN ('secret_token', 'secret_key_base', 'session_secret')");
                 } catch (\Throwable $e) {}
                 try {
                     \Illuminate\Support\Facades\DB::connection('students_postgres')->statement("UPDATE users SET session_token = md5(random()::text) WHERE session_token IS NOT NULL");
@@ -623,9 +654,11 @@ class ResetStudentDatabases extends Command
         $sessionDirs = [
             $projectPath . '/storage/framework/sessions',
             $projectPath . '/tmp/sessions',
+            $projectPath . '/tmp/session',
             $projectPath . '/data/sessions',
             $projectPath . '/var/sessions',
             $projectPath . '/runtime/session',
+            $projectPath . '/tmp/pids',
         ];
         foreach ($sessionDirs as $dir) {
             if (\Illuminate\Support\Facades\File::isDirectory($dir)) {

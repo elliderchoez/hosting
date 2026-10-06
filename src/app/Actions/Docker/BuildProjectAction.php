@@ -808,6 +808,23 @@ JS;
                 @copy($path . '/config/database.example.yml', $path . '/config/database.yml');
             }
         }
+        if (File::exists($path . '/config/database.yml')) {
+            $dbContent = File::get($path . '/config/database.yml');
+            if (str_contains($dbContent, 'host: localhost') && !str_contains($dbContent, 'ENV[')) {
+                $dbContent = str_replace('host: localhost', 'host: <%= ENV["DB_HOST"] || ENV["POSTGRES_HOST"] || "localhost" %>', $dbContent);
+                $dbContent = str_replace('database: redmine', 'database: <%= ENV["DB_DATABASE"] || ENV["POSTGRES_DATABASE"] || "redmine" %>', $dbContent);
+                $dbContent = str_replace('username: root', 'username: <%= ENV["DB_USERNAME"] || ENV["POSTGRES_USERNAME"] || "root" %>', $dbContent);
+                $dbContent = str_replace('password: ""', 'password: <%= ENV["DB_PASSWORD"] || ENV["POSTGRES_PASSWORD"] || "" %>', $dbContent);
+                $dbContent = str_replace("password: ''", 'password: <%= ENV["DB_PASSWORD"] || ENV["POSTGRES_PASSWORD"] || "" %>', $dbContent);
+                File::put($path . '/config/database.yml', $dbContent);
+            }
+        }
+        if (File::exists($path . '/config/initializers') && !File::exists($path . '/config/initializers/secret_token.rb')) {
+            $secretKey = 'uleam_rails_secret_key_base_' . md5($project->id);
+            $tokenRb = "RedmineApp::Application.config.secret_key_base = '{$secretKey}' if defined?(RedmineApp)\n" .
+                       "Rails.application.config.secret_key_base = '{$secretKey}' if defined?(Rails.application.config.secret_key_base)\n";
+            File::put($path . '/config/initializers/secret_token.rb', $tokenRb);
+        }
         if (!File::exists($path . '/config/credentials.yml.enc')) {
             if (File::exists($path . '/config/credentials.yml.enc.sample')) {
                 @copy($path . '/config/credentials.yml.enc.sample', $path . '/config/credentials.yml.enc');
@@ -836,6 +853,20 @@ JS;
         $bundleResult = $this->runCommand($bundleCommand);
         $output .= $bundleResult['output'] . "\n";
         if (!$bundleResult['success']) {
+            $output .= "\n======================================================================\n";
+            $output .= "⚠️ PROYECTO INCOMPATIBLE CON LA PLATAFORMA DE HOSTING ACADÉMICO ⚠️\n";
+            $output .= "======================================================================\n";
+            $output .= "Este proyecto de Ruby / Rails no es compatible con la plataforma debido a que\n";
+            $output .= "hacen falta librerías nativas del sistema operativo (C/C++ extensions) requeridas\n";
+            $output .= "por las gemas declaradas en el Gemfile.\n\n";
+            $output .= "Motivo:\n";
+            $output .= "La plataforma proporciona un entorno estandarizado y seguro. Las gemas con\n";
+            $output .= "dependencias de bajo nivel del sistema operativo no son compatibles.\n\n";
+            $output .= "Recomendación para el estudiante:\n";
+            $output .= "- Revisa tu archivo Gemfile y sustituye las librerías o gemas que requieran\n";
+            $output .= "  compilación o librerías del sistema por alternativas estándar de Ruby puro.\n";
+            $output .= "======================================================================\n";
+
             return [
                 'success' => false,
                 'output' => $output
@@ -857,7 +888,7 @@ JS;
                                  str_contains($pkgJson, 'tailwindcss');
             if ($isFrontendBundler) {
                 $output .= "Detectado package.json con compilador frontend en proyecto Rails. Instalando dependencias y compilando assets...\n";
-                $nodeCmd = 'if [ -f pnpm-lock.yaml ]; then pnpm install --no-frozen-lockfile && (pnpm exec vite build || bundle exec bin/vite build || pnpm build || true); elif [ -f yarn.lock ]; then yarn install && (yarn vite build || bundle exec bin/vite build || yarn build || true); else npm install --prefer-offline --no-audit && (npx vite build || bundle exec bin/vite build || npm run build || true); fi';
+                $nodeCmd = 'mkdir -p /tmp/.bin && (corepack enable --install-directory /tmp/.bin 2>/dev/null || true); export PATH=/tmp/.bin:$PATH; if [ -f pnpm-lock.yaml ]; then pnpm install --no-frozen-lockfile && (pnpm exec vite build || bundle exec bin/vite build || pnpm build || true); elif [ -f yarn.lock ]; then yarn install && (yarn vite build || bundle exec bin/vite build || yarn build || true); else npm install --prefer-offline --no-audit && (npx vite build || bundle exec bin/vite build || npm run build || true); fi';
                 $npmCommand = [
                     'docker', 'run', '--rm',
                     '--network', 'uleam_academic_network',
@@ -873,6 +904,11 @@ JS;
                     '-e', 'RAILS_ENV=production',
                     '-e', 'RUN_MIGRATIONS=false',
                     '-e', "SECRET_KEY_BASE={$secretKey}",
+                    '-e', "ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY=" . hash('sha256', $project->id . '_active_record_primary'),
+                    '-e', "ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY=" . hash('sha256', $project->id . '_active_record_deterministic'),
+                    '-e', "ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT=" . hash('sha256', $project->id . '_active_record_salt'),
+                    '-e', "OTP_SECRET=" . hash('sha256', $project->id . '_otp_secret'),
+                    '-e', "LOCAL_DOMAIN={$project->subdomain}.localhost",
                     '-e', 'REDIS_URL=redis://uleam-redis-students:6379',
                     '-e', 'REDIS_HOST=uleam-redis-students',
                     '-w', '/app',
@@ -916,6 +952,11 @@ JS;
                 '-e', 'PIDFILE=tmp/pids/server.pid',
                 '-e', 'PUMA_WORKERS=0',
                 '-e', "SECRET_KEY_BASE={$secretKey}",
+                '-e', "ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY=" . hash('sha256', $project->id . '_active_record_primary'),
+                '-e', "ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY=" . hash('sha256', $project->id . '_active_record_deterministic'),
+                '-e', "ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT=" . hash('sha256', $project->id . '_active_record_salt'),
+                '-e', "OTP_SECRET=" . hash('sha256', $project->id . '_otp_secret'),
+                '-e', "LOCAL_DOMAIN={$project->subdomain}.localhost",
                 '-e', 'REDIS_URL=redis://uleam-redis-students:6379',
                 '-e', 'REDIS_HOST=uleam-redis-students',
             ];
@@ -948,6 +989,32 @@ JS;
                     @symlink('assets/' . basename($jsFiles[0]), $path . '/public/application.js');
                 }
             }
+        }
+
+        // 4. Precompilar sitio Jekyll si aplica
+        $isJekyll = File::exists($path . '/_config.yml')
+            || File::exists($path . '/docs/_config.yml')
+            || File::exists($path . '/jekyll.gemspec')
+            || (File::exists($path . '/Gemfile') && preg_match("/gem\s+['\"]jekyll['\"]/i", File::get($path . '/Gemfile')));
+
+        if ($isJekyll) {
+            $output .= "Construyendo sitio web estático Jekyll (jekyll build)...\n";
+            $jekyllBin = File::exists($path . '/exe/jekyll') ? 'exe/jekyll' : (File::exists($path . '/bin/jekyll') ? 'bin/jekyll' : 'jekyll');
+            $srcFlag = File::exists($path . '/docs/_config.yml') && !File::exists($path . '/_config.yml')
+                ? '-s docs -d docs/_site'
+                : '';
+            $jekyllBuildCmd = [
+                'docker', 'run', '--rm',
+                '-u', "$uid:$gid",
+                '-v', "$path:/app",
+                '-v', "{$bundleCacheVol}:/usr/local/bundle",
+                '-e', 'BUNDLE_PATH=vendor/bundle',
+                '-w', '/app',
+                $rubyImage,
+                'sh', '-c', "git config --global --add safe.directory '*' 2>/dev/null || true; bundle exec {$jekyllBin} build {$srcFlag} || true"
+            ];
+            $jRes = $this->runCommand($jekyllBuildCmd);
+            $output .= $jRes['output'] . "\n";
         }
 
         return [

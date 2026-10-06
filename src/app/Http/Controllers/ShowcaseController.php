@@ -10,6 +10,7 @@ use Inertia\Inertia;
 use Inertia\Response;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\File;
+use App\Actions\Docker\StopProjectContainerAction;
 
 class ShowcaseController extends Controller
 {
@@ -335,19 +336,38 @@ class ShowcaseController extends Controller
     }
 
     /**
-     * Reset the demo database in background when a recruiter clicks "Cerrar".
+     * Detener el contenedor de la demo y restablecer la base de datos en segundo plano
+     * al hacer clic en "Cerrar Demo" para garantizar que cada evaluación inicie limpia y sin sesiones previas.
      */
-    public function stopDemo(Project $project): \Illuminate\Http\JsonResponse
+    public function stopDemo(Project $project, StopProjectContainerAction $stopAction): \Illuminate\Http\JsonResponse
     {
         session_write_close();
 
-        // Restablecer únicamente el proyecto actual y su backend enlazado (si aplica)
-        $projectsToReset = collect([$project]);
+        // 1. NO apagamos el contenedor para que la próxima ejecución del evaluador sea instantánea (0s).
+        // Si el contenedor está activo, preservamos su estado 'running'.
+        $containerName = "project-{$project->id}";
+        if ($this->isContainerRunning($containerName)) {
+            $project->status = 'running';
+        }
+        $project->touch();
+        $project->save();
+
         if ($project->backend_project_id) {
             $backend = Project::find($project->backend_project_id);
             if ($backend) {
-                $projectsToReset->push($backend);
+                $backendContainer = "project-{$backend->id}";
+                if ($this->isContainerRunning($backendContainer)) {
+                    $backend->status = 'running';
+                }
+                $backend->touch();
+                $backend->save();
             }
+        }
+
+        // 2. Restablecer la base de datos en segundo plano
+        $projectsToReset = collect([$project]);
+        if (isset($backend) && $backend) {
+            $projectsToReset->push($backend);
         }
 
         foreach ($projectsToReset as $p) {

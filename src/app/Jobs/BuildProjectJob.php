@@ -145,6 +145,23 @@ class BuildProjectJob implements ShouldQueue
                     @copy($projectPath . '/config/database.example.yml', $projectPath . '/config/database.yml');
                 }
             }
+            if (\Illuminate\Support\Facades\File::exists($projectPath . '/config/database.yml')) {
+                $dbContent = \Illuminate\Support\Facades\File::get($projectPath . '/config/database.yml');
+                if (str_contains($dbContent, 'host: localhost') && !str_contains($dbContent, 'ENV[')) {
+                    $dbContent = str_replace('host: localhost', 'host: <%= ENV["DB_HOST"] || ENV["POSTGRES_HOST"] || "localhost" %>', $dbContent);
+                    $dbContent = str_replace('database: redmine', 'database: <%= ENV["DB_DATABASE"] || ENV["POSTGRES_DATABASE"] || "redmine" %>', $dbContent);
+                    $dbContent = str_replace('username: root', 'username: <%= ENV["DB_USERNAME"] || ENV["POSTGRES_USERNAME"] || "root" %>', $dbContent);
+                    $dbContent = str_replace('password: ""', 'password: <%= ENV["DB_PASSWORD"] || ENV["POSTGRES_PASSWORD"] || "" %>', $dbContent);
+                    $dbContent = str_replace("password: ''", 'password: <%= ENV["DB_PASSWORD"] || ENV["POSTGRES_PASSWORD"] || "" %>', $dbContent);
+                    \Illuminate\Support\Facades\File::put($projectPath . '/config/database.yml', $dbContent);
+                }
+            }
+            if (\Illuminate\Support\Facades\File::exists($projectPath . '/config/initializers') && !\Illuminate\Support\Facades\File::exists($projectPath . '/config/initializers/secret_token.rb')) {
+                $secretKey = 'uleam_rails_secret_key_base_' . md5($project->id);
+                $tokenRb = "RedmineApp::Application.config.secret_key_base = '{$secretKey}' if defined?(RedmineApp)\n" .
+                           "Rails.application.config.secret_key_base = '{$secretKey}' if defined?(Rails.application.config.secret_key_base)\n";
+                \Illuminate\Support\Facades\File::put($projectPath . '/config/initializers/secret_token.rb', $tokenRb);
+            }
             if (!\Illuminate\Support\Facades\File::exists($projectPath . '/config/credentials.yml.enc')) {
                 if (\Illuminate\Support\Facades\File::exists($projectPath . '/config/credentials.yml.enc.sample')) {
                     @copy($projectPath . '/config/credentials.yml.enc.sample', $projectPath . '/config/credentials.yml.enc');
@@ -1315,8 +1332,10 @@ PHP;
 
             if (preg_match('/AUTH_USER:([^\r\n]+)/', $tinkerOut, $authMatches)) {
                 $authEmail = trim($authMatches[1]);
+                $isEmail = str_contains($authEmail, '@');
+                $userLabel = $isEmail ? 'Correo' : 'Nombre de usuario';
                 if (empty($project->demo_instructions) || !str_contains($project->demo_instructions, 'Clave:')) {
-                    $prefix = "Acceso predeterminado para pruebas:\nUsuario: {$authEmail}\nClave: password";
+                    $prefix = "Acceso predeterminado para pruebas:\n{$userLabel}: {$authEmail}\nClave: password";
                     $project->demo_instructions = empty($project->demo_instructions)
                         ? "{$prefix}\n\nEl sistema incluye catálogo y datos de muestra listos para evaluar."
                         : "{$prefix}\n\n" . $project->demo_instructions;
@@ -1385,7 +1404,7 @@ PY;
             (\Illuminate\Support\Facades\File::exists($projectPath . '/bin/rails') || \Illuminate\Support\Facades\File::exists($projectPath . '/config/environment.rb'))
         ) {
             $logs .= "--- PASO 3.6: Framework Ruby on Rails Detectado: Ejecutando Migraciones ---\n";
-            $dbHost = $project->db_driver === 'mysql' ? 'uleam_mysql_students' : 'uleam-postgres-students';
+            $dbHost = $project->db_driver === 'mysql' ? 'uleam-mysql-students' : 'uleam-postgres-students';
             $dbUrlScheme = $project->db_driver === 'mysql' ? 'mysql2' : 'postgres';
             $dbUrl = "{$dbUrlScheme}://{$project->db_user}:{$project->db_password}@{$dbHost}:{$dbPort}/{$project->db_name}";
             $railsScript = <<<'RB'
@@ -1396,6 +1415,8 @@ begin
       begin
         usr.password = 'Password123!' if usr.respond_to?(:password=)
         usr.password_confirmation = 'Password123!' if usr.respond_to?(:password_confirmation=)
+        usr.must_change_passwd = false if usr.respond_to?(:must_change_passwd=)
+        usr.status = 1 if usr.respond_to?(:status=)
         usr.is_admin = true if usr.respond_to?(:is_admin=)
         usr.is_moderator = true if usr.respond_to?(:is_moderator=)
         usr.admin = true if usr.respond_to?(:admin=)
@@ -1418,10 +1439,15 @@ begin
   if defined?(User) && User.respond_to?(:find_by)
     ['test', 'admin', 'administrator', 'user', 'demo'].each do |uname|
       begin
-        usr = User.find_by(username: uname) || User.find_by(email: "#{uname}@example.com")
+        usr = (User.find_by(login: uname) rescue nil) ||
+              (User.find_by(username: uname) rescue nil) ||
+              (User.find_by(email: "#{uname}@example.com") rescue nil) ||
+              (User.respond_to?(:find_by_mail) && User.find_by_mail("#{uname}@example.com") rescue nil)
         if usr
           usr.password = 'Password123!' if usr.respond_to?(:password=)
           usr.password_confirmation = 'Password123!' if usr.respond_to?(:password_confirmation=)
+          usr.must_change_passwd = false if usr.respond_to?(:must_change_passwd=)
+          usr.status = 1 if usr.respond_to?(:status=)
           usr.is_admin = true if usr.respond_to?(:is_admin=)
           usr.is_moderator = true if usr.respond_to?(:is_moderator=)
           usr.admin = true if usr.respond_to?(:admin=)
@@ -1441,20 +1467,53 @@ rescue => e
 end
 
 begin
+  # 2.5 Ensure a test user exists if User uses login (Redmine, etc.)
+  if defined?(User) && User.respond_to?(:column_names) && User.column_names.include?('login')
+    if !User.find_by(login: 'test')
+      tu = User.new(login: 'test')
+      tu.firstname = 'Test' if tu.respond_to?(:firstname=)
+      tu.lastname = 'Evaluador' if tu.respond_to?(:lastname=)
+      tu.name = 'Test Evaluador' if tu.respond_to?(:name=)
+      tu.mail = 'test@example.com' if tu.respond_to?(:mail=)
+      tu.email = 'test@example.com' if tu.respond_to?(:email=)
+      tu.admin = true if tu.respond_to?(:admin=)
+      tu.password = 'Password123!' if tu.respond_to?(:password=)
+      tu.password_confirmation = 'Password123!' if tu.respond_to?(:password_confirmation=)
+      tu.must_change_passwd = false if tu.respond_to?(:must_change_passwd=)
+      tu.status = 1 if tu.respond_to?(:status=)
+      tu.save(validate: false) rescue nil
+    end
+  end
+rescue => e
+end
+
+begin
   # 3. If Chatwoot AccountBuilder exists
   if defined?(AccountBuilder)
     AccountBuilder.new(account_name: 'ULEAM Soporte', email: 'admin@example.com', user_full_name: 'Admin Evaluador', user_password: 'Password123!', confirmed: 'true', super_admin: true).perform rescue nil
   elsif defined?(User) && User.respond_to?(:where)
     # If no users exist in database, create admin@example.com
     if User.count == 0
+      acc = nil
+      if defined?(Account) && Account.respond_to?(:find_or_create_by!)
+        acc = Account.find_or_create_by!(username: 'admin') rescue (Account.first rescue nil)
+      end
       u = User.where(email: 'admin@example.com').first_or_initialize
+      u.account = acc if acc && u.respond_to?(:account=)
+      u.agreement = true if u.respond_to?(:agreement=)
       u.username = 'eval_admin' if u.respond_to?(:username=) && (u.respond_to?(:username) && u.username.blank?)
       u.name = 'Admin Evaluador' if u.respond_to?(:name=)
       u.first_name = 'Admin' if u.respond_to?(:first_name=)
       u.last_name = 'Evaluador' if u.respond_to?(:last_name=)
       u.password = 'Password123!' if u.respond_to?(:password=)
       u.password_confirmation = 'Password123!' if u.respond_to?(:password_confirmation=)
-      u.role = :admin if u.respond_to?(:role=)
+      if defined?(UserRole)
+        owner_role = UserRole.find_or_create_by!(name: 'Owner') { |r| r.permissions = (UserRole::Flags::ALL rescue 0); r.position = 1000 } rescue (UserRole.first rescue nil)
+        u.role = owner_role if owner_role
+      elsif u.respond_to?(:role=)
+        u.role = :admin
+      end
+      u.approved = true if u.respond_to?(:approved=)
       u.admin = true if u.respond_to?(:admin=)
       u.is_admin = true if u.respond_to?(:is_admin=)
       u.is_moderator = true if u.respond_to?(:is_moderator=)
@@ -1466,6 +1525,7 @@ begin
       
       if u.persisted?
         cols = {}
+        cols[:approved] = true if u.respond_to?(:approved)
         cols[:is_admin] = true if u.respond_to?(:is_admin)
         cols[:is_moderator] = true if u.respond_to?(:is_moderator)
         cols[:karma] = 100 if u.respond_to?(:karma)
@@ -1482,10 +1542,20 @@ end
 begin
   # 4. Output the authenticated user identifier for demo_instructions
   if defined?(User)
-    active_user = User.find_by(username: 'test') || User.find_by(email: 'test@example.com') || User.find_by(username: 'admin') || User.find_by(email: 'admin@example.com') || User.first
+    active_user = (User.find_by(login: 'test') rescue nil) ||
+                  (User.find_by(username: 'test') rescue nil) ||
+                  (User.find_by(email: 'test@example.com') rescue nil) ||
+                  (User.find_by(login: 'admin') rescue nil) ||
+                  (User.find_by(username: 'admin') rescue nil) ||
+                  (User.find_by(email: 'admin@example.com') rescue nil) ||
+                  (User.first rescue nil)
     if active_user
-      ident = (active_user.respond_to?(:email) && active_user.email.present?) ? active_user.email : active_user.username
-      puts "AUTH_USER:#{ident}"
+      ident = nil
+      ident ||= active_user.login if active_user.respond_to?(:login) && active_user.login.present?
+      ident ||= active_user.username if active_user.respond_to?(:username) && active_user.username.present?
+      ident ||= active_user.mail if active_user.respond_to?(:mail) && active_user.mail.present?
+      ident ||= active_user.email if active_user.respond_to?(:email) && active_user.email.present?
+      puts "AUTH_USER:#{ident}" if ident
     end
   end
 rescue => e
@@ -1525,6 +1595,13 @@ RB;
             @chmod($projectPath . '/tmp/pids', 0777);
             \Illuminate\Support\Facades\File::ensureDirectoryExists($projectPath . '/db', 0777);
             @chmod($projectPath . '/db', 0777);
+
+            if (\Illuminate\Support\Facades\File::exists($projectPath . '/config/environments/production.rb')) {
+                $prodConfig = \Illuminate\Support\Facades\File::get($projectPath . '/config/environments/production.rb');
+                if (!str_contains($prodConfig, 'active_storage.service')) {
+                    \Illuminate\Support\Facades\File::append($projectPath . '/config/environments/production.rb', "\nRails.application.configure do\n  config.active_storage.service = :local if config.respond_to?(:active_storage)\nend\n");
+                }
+            }
 
             $bundleCacheVol = 'uleam_bundle_cache_' . str_replace(['uleam_ruby:', '.'], ['', ''], $rubyImage);
             $command = [
@@ -1580,6 +1657,31 @@ RB;
                 $command[] = "PGPASSWORD={$project->db_password}";
             }
 
+            $encKey1 = hash('sha256', $project->id . '_active_record_primary');
+            $encKey2 = hash('sha256', $project->id . '_active_record_deterministic');
+            $encKey3 = hash('sha256', $project->id . '_active_record_salt');
+            $otpSecret = hash('sha256', $project->id . '_otp_secret');
+
+            $envPath = $projectPath . '/.env';
+            $envAdditions = "\nACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY={$encKey1}\n"
+                . "ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY={$encKey2}\n"
+                . "ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT={$encKey3}\n"
+                . "OTP_SECRET={$otpSecret}\n"
+                . "LOCAL_DOMAIN={$project->subdomain}.localhost\n"
+                . "SECRET_KEY_BASE=uleam_rails_secret_key_base_" . md5($project->id) . "\n";
+            @file_put_contents($envPath, $envAdditions, FILE_APPEND);
+
+            $command[] = '-e';
+            $command[] = "ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY={$encKey1}";
+            $command[] = '-e';
+            $command[] = "ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY={$encKey2}";
+            $command[] = '-e';
+            $command[] = "ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT={$encKey3}";
+            $command[] = '-e';
+            $command[] = "OTP_SECRET={$otpSecret}";
+            $command[] = '-e';
+            $command[] = "LOCAL_DOMAIN={$project->subdomain}.localhost";
+
             $command[] = '-e';
             $command[] = 'REDIS_URL=redis://uleam-redis-students:6379';
             $command[] = '-e';
@@ -1589,17 +1691,22 @@ RB;
             $command[] = $rubyImage;
             $command[] = 'sh';
             $command[] = '-c';
-            $command[] = 'bundle exec rails db:migrate RAILS_ENV=production && (bundle exec rails db:seed RAILS_ENV=production || true) && (bundle exec rails runner .uleam_seed.rb || true)';
+            $command[] = 'bundle exec rails db:migrate RAILS_ENV=production && (bundle exec rake redmine:load_default_data REDMINE_LANG=es RAILS_ENV=production || true) && (bundle exec rails db:seed RAILS_ENV=production || true) && (bundle exec rails runner .uleam_seed.rb || true) && (bundle exec rails assets:precompile RAILS_ENV=production || true)';
             $this->executeMigrationCommand($command, $logs);
             @unlink($seedScriptPath);
 
+            $isRedmine = str_contains(strtolower($project->name), 'redmine') || File::exists($projectPath . '/config/initializers/redmine.rb') || File::exists($projectPath . '/app/models/issue.rb');
             if (preg_match('/AUTH_USER:([^\r\n]+)/', $logs, $authMatches)) {
                 $authEmail = trim($authMatches[1]);
-                $alt = str_contains($authEmail, '@') ? " (o " . explode('@', $authEmail)[0] . ")" : "";
-                $project->demo_instructions = "Acceso predeterminado para pruebas (Ruby on Rails):\nUsuario: {$authEmail}{$alt}\nClave: Password123!\n\nEl sistema incluye base de datos, semillas y migraciones listas para evaluar.";
+                $isEmail = str_contains($authEmail, '@');
+                $userLabel = $isEmail ? 'Correo' : ($isRedmine ? 'Identificador' : 'Nombre de usuario');
+                $alt = $isEmail ? " (o " . explode('@', $authEmail)[0] . ")" : ($isRedmine ? " (o admin)" : "");
+                $project->demo_instructions = "Acceso predeterminado para pruebas (Ruby on Rails):\n{$userLabel}: {$authEmail}{$alt}\nClave: Password123!\n\nEl sistema incluye base de datos, semillas y migraciones listas para evaluar.";
                 $project->save();
             } elseif (empty($project->demo_instructions) || !str_contains($project->demo_instructions, 'Clave:')) {
-                $project->demo_instructions = "Acceso predeterminado para pruebas (Ruby on Rails):\nUsuario: test@example.com (o test)\nClave: Password123!\n\nEl sistema incluye base de datos, semillas y migraciones listas para evaluar.";
+                $userLabel = $isRedmine ? 'Identificador' : 'Usuario';
+                $userVal = $isRedmine ? 'test (o admin)' : 'test@example.com (o test)';
+                $project->demo_instructions = "Acceso predeterminado para pruebas (Ruby on Rails):\n{$userLabel}: {$userVal}\nClave: Password123!\n\nEl sistema incluye base de datos, semillas y migraciones listas para evaluar.";
                 $project->save();
             }
 
@@ -1765,8 +1872,10 @@ RB;
         }
 
         // 4b. Check config/database.yml in Ruby on Rails
-        $dbYmlPath = $projectPath . '/config/database.yml';
-        if (\Illuminate\Support\Facades\File::exists($dbYmlPath)) {
+        $dbYmlPath = \Illuminate\Support\Facades\File::exists($projectPath . '/config/database.yml') 
+            ? $projectPath . '/config/database.yml' 
+            : (\Illuminate\Support\Facades\File::exists($projectPath . '/config/database.yml.example') ? $projectPath . '/config/database.yml.example' : null);
+        if ($dbYmlPath && \Illuminate\Support\Facades\File::exists($dbYmlPath)) {
             $ymlContent = \Illuminate\Support\Facades\File::get($dbYmlPath);
             if (str_contains($ymlContent, 'sqlite3') && !str_contains($ymlContent, 'postgresql') && !str_contains($ymlContent, 'postgres') && !str_contains($ymlContent, 'mysql')) {
                 return 'sqlite';
@@ -1835,10 +1944,10 @@ RB;
 
         $logs .= "--- PASO 2.5: Sincronizando Variables de Entorno de Base de Datos (.env) ---\n";
 
-        $dbHost = $project->db_driver === 'mysql' ? 'uleam_mysql_students' : ($project->db_driver === 'mongodb' ? 'uleam_mongodb_students' : ($project->language === 'ruby' ? 'uleam-postgres-students' : 'uleam_postgres_students'));
+        $dbHost = $project->db_driver === 'mysql' ? ($project->language === 'ruby' ? 'uleam-mysql-students' : 'uleam_mysql_students') : ($project->db_driver === 'mongodb' ? 'uleam_mongodb_students' : ($project->language === 'ruby' ? 'uleam-postgres-students' : 'uleam_postgres_students'));
         $dbPort = $project->db_driver === 'mysql' ? '3306' : ($project->db_driver === 'mongodb' ? '27017' : '5432');
         $appUrl = "http://{$project->subdomain}.localhost";
-        $dbPrefix = $project->db_driver === 'mysql' ? 'mysql' : ($project->db_driver === 'mongodb' ? 'mongodb' : ($project->language === 'ruby' ? 'postgres' : 'postgresql'));
+        $dbPrefix = $project->db_driver === 'mysql' ? ($project->language === 'ruby' ? 'mysql2' : 'mysql') : ($project->db_driver === 'mongodb' ? 'mongodb' : ($project->language === 'ruby' ? 'postgres' : 'postgresql'));
         $dbUrl = "{$dbPrefix}://{$project->db_user}:{$project->db_password}@{$dbHost}:{$dbPort}/{$project->db_name}";
         if ($project->db_driver === 'mongodb') {
             $dbUrl .= "?authSource=admin";
@@ -1852,8 +1961,11 @@ RB;
             'DB_HOST' => $dbHost,
             'DB_PORT' => $dbPort,
             'DB_DATABASE' => $project->db_name,
+            'DB_NAME' => $project->db_name,
             'DB_USERNAME' => $project->db_user,
+            'DB_USER' => $project->db_user,
             'DB_PASSWORD' => $project->db_password,
+            'DB_PASS' => $project->db_password,
             'DATABASE_URL' => $dbUrl,
             'MONGODB_URI' => $dbUrl,
             'MONGO_URI' => $dbUrl,

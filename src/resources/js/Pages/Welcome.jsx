@@ -251,10 +251,49 @@ export default function Welcome({ auth, projects = [] }) {
     };
 
     const handleCloseDemo = async (project) => {
+        if (!project) return;
+
+        // 1. Obtener la URL base del proyecto para desloguear y limpiar cookies en el navegador
+        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        const projectBaseUrl = isLocal 
+            ? `${window.location.protocol}//${project.subdomain}.localhost`
+            : `${window.location.protocol}//${project.subdomain}.nexus-academic.software`;
+
+        // 2. Disparar limpieza universal de cookies y storage mediante iframe oculto hacia /uleam-clear-session
+        try {
+            const clearIframe = document.createElement('iframe');
+            clearIframe.style.display = 'none';
+            clearIframe.style.width = '0px';
+            clearIframe.style.height = '0px';
+            clearIframe.src = `${projectBaseUrl}/uleam-clear-session?t=${Date.now()}`;
+            document.body.appendChild(clearIframe);
+
+            // Fetch en paralelo con credentials para aplicar Clear-Site-Data
+            fetch(`${projectBaseUrl}/uleam-clear-session?t=${Date.now()}`, {
+                mode: 'no-cors',
+                credentials: 'include'
+            }).catch(() => {});
+
+            // Intentar también llamar endpoints estándar de logout
+            fetch(`${projectBaseUrl}/logout`, { mode: 'no-cors', credentials: 'include' }).catch(() => {});
+            fetch(`${projectBaseUrl}/users/sign_out`, { mode: 'no-cors', credentials: 'include' }).catch(() => {});
+
+            setTimeout(() => {
+                if (clearIframe.parentNode) {
+                    clearIframe.parentNode.removeChild(clearIframe);
+                }
+            }, 1200);
+        } catch (e) {
+            console.warn('Error clearing project session:', e);
+        }
+
+        // 3. Cerrar el modal inmediatamente en la interfaz
         setActiveDemo(null);
         setDemoError(null);
         setDemoLogs('');
         setIframeLoaded(false);
+
+        // 4. Notificar al backend para que restablezca la base de datos a su estado inicial sin apagar el contenedor
         try {
             await fetch(`/showcase/projects/${project.id}/stop`, {
                 method: 'POST',
@@ -1408,14 +1447,22 @@ export default function Welcome({ auth, projects = [] }) {
                                                             <span className="demo-evaluator-credentials-title text-[10px] font-bold uppercase tracking-wider block mb-2">Acceso de Pruebas</span>
                                                             <div className="space-y-2 text-xs">
                                                                 <div className="flex justify-between items-center">
-                                                                    <span className="demo-evaluator-label">Usuario:</span>
-                                                                    <span className="demo-evaluator-value font-mono font-bold px-2.5 py-0.5 rounded border select-all">
+                                                                    <span className="demo-evaluator-label">{creds.userLabel || 'Usuario:'}</span>
+                                                                    <span className="demo-evaluator-value font-mono font-bold px-2.5 py-0.5 rounded border select-all" title="Clic para seleccionar">
                                                                         {creds.user}
                                                                     </span>
                                                                 </div>
+                                                                {creds.altUser && (
+                                                                    <div className="flex justify-between items-center text-[11px] opacity-80">
+                                                                        <span className="demo-evaluator-label">Alternativo:</span>
+                                                                        <span className="demo-evaluator-value font-mono font-semibold px-2 py-0.5 rounded border select-all" title="Usuario alternativo">
+                                                                            {creds.altUser}
+                                                                        </span>
+                                                                    </div>
+                                                                )}
                                                                 <div className="flex justify-between items-center">
-                                                                    <span className="demo-evaluator-label">Clave:</span>
-                                                                    <span className="demo-evaluator-value font-mono font-bold px-2.5 py-0.5 rounded border select-all">
+                                                                    <span className="demo-evaluator-label">{creds.passLabel || 'Clave:'}</span>
+                                                                    <span className="demo-evaluator-value font-mono font-bold px-2.5 py-0.5 rounded border select-all" title="Clic para seleccionar">
                                                                         {creds.pass}
                                                                     </span>
                                                                 </div>
@@ -2150,42 +2197,130 @@ function getTechInfo(project) {
 }
 
 function getDemoCredentials(project) {
-    if (project.demo_instructions) {
-        const userMatch = project.demo_instructions.match(/Usuario:\s*([^\r\n]+)/i);
-        const passMatch = project.demo_instructions.match(/Clave:\s*([^\r\n]+)/i);
+    if (project && project.demo_instructions) {
+        // Captura variaciones: Usuario / Identificador, Usuario / Email, Nombre de usuario, Identificador, Correo, Email, etc.
+        const userMatch = project.demo_instructions.match(/(?:Usuario\s*(?:\/|\()\s*(?:Identificador|Email)\)?|Nombre\s+de\s+usuario|Identificador|Correo\s*electr[oó]nico|Correo|Email|Usuario|User|Login)\s*:\s*([^\r\n]+)/i);
+        const passMatch = project.demo_instructions.match(/(?:Clave|Contrase[ñn]a|Password|Pass)\s*:\s*([^\r\n]+)/i);
+        
         if (userMatch && passMatch) {
+            const rawUser = userMatch[1].trim();
+            const rawPass = passMatch[1].trim();
+
+            let primaryUser = rawUser;
+            let altUser = null;
+            const altMatch = rawUser.match(/^([^\s(]+)(?:\s*\(\s*o\s+([^)]+)\))?/i);
+            if (altMatch) {
+                primaryUser = altMatch[1].trim();
+                if (altMatch[2]) {
+                    altUser = altMatch[2].trim();
+                }
+            }
+
+            const isEmail = primaryUser.includes('@');
+            const isRedmine = (project.name || '').toLowerCase().includes('redmine') || 
+                              project.demo_instructions.toLowerCase().includes('redmine') ||
+                              project.demo_instructions.toLowerCase().includes('identificador');
+
+            let userLabel = 'Usuario:';
+            if (isEmail) {
+                userLabel = 'Correo electrónico:';
+            } else if (isRedmine) {
+                userLabel = 'Identificador:';
+            } else {
+                userLabel = 'Nombre de usuario:';
+            }
+
+            let note = 'Usa estas credenciales de prueba preconfiguradas para iniciar sesión y evaluar el sistema.';
+            if (isRedmine) {
+                note = `Ingresa el Identificador "${primaryUser}"${altUser ? ` (o "${altUser}")` : ''} en el campo Identificador (no correo) para iniciar sesión en Redmine.`;
+            } else if (isEmail) {
+                note = 'Inicia sesión utilizando este correo electrónico y contraseña para acceder a la aplicación.';
+            } else {
+                note = 'Inicia sesión utilizando este nombre de usuario (no correo) y contraseña.';
+            }
+
             return {
-                user: userMatch[1].trim(),
-                pass: passMatch[1].trim(),
-                note: 'Usa estas credenciales de prueba preconfiguradas para iniciar sesión y evaluar el sistema.'
+                userLabel,
+                user: primaryUser,
+                altUser,
+                rawUser,
+                pass: rawPass,
+                passLabel: 'Clave:',
+                note
             };
         }
     }
-    const name = (project.name || '').toLowerCase();
+
+    const name = (project?.name || '').toLowerCase();
+    if (name.includes('redmine')) {
+        return {
+            userLabel: 'Identificador:',
+            user: 'test',
+            altUser: 'admin',
+            pass: 'Password123!',
+            passLabel: 'Clave:',
+            note: 'Ingresa "test" o "admin" en el campo Identificador (no correo) y la clave para acceder a Redmine.'
+        };
+    }
+    if (name.includes('django')) {
+        return {
+            userLabel: 'Nombre de usuario:',
+            user: 'admin',
+            pass: 'password',
+            passLabel: 'Clave:',
+            note: 'Inicia sesión en el panel de administración de Django con el usuario de superadministrador.'
+        };
+    }
+    if (name.includes('grocy')) {
+        return {
+            userLabel: 'Nombre de usuario:',
+            user: 'admin',
+            pass: 'admin',
+            passLabel: 'Clave:',
+            note: 'Inicia sesión en Grocy con el usuario de administrador predeterminado.'
+        };
+    }
     if (name.includes('crater')) {
         return {
+            userLabel: 'Correo electrónico:',
             user: 'admin@craterapp.com',
             pass: 'password',
+            passLabel: 'Clave:',
             note: 'Inicia sesión en Crater Invoice con estas credenciales de administrador para explorar facturas, clientes y reportes.'
         };
     }
     if (name.includes('tienda') || name.includes('sequelize')) {
         return {
+            userLabel: 'Correo electrónico:',
             user: 'admin@example.com',
             pass: 'password',
+            passLabel: 'Clave:',
             note: 'Inicia sesión en la demo con estas credenciales para acceder al panel de administrador y gestionar registros.'
         };
     }
     if (name.includes('mongo')) {
         return {
+            userLabel: 'Acceso:',
             user: '(Ingreso libre)',
             pass: '(Sin autenticación)',
+            passLabel: 'Clave:',
             note: 'Este proyecto usa base de datos MongoDB (NoSQL). No requiere inicio de sesión; usa el formulario directamente para insertar usuarios en la base de datos.'
         };
     }
+    if (name.includes('jekyll')) {
+        return {
+            userLabel: 'Acceso:',
+            user: '(Navegación libre)',
+            pass: '(Sin autenticación)',
+            passLabel: 'Modo:',
+            note: 'Este proyecto es un sitio web estático generado con Jekyll (Ruby). Puedes navegar por todas sus páginas, tutoriales y artículos sin iniciar sesión.'
+        };
+    }
     return {
+        userLabel: 'Correo / Usuario:',
         user: 'admin@example.com',
         pass: 'password',
+        passLabel: 'Clave:',
         note: 'Usa estas credenciales predeterminadas para iniciar sesión y evaluar las funciones del sistema.'
     };
 }

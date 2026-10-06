@@ -1586,6 +1586,12 @@ function getQuickFixAdvice(content) {
             desc: "Tu aplicación intenta cargar librerías de C/C++ del sistema operativo (ej: OCR, procesamiento pesado de imágenes o PDFs con Leptonica/Tesseract). Los proyectos de este tipo están pensados para correr en contenedores personalizados con Dockerfile. Para proyectos web estándar, utiliza librerías puras del lenguaje que no requieran binarios externos del sistema."
         };
     }
+    if (text.includes('proyecto incompatible con la plataforma') || text.includes('bundle install') && text.includes('compilación fallida')) {
+        return {
+            title: "Aviso de Compatibilidad: Librería de Ruby No Soportada",
+            desc: "Este proyecto de Ruby requiere librerías nativas del sistema operativo (extensiones en C/C++) que no son compatibles con el entorno estándar de la plataforma. Para desplegar en esta plataforma, elimina del Gemfile las gemas que requieran compilación nativa o usa alternativas estándar en Ruby puro."
+        };
+    }
     if (text.includes('error de conexión con la base de datos') || text.includes('connection refused') || text.includes('connectionbad')) {
         return {
             title: "Guía de Solución: Conexión con Base de Datos Rechazada",

@@ -48,6 +48,35 @@ class StartProjectContainerAction
                 $workDir = $this->detectDockerfileWorkdir($projectPath);
             }
 
+            // Generar archivos estáticos universales para borrado de sesión
+            $clearHtml = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Sesion Cerrada</title></head><body>'
+                . '<script>'
+                . 'try{localStorage.clear();}catch(e){}'
+                . 'try{sessionStorage.clear();}catch(e){}'
+                . 'try{'
+                . '  var cookies = document.cookie.split(";");'
+                . '  for (var i = 0; i < cookies.length; i++) {'
+                . '    var eq = cookies[i].indexOf("=");'
+                . '    var name = eq > -1 ? cookies[i].substr(0, eq).trim() : cookies[i].trim();'
+                . '    if (name) {'
+                . '      document.cookie = name + "=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/;";'
+                . '      document.cookie = name + "=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=" + window.location.hostname + ";";'
+                . '      document.cookie = name + "=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=." + window.location.hostname + ";";'
+                . '    }'
+                . '  }'
+                . '}catch(e){}'
+                . '</script>'
+                . '<h3>Sesion cerrada correctamente.</h3></body></html>';
+
+            foreach (['/public', '/static', '/client/public', '/dist', '/build', ''] as $relPub) {
+                $dir = $projectPath . $relPub;
+                if (File::isDirectory($dir) || $relPub === '/public') {
+                    File::ensureDirectoryExists($dir, 0777);
+                    @file_put_contents($dir . '/uleam-clear-session', $clearHtml);
+                    @file_put_contents($dir . '/uleam-clear-session.html', $clearHtml);
+                }
+            }
+
             // 5. Construct Docker Run Command
             $command = [
                 'docker', 'run', '-d',
@@ -125,7 +154,6 @@ class StartProjectContainerAction
             $command[] = "traefik.http.routers.{$project->id}.middlewares={$corsName}";
             $command[] = '--label';
             $command[] = "traefik.http.routers.{$project->id}-local.middlewares={$corsName}";
-            // ───────────────────────────────────────────────────────────────────────────
 
             // Asociación al servicio balanceador de carga
             $serviceName = "{$project->id}-service";
@@ -135,6 +163,24 @@ class StartProjectContainerAction
             $command[] = "traefik.http.routers.{$project->id}.service={$serviceName}";
             $command[] = '--label';
             $command[] = "traefik.http.routers.{$project->id}-local.service={$serviceName}";
+
+            // Endpoint universal de cierre de sesión (/uleam-clear-session) para limpiar cookies del navegador sin apagar el contenedor
+            $clearName = "{$project->id}-clear-session";
+            $command[] = '--label';
+            $command[] = "traefik.http.middlewares.{$clearName}.headers.customresponseheaders.Clear-Site-Data=\"cookies\", \"storage\"";
+            $command[] = '--label';
+            $command[] = "traefik.http.middlewares.{$clearName}.headers.customresponseheaders.Cache-Control=no-store, no-cache, must-revalidate";
+            $command[] = '--label';
+            $command[] = "traefik.http.routers.{$project->id}-clear.rule=(Host(`{$project->subdomain}.{$domain}`) || Host(`{$project->subdomain}.localhost`)) && PathPrefix(`/uleam-clear-session`)";
+            $command[] = '--label';
+            $command[] = "traefik.http.routers.{$project->id}-clear.priority=2000";
+            $command[] = '--label';
+            $command[] = "traefik.http.routers.{$project->id}-clear.entrypoints=web";
+            $command[] = '--label';
+            $command[] = "traefik.http.routers.{$project->id}-clear.middlewares={$clearName},{$corsName}";
+            $command[] = '--label';
+            $command[] = "traefik.http.routers.{$project->id}-clear.service={$serviceName}";
+            // ───────────────────────────────────────────────────────────────────────────
 
             // Add environment variables if needed
             $command[] = '-e';
@@ -187,9 +233,9 @@ class StartProjectContainerAction
                     }
 
                     if (!$isRubySqlite) {
-                        $dbHost = $dbDriver === 'mysql' ? 'uleam_mysql_students' : ($project->language === 'ruby' ? 'uleam-postgres-students' : 'uleam_postgres_students');
+                        $dbHost = $dbDriver === 'mysql' ? ($project->language === 'ruby' ? 'uleam-mysql-students' : 'uleam_mysql_students') : ($project->language === 'ruby' ? 'uleam-postgres-students' : 'uleam_postgres_students');
                         $dbPort = $dbDriver === 'mysql' ? '3306' : '5432';
-                        $dbUrlScheme = $dbDriver === 'mysql' ? 'mysql' : 'postgres';
+                        $dbUrlScheme = $dbDriver === 'mysql' ? 'mysql2' : 'postgres';
 
                         $command[] = '-e';
                         $command[] = 'DB_CONNECTION=' . $dbDriver;
@@ -289,8 +335,9 @@ class StartProjectContainerAction
                 $command[] = 'RAILS_ASSUME_SSL=false';
                 $command[] = '-e';
                 $command[] = 'DISABLE_SSL=true';
+                $sessionSalt = md5($project->id . '_' . ($project->updated_at ? $project->updated_at->timestamp : time()));
                 $command[] = '-e';
-                $command[] = 'SECRET_KEY_BASE=uleam_rails_secret_key_base_' . md5($project->id);
+                $command[] = 'SECRET_KEY_BASE=uleam_rails_secret_key_base_' . $sessionSalt;
                 $command[] = '-e';
                 $command[] = 'PORT=3000';
                 $command[] = '-e';
@@ -299,8 +346,24 @@ class StartProjectContainerAction
                 $command[] = 'PIDFILE=tmp/pids/server.pid';
                 $command[] = '-e';
                 $command[] = 'PUMA_WORKERS=0';
+                $encKey1 = hash('sha256', $project->id . '_active_record_primary');
+                $encKey2 = hash('sha256', $project->id . '_active_record_deterministic');
+                $encKey3 = hash('sha256', $project->id . '_active_record_salt');
+                $otpSecret = hash('sha256', $project->id . '_otp_secret');
                 $command[] = '-e';
-                $command[] = 'RAILS_MAX_THREADS=5';
+                $command[] = "ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY={$encKey1}";
+                $command[] = '-e';
+                $command[] = "ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY={$encKey2}";
+                $command[] = '-e';
+                $command[] = "ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT={$encKey3}";
+                $command[] = '-e';
+                $command[] = "OTP_SECRET={$otpSecret}";
+                $command[] = '-e';
+                $command[] = "LOCAL_DOMAIN={$project->subdomain}.localhost";
+                $command[] = '-e';
+                $command[] = 'REDIS_URL=redis://uleam-redis-students:6379';
+                $command[] = '-e';
+                $command[] = 'REDIS_HOST=uleam-redis-students';
             }
 
             // Variables de entorno para optimización de memoria (256MB) y compatibilidad Python/Django/Node
@@ -308,8 +371,15 @@ class StartProjectContainerAction
             $command[] = 'WEB_CONCURRENCY=1';
             $command[] = '-e';
             $command[] = 'ALLOWED_HOSTS=*';
+            if (!isset($sessionSalt)) {
+                $sessionSalt = md5($project->id . '_' . ($project->updated_at ? $project->updated_at->timestamp : time()));
+            }
             $command[] = '-e';
-            $command[] = 'SECRET_KEY=uleam_secret_key_' . md5($project->id);
+            $command[] = 'SECRET_KEY=uleam_secret_key_' . $sessionSalt;
+            $command[] = '-e';
+            $command[] = 'SESSION_SECRET=uleam_session_secret_' . $sessionSalt;
+            $command[] = '-e';
+            $command[] = 'JWT_SECRET=uleam_jwt_secret_' . $sessionSalt;
 
             // Append base image
             $command[] = $settings['image'];
@@ -345,7 +415,7 @@ class StartProjectContainerAction
             }
 
             if (!$isAlive) {
-                $logsProcess = new Process(['docker', 'logs', '--tail', '100', $containerName]);
+                $logsProcess = new Process(['docker', 'logs', '--tail', '300', $containerName]);
                 $logsProcess->run();
                 $crashLogs = trim($logsProcess->getOutput() . "\n" . $logsProcess->getErrorOutput());
 
@@ -536,14 +606,44 @@ PHP;
 
             case 'ruby':
                 @unlink($projectPath . '/tmp/pids/server.pid');
-                $railsBin = File::exists($projectPath . '/bin/rails') ? 'bin/rails' : 'rails';
-                $command = ['sh', '-c', "rm -f tmp/pids/server.pid && exec bundle exec {$railsBin} server -b 0.0.0.0 -p 3000 -e production"];
-                if (!File::exists($projectPath . '/bin/rails') && !File::exists($projectPath . '/config/environment.rb')) {
-                    if (File::exists($projectPath . '/config.ru')) {
-                        $command = ['bundle', 'exec', 'rackup', '-o', '0.0.0.0', '-p', '3000', '-E', 'production'];
-                    } elseif (File::exists($projectPath . '/app.rb')) {
-                        $command = ['ruby', 'app.rb', '-o', '0.0.0.0', '-p', '3000'];
+                
+                // Detección de proyecto Jekyll (sitios estáticos, blogs, docs o gemas de Jekyll)
+                $isJekyll = File::exists($projectPath . '/_config.yml')
+                    || File::exists($projectPath . '/docs/_config.yml')
+                    || File::exists($projectPath . '/jekyll.gemspec')
+                    || (File::exists($projectPath . '/Gemfile') && preg_match("/gem\s+['\"]jekyll['\"]/i", File::get($projectPath . '/Gemfile')));
+
+                // Detección de Ruby on Rails
+                $isRails = File::exists($projectPath . '/bin/rails')
+                    || File::exists($projectPath . '/config/environment.rb')
+                    || File::exists($projectPath . '/config/application.rb');
+
+                if ($isRails) {
+                    if (File::exists($projectPath . '/config/environments/production.rb')) {
+                        $prodConfig = File::get($projectPath . '/config/environments/production.rb');
+                        if (!str_contains($prodConfig, 'active_storage.service')) {
+                            File::append($projectPath . '/config/environments/production.rb', "\nRails.application.configure do\n  config.active_storage.service = :local if config.respond_to?(:active_storage)\nend\n");
+                        }
                     }
+                    $railsBin = File::exists($projectPath . '/bin/rails') ? 'bin/rails' : 'rails';
+                    $command = ['sh', '-c', "if [ ! -d public/assets ] || [ -z \"$(ls -A public/assets 2>/dev/null)\" ]; then (bundle exec {$railsBin} assets:precompile RAILS_ENV=production || true); fi && rm -f tmp/pids/server.pid && exec bundle exec {$railsBin} server -b 0.0.0.0 -p 3000 -e production"];
+                } elseif ($isJekyll) {
+                    $jekyllBin = File::exists($projectPath . '/exe/jekyll') ? 'exe/jekyll' : (File::exists($projectPath . '/bin/jekyll') ? 'bin/jekyll' : 'jekyll');
+                    $srcFlag = File::exists($projectPath . '/docs/_config.yml') && !File::exists($projectPath . '/_config.yml')
+                        ? '-s docs -d docs/_site'
+                        : '';
+                    $command = ['sh', '-c', "git config --global --add safe.directory '*' 2>/dev/null || true; exec bundle exec {$jekyllBin} serve {$srcFlag} -H 0.0.0.0 -P 3000 --no-watch"];
+                } elseif (File::exists($projectPath . '/config.ru')) {
+                    $command = ['bundle', 'exec', 'rackup', '-o', '0.0.0.0', '-p', '3000', '-E', 'production'];
+                } elseif (File::exists($projectPath . '/app.rb')) {
+                    $command = ['ruby', 'app.rb', '-o', '0.0.0.0', '-p', '3000'];
+                } elseif (File::exists($projectPath . '/server.rb')) {
+                    $command = ['ruby', 'server.rb', '-o', '0.0.0.0', '-p', '3000'];
+                } elseif (File::exists($projectPath . '/main.rb')) {
+                    $command = ['ruby', 'main.rb', '-o', '0.0.0.0', '-p', '3000'];
+                } else {
+                    $railsBin = File::exists($projectPath . '/bin/rails') ? 'bin/rails' : 'rails';
+                    $command = ['sh', '-c', "rm -f tmp/pids/server.pid && exec bundle exec {$railsBin} server -b 0.0.0.0 -p 3000 -e production"];
                 }
                 $rubyImage = 'uleam_ruby:3.3';
                 if (File::exists($projectPath . '/.ruby-version') && str_starts_with(trim(File::get($projectPath . '/.ruby-version')), '4')) {
@@ -697,19 +797,40 @@ PHP;
     {
         $logLower = strtolower($crashLogs);
 
-        // Extraer la ultima linea significativa de error para casos no catalogados
+        // Extraer la linea significativa de error para casos no catalogados
         $lastErrorLine = '';
         if (!empty($crashLogs)) {
-            $lines = array_filter(array_map('trim', explode("\n", $crashLogs)));
-            $reversed = array_reverse($lines);
-            foreach ($reversed as $l) {
-                if (strlen($l) > 6 && !str_starts_with($l, 'from ') && !str_starts_with($l, 'at ') && !str_starts_with($l, '#')) {
-                    $lastErrorLine = $l;
-                    break;
-                }
+            // 1. Prioridad: Capturar la excepción o mensaje de error real (Ruby, Python, Node, Java, Go)
+            if (preg_match('/([A-Z][a-zA-Z0-9_:]*(?:Error|Exception|Fault|Failure|Violation)[^:\r\n]*:[^\r\n]+)/m', $crashLogs, $excMatch)) {
+                $lastErrorLine = trim($excMatch[1]);
             }
-            if (empty($lastErrorLine) && !empty($reversed)) {
-                $lastErrorLine = $reversed[0];
+
+            // 2. Si no hubo coincidencia regex directa, buscar hacia atrás ignorando líneas de stacktrace (from, at, etc.)
+            if (empty($lastErrorLine)) {
+                $lines = array_filter(array_map('trim', explode("\n", $crashLogs)));
+                $reversed = array_reverse($lines);
+                foreach ($reversed as $l) {
+                    if (strlen($l) > 6 && 
+                        !str_starts_with($l, 'from ') && 
+                        !str_starts_with($l, 'at ') && 
+                        !str_starts_with($l, '#') &&
+                        !str_starts_with($l, 'Tasks:') &&
+                        !str_contains($l, ':in `<main>\'') &&
+                        !str_contains($l, ':in `block')
+                    ) {
+                        $lastErrorLine = $l;
+                        break;
+                    }
+                }
+
+                if (empty($lastErrorLine) && !empty($lines)) {
+                    foreach ($lines as $l) {
+                        if (strlen($l) > 6 && !str_starts_with($l, 'from ') && !str_starts_with($l, 'at ')) {
+                            $lastErrorLine = $l;
+                            break;
+                        }
+                    }
+                }
             }
         }
 
@@ -729,13 +850,19 @@ PHP;
             $quePaso = "Este repositorio no es una aplicacion web estandar, sino un software especializado (appliance) que exige herramientas binarias de C/C++ de bajo nivel. La plataforma esta diseñada exclusivamente para el despliegue de aplicaciones y sitios web academicos.";
             $solucion = "- Despliega unicamente proyectos de desarrollo web academico (Laravel, Node.js, Django, React, Rails, etc.) basados en librerias estandar del lenguaje.\n- El software empresarial de terceros o herramientas con dependencias nativas de bajo nivel del sistema operativo no son compatibles con este entorno de hosting.";
         }
-        // Caso 2: Error de conexión a la Base de Datos
+        // Caso 2a: Error de conexión a la Base de Datos
         elseif (str_contains($logLower, 'connection refused') || str_contains($logLower, 'connectionbad') || 
                 str_contains($logLower, 'econnrefused') || str_contains($logLower, 'password authentication failed') ||
                 str_contains($logLower, 'could not connect to server') || str_contains($logLower, 'access denied for user')) {
             $titulo = "Error de Conexión con la Base de Datos";
             $quePaso = "El servidor intentó conectarse a la base de datos pero la conexión fue rechazada o las credenciales no son válidas.";
             $solucion = "- Verifica que tu base de datos esté encendida en la plataforma.\n- Revisa las variables de entorno en la configuración para confirmar que DB_HOST, DB_PORT, DB_USERNAME y DB_PASSWORD sean los asignados por el sistema.";
+        }
+        // Caso 2b: Formato inválido de URI / Hostname en base de datos
+        elseif (str_contains($logLower, 'invalidurierror') || str_contains($logLower, 'does not accept registry part') || str_contains($logLower, 'bad hostname')) {
+            $titulo = "Error de URI en Conexión de Base de Datos";
+            $quePaso = "La URL de conexión a la base de datos no tiene un formato válido o contiene caracteres no permitidos en el nombre del host.";
+            $solucion = "- Revisa la variable de entorno DATABASE_URL o el archivo config/database.yml.\n- Asegúrate de que el nombre de host no contenga caracteres inválidos como guiones bajos.";
         }
         // Caso 3: Módulos o dependencias faltantes
         elseif (str_contains($logLower, 'cannot find module') || str_contains($logLower, 'modulenotfounderror') || 
