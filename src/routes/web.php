@@ -22,6 +22,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     // Projects CRUD & Actions
     Route::post('/projects', [ProjectController::class, 'store'])->name('projects.store');
+    Route::post('/projects/check-github', [ProjectController::class, 'checkGithub'])->name('projects.check-github');
     Route::delete('/projects/{project}', [ProjectController::class, 'destroy'])->name('projects.destroy');
     Route::post('/projects/{project}/rebuild', [ProjectController::class, 'rebuild'])->name('projects.rebuild');
     Route::patch('/projects/{project}/instructions', [ProjectController::class, 'updateInstructions'])->name('projects.instructions');

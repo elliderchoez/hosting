@@ -27,7 +27,7 @@ class BuildProjectJob implements ShouldQueue
      *
      * @var int
      */
-    public $timeout = 900; // 15 minutes timeout to ensure ample headroom for complex fullstack apps
+    public $timeout = 600; // 10 minutes timeout limit for compilation
 
     /**
      * The number of times the job may be attempted.
@@ -100,6 +100,16 @@ class BuildProjectJob implements ShouldQueue
             $logs .= "--- PASO 1.5: Optimizando Estructura del Proyecto ---\n";
             $flattenLog = $this->flattenDirectoryStructure($project, $projectPath);
             $logs .= $flattenLog . "\n\n";
+
+            // Verificación de Cuota Máxima de Almacenamiento (Máximo 1GB)
+            $projectSizeBytes = $this->calculateDirectorySize($projectPath);
+            $maxAllowedBytes = 1024 * 1024 * 1024; // 1GB
+            if ($projectSizeBytes > $maxAllowedBytes) {
+                $sizeMb = round($projectSizeBytes / (1024 * 1024), 2);
+                $logs .= "[ERROR] El tamaño del proyecto ({$sizeMb} MB) excede la cuota máxima permitida de disco (1024 MB / 1 GB).\n";
+                $this->failBuild($project, $deployment, $logs, $startTime);
+                return;
+            }
 
             $deployment->build_log = $logs;
             $deployment->save();
@@ -198,7 +208,12 @@ class BuildProjectJob implements ShouldQueue
             $logs .= "--- PASO 3: Instalando y Compilando Dependencias ---\n";
             if (!empty($project->env_vars)) {
                 $logs .= "Inyectando variables de entorno personalizadas...\n";
-                \Illuminate\Support\Facades\File::put($projectPath . '/.env', $project->env_vars);
+                $envFile = $projectPath . '/.env';
+                if (\Illuminate\Support\Facades\File::exists($envFile)) {
+                    \Illuminate\Support\Facades\File::append($envFile, "\n\n# Variables personalizadas configuradas en ULEAM Academic\n" . trim($project->env_vars) . "\n");
+                } else {
+                    \Illuminate\Support\Facades\File::put($envFile, trim($project->env_vars) . "\n");
+                }
             }
 
             // Inyectar configuración de allowedHosts para proyectos Vite
@@ -2120,6 +2135,60 @@ RB;
             if ($dumpCmd->isSuccessful() && (str_contains($output, 'CREATE TABLE') || strlen($output) > 500)) {
                 \Illuminate\Support\Facades\File::put($snapshotFile, $output);
             }
+        }
+    }
+
+    /**
+     * Calcular el tamaño total de un directorio en bytes.
+     */
+    private function calculateDirectorySize(string $path): int
+    {
+        if (!is_dir($path)) {
+            return 0;
+        }
+
+        try {
+            $process = new Process(['du', '-sb', $path]);
+            $process->run();
+            if ($process->isSuccessful()) {
+                $output = trim($process->getOutput());
+                $parts = preg_split('/\s+/', $output);
+                if (isset($parts[0]) && is_numeric($parts[0])) {
+                    return (int) $parts[0];
+                }
+            }
+        } catch (\Throwable $e) {}
+
+        $size = 0;
+        try {
+            foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS)) as $file) {
+                $size += $file->getSize();
+            }
+        } catch (\Throwable $e) {}
+
+        return $size;
+    }
+
+    /**
+     * Manejar fallos críticos del trabajo (incluyendo timeout de la cola de Laravel).
+     */
+    public function failed(?\Throwable $exception): void
+    {
+        try {
+            $deployment = $this->deployment;
+            $project = $deployment->project;
+
+            $errorMsg = $exception ? $exception->getMessage() : 'Tiempo máximo de compilación excedido (Build Timeout).';
+            $deployment->status = 'failed';
+            $deployment->build_log .= "\n\n[ERROR CRITICO]: El proceso de compilación ha fallado o superó el tiempo máximo límite permitido (10 minutos).\nDetalle: {$errorMsg}\n";
+            $deployment->save();
+
+            if ($project) {
+                $project->status = 'failed';
+                $project->save();
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error("Error handling BuildProjectJob failure: " . $e->getMessage());
         }
     }
 }

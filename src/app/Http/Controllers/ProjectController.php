@@ -14,6 +14,8 @@ use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Http;
 
 class ProjectController extends Controller
 {
@@ -588,5 +590,105 @@ class ProjectController extends Controller
         ]);
 
         return redirect()->route('dashboard')->with('status', 'Instrucciones de la demo actualizadas con éxito.');
+    }
+
+    /**
+     * Pre-flight Check: Validar accesibilidad y metadatos de un repositorio de GitHub antes de desplegar.
+     */
+    public function checkGithub(Request $request): JsonResponse
+    {
+        $url = trim((string) $request->input('url', ''));
+
+        if (empty($url)) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Ingresa una URL de GitHub para verificar.'
+            ], 422);
+        }
+
+        // Validar formato URL de GitHub
+        if (!preg_match('#^https?://github\.com/([a-zA-Z0-9_\.-]+)/([a-zA-Z0-9_\.-]+?)(?:\.git)?/?$#i', $url, $matches)) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Formato no válido. Debe ser: https://github.com/usuario/repositorio'
+            ], 422);
+        }
+
+        $owner = $matches[1];
+        $repo = preg_replace('/\.git$/i', '', $matches[2]);
+
+        // 1. Intento primario: GitHub REST API (rápido y con metadatos enriquecidos)
+        try {
+            $response = Http::withHeaders([
+                'User-Agent' => 'ULEAM-Academic-Preflight/1.0',
+                'Accept' => 'application/vnd.github.v3+json',
+            ])->timeout(4)->get("https://api.github.com/repos/{$owner}/{$repo}");
+
+            if ($response->successful()) {
+                $data = $response->json();
+                if (!empty($data['private'])) {
+                    return response()->json([
+                        'valid' => false,
+                        'message' => 'El repositorio es privado. Debe ser público para que la plataforma pueda clonarlo.'
+                    ]);
+                }
+
+                return response()->json([
+                    'valid' => true,
+                    'name' => $data['name'] ?? $repo,
+                    'full_name' => $data['full_name'] ?? "{$owner}/{$repo}",
+                    'default_branch' => $data['default_branch'] ?? 'main',
+                    'language' => $data['language'] ?? null,
+                    'size_kb' => $data['size'] ?? 0,
+                    'description' => $data['description'] ?? null,
+                    'message' => 'Repositorio público verificado correctamente.'
+                ]);
+            }
+
+            if ($response->status() === 404) {
+                return response()->json([
+                    'valid' => false,
+                    'message' => 'Asegúrate de que el enlace sea correcto y público.'
+                ]);
+            }
+        } catch (\Throwable $e) {
+            // Si hay timeout o bloqueo en la API REST, continuar con el fallback
+        }
+
+        // 2. Fallback de alta resiliencia: git ls-remote directo (inmune a límites de cuota de API)
+        try {
+            $gitProcess = new \Symfony\Component\Process\Process([
+                'git', 'ls-remote', '--symref', "https://github.com/{$owner}/{$repo}.git", 'HEAD'
+            ]);
+            $gitProcess->setTimeout(5);
+            $gitProcess->run();
+
+            if ($gitProcess->isSuccessful()) {
+                $output = $gitProcess->getOutput();
+                $defaultBranch = 'main';
+                if (preg_match('#ref:\s+refs/heads/(\S+)\s+HEAD#', $output, $refMatches)) {
+                    $defaultBranch = $refMatches[1];
+                }
+
+                return response()->json([
+                    'valid' => true,
+                    'name' => $repo,
+                    'full_name' => "{$owner}/{$repo}",
+                    'default_branch' => $defaultBranch,
+                    'language' => null,
+                    'message' => 'Repositorio público accesible verificado mediante Git.'
+                ]);
+            }
+
+            return response()->json([
+                'valid' => false,
+                'message' => 'No se pudo acceder al repositorio en GitHub. Verifica que exista y sea público.'
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'Error al contactar con GitHub: ' . $e->getMessage()
+            ]);
+        }
     }
 }

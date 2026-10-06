@@ -1147,6 +1147,11 @@ JS;
                 'success' => true,
                 'output' => $process->getOutput() . "\n" . $process->getErrorOutput()
             ];
+        } catch (\Symfony\Component\Process\Exception\ProcessTimedOutException $e) {
+            return [
+                'success' => false,
+                'output' => "❌ Límite de tiempo excedido (Build Timeout): La compilación tardó más de {$timeout} segundos y fue abortada para proteger los recursos del servidor."
+            ];
         } catch (ProcessFailedException $e) {
             return [
                 'success' => false,

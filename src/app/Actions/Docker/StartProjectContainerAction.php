@@ -86,6 +86,7 @@ class StartProjectContainerAction
                 '--memory', ($project->language === 'ruby' ? '1024m' : '256m'),
                 '--cpus', ($project->language === 'ruby' ? '1.0' : '0.5'),
                 '--pids-limit', ($project->language === 'ruby' ? '200' : '50'),
+                '--storage-opt', 'size=1G',
                 '-v', "$projectPath:$workDir", // Montar en su WORKDIR como lectura y escritura
             ];
 
@@ -389,9 +390,33 @@ class StartProjectContainerAction
                 $command[] = $arg;
             }
 
-            $process = new Process($command);
-            $process->setTimeout(60);
-            $process->mustRun();
+            try {
+                $process = new Process($command);
+                $process->setTimeout(60);
+                $process->mustRun();
+            } catch (\Throwable $e) {
+                // Si el host o filesystem no tiene soporte para pquota/storage-opt en overlay2, reintentar sin --storage-opt
+                if (str_contains($e->getMessage(), 'storage-opt')) {
+                    $fallbackCommand = [];
+                    $skipNext = false;
+                    foreach ($command as $arg) {
+                        if ($arg === '--storage-opt') {
+                            $skipNext = true;
+                            continue;
+                        }
+                        if ($skipNext) {
+                            $skipNext = false;
+                            continue;
+                        }
+                        $fallbackCommand[] = $arg;
+                    }
+                    $process = new Process($fallbackCommand);
+                    $process->setTimeout(60);
+                    $process->mustRun();
+                } else {
+                    throw $e;
+                }
+            }
 
             $containerId = trim($process->getOutput());
 

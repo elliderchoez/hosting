@@ -1,6 +1,33 @@
 import { useState, useEffect } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, useForm, router } from '@inertiajs/react';
+import axios from 'axios';
+
+export const parseEnvToPairs = (raw) => {
+    if (!raw || typeof raw !== 'string') return [{ key: '', value: '' }];
+    const lines = raw.split('\n');
+    const pairs = [];
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx !== -1) {
+            const key = trimmed.substring(0, eqIdx).trim();
+            const value = trimmed.substring(eqIdx + 1).trim();
+            pairs.push({ key, value });
+        } else {
+            pairs.push({ key: trimmed, value: '' });
+        }
+    }
+    return pairs.length > 0 ? pairs : [{ key: '', value: '' }];
+};
+
+export const formatPairsToEnv = (pairs) => {
+    return pairs
+        .filter(p => p.key && p.key.trim() !== '')
+        .map(p => `${p.key.trim()}=${p.value || ''}`)
+        .join('\n');
+};
 
 export const PROJECT_CATEGORIES = [
     'Finanzas y Facturación',
@@ -77,6 +104,15 @@ export default function Dashboard({ auth, profile, projects }) {
     const [isDeployHelpOpen, setIsDeployHelpOpen] = useState(false);
     const [selectedGuideOption, setSelectedGuideOption] = useState(null);
 
+    // Editor Visual de Variables de Entorno (.env)
+    const [envPairs, setEnvPairs] = useState([{ key: '', value: '' }]);
+    const [envEditorMode, setEnvEditorMode] = useState('visual'); // 'visual' | 'raw'
+    const [isEnvSectionOpen, setIsEnvSectionOpen] = useState(false);
+
+    // Validación previa (Pre-flight Check) de GitHub
+    const [githubCheckStatus, setGithubCheckStatus] = useState('idle'); // 'idle' | 'checking' | 'valid' | 'invalid'
+    const [githubCheckDetails, setGithubCheckDetails] = useState(null);
+
     // Proyectos del estudiante que son backends candidatos (PHP, Python, Java, .NET)
     const backendProjects = visibleProjects.filter(p =>
         ['php', 'python', 'java', 'dotnet'].includes(p.language)
@@ -87,6 +123,7 @@ export default function Dashboard({ auth, profile, projects }) {
         setLinkedBackend(subdomain);
         if (!subdomain) {
             projectForm.setData('env_vars', '');
+            setEnvPairs([{ key: '', value: '' }]);
             return;
         }
         const apiUrl = `https://${subdomain}.nexus-academic.software/api`;
@@ -98,6 +135,121 @@ export default function Dashboard({ auth, profile, projects }) {
             `BACKEND_URL=https://${subdomain}.nexus-academic.software`
         ].join('\n');
         projectForm.setData('env_vars', vars);
+        setEnvPairs(parseEnvToPairs(vars));
+        setIsEnvSectionOpen(true);
+    };
+
+    // Handlers para el Editor Visual de .env
+    const handleEnvPairChange = (index, field, val) => {
+        const updated = [...envPairs];
+        updated[index] = { ...updated[index], [field]: val };
+        setEnvPairs(updated);
+        projectForm.setData('env_vars', formatPairsToEnv(updated));
+    };
+
+    const handleAddEnvPair = () => {
+        setEnvPairs(prev => [...prev, { key: '', value: '' }]);
+    };
+
+    const handleRemoveEnvPair = (index) => {
+        const updated = envPairs.filter((_, i) => i !== index);
+        const finalPairs = updated.length > 0 ? updated : [{ key: '', value: '' }];
+        setEnvPairs(finalPairs);
+        projectForm.setData('env_vars', formatPairsToEnv(finalPairs));
+    };
+
+    const handleRawEnvChange = (val) => {
+        projectForm.setData('env_vars', val);
+        setEnvPairs(parseEnvToPairs(val));
+    };
+
+    const activeEnvCount = envPairs.filter(p => p.key && p.key.trim() !== '').length;
+
+    // Pre-flight Check automático para URLs de GitHub
+    useEffect(() => {
+        const url = projectForm.data.github_repo_url?.trim();
+        if (!url || uploadType !== 'github') {
+            setGithubCheckStatus('idle');
+            setGithubCheckDetails(null);
+            return;
+        }
+
+        const isGithub = /^https?:\/\/github\.com\/[a-zA-Z0-9_\.-]+\/[a-zA-Z0-9_\.-]+/i.test(url);
+        if (!isGithub) {
+            setGithubCheckStatus('idle');
+            setGithubCheckDetails(null);
+            return;
+        }
+
+        const timer = setTimeout(() => {
+            setGithubCheckStatus('checking');
+            axios.post(route('projects.check-github'), { url })
+                .then(res => {
+                    if (res.data && res.data.valid) {
+                        setGithubCheckStatus('valid');
+                        setGithubCheckDetails(res.data);
+                        if (res.data.default_branch && (!projectForm.data.branch || projectForm.data.branch === 'main')) {
+                            projectForm.setData('branch', res.data.default_branch);
+                        }
+                    } else {
+                        setGithubCheckStatus('invalid');
+                        setGithubCheckDetails(res.data || { message: 'Repositorio inaccesible o privado.' });
+                    }
+                })
+                .catch(err => {
+                    const message = err.response?.data?.message || 'No se pudo verificar el repositorio en GitHub.';
+                    setGithubCheckStatus('invalid');
+                    setGithubCheckDetails({ message });
+                });
+        }, 500);
+
+        return () => clearTimeout(timer);
+    }, [projectForm.data.github_repo_url, uploadType]);
+
+    // Componente visual de estado de verificación Pre-Flight de GitHub
+    const renderGithubPreflightBadge = () => {
+        if (githubCheckStatus === 'checking') {
+            return (
+                <div className="flex items-center gap-2 mt-2 px-3 py-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs animate-pulse">
+                    <svg className="animate-spin h-3.5 w-3.5 text-indigo-400 shrink-0" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                    </svg>
+                    <span>Verificando acceso público al repositorio GitHub (Pre-flight)...</span>
+                </div>
+            );
+        }
+        if (githubCheckStatus === 'valid') {
+            return (
+                <div className="flex flex-wrap items-center justify-between gap-1 mt-2 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs">
+                    <div className="flex items-center gap-2">
+                        <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span>
+                            <strong>Repositorio verificado:</strong> {githubCheckDetails?.name || 'Válido'}
+                            {githubCheckDetails?.language && <span className="ml-1 text-emerald-400/80">({githubCheckDetails.language})</span>}
+                        </span>
+                    </div>
+                    {githubCheckDetails?.default_branch && (
+                        <span className="text-[11px] font-mono bg-emerald-500/20 px-2 py-0.5 rounded text-emerald-200">
+                            Rama: {githubCheckDetails.default_branch}
+                        </span>
+                    )}
+                </div>
+            );
+        }
+        if (githubCheckStatus === 'invalid') {
+            return (
+                <div className="flex items-start gap-2 mt-2 px-3 py-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
+                    <svg className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <span>{githubCheckDetails?.message || 'Repositorio no accesible o privado en GitHub.'}</span>
+                </div>
+            );
+        }
+        return null;
     };
 
     const instructionsForm = useForm({
@@ -391,6 +543,10 @@ export default function Dashboard({ auth, profile, projects }) {
                                             env_vars: '',
                                             attach_to_project_id: ''
                                         });
+                                        setGithubCheckStatus('idle');
+                                        setGithubCheckDetails(null);
+                                        setEnvPairs([{ key: '', value: '' }]);
+                                        setIsEnvSectionOpen(false);
                                         setIsAddProjectOpen(true);
                                     }}
                                     className="px-4 py-2 rounded-xl text-sm font-bold bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-slate-950 shadow-md shadow-cyan-500/10 transition duration-200 cursor-pointer"
@@ -595,6 +751,10 @@ export default function Dashboard({ auth, profile, projects }) {
                                         setAttachParentProjectId('');
                                         setIsDeployHelpOpen(false);
                                         setSelectedGuideOption(null);
+                                        setGithubCheckStatus('idle');
+                                        setGithubCheckDetails(null);
+                                        setEnvPairs([{ key: '', value: '' }]);
+                                        setIsEnvSectionOpen(false);
                                     }}
                                     className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition font-bold border-0"
                                 >
@@ -736,6 +896,7 @@ export default function Dashboard({ auth, profile, projects }) {
                                                         placeholder="https://github.com/usuario/proyecto-grupoC.git"
                                                     />
                                                     {projectForm.errors.github_repo_url && <p className="text-xs text-red-400 mt-1">{projectForm.errors.github_repo_url}</p>}
+                                                    {renderGithubPreflightBadge()}
                                                 </div>
 
                                                 <div className="grid grid-cols-2 gap-3">
@@ -773,6 +934,7 @@ export default function Dashboard({ auth, profile, projects }) {
                                                         className="w-full px-3 py-2 bg-slate-900 border-0 rounded-lg text-slate-200 text-xs font-mono focus:ring-1 focus:ring-indigo-500"
                                                         placeholder="https://github.com/usuario/frontend-repo"
                                                     />
+                                                    {renderGithubPreflightBadge()}
                                                 </div>
 
                                                 <div className="space-y-2 p-3 bg-slate-950 rounded-xl border-0">
@@ -846,6 +1008,7 @@ export default function Dashboard({ auth, profile, projects }) {
                                                     placeholder="https://github.com/usuario/nombre-repositorio"
                                                 />
                                                 {projectForm.errors.github_repo_url && <p className="text-xs text-red-400 mt-1">{projectForm.errors.github_repo_url}</p>}
+                                                {renderGithubPreflightBadge()}
                                             </div>
 
                                             <div>
@@ -1040,6 +1203,151 @@ export default function Dashboard({ auth, profile, projects }) {
                                                 {projectForm.errors.subdomain}
                                             </p>
                                         )}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* ======================================================= */}
+                            {/* EDITOR VISUAL DE VARIABLES DE ENTORNO (.env)            */}
+                            {/* ======================================================= */}
+                            <div className="pt-2 border-t border-slate-800/80">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsEnvSectionOpen(!isEnvSectionOpen)}
+                                    className="w-full flex items-center justify-between p-3 rounded-xl bg-slate-950/60 hover:bg-slate-950 border border-slate-800/80 transition text-left group"
+                                >
+                                    <div className="flex items-center gap-2.5">
+                                        <span className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 group-hover:bg-indigo-500/20 transition">
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                                            </svg>
+                                        </span>
+                                        <div>
+                                            <div className="text-xs font-semibold text-slate-200 flex items-center gap-2">
+                                                Variables de Entorno (.env)
+                                                {activeEnvCount > 0 && (
+                                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300">
+                                                        {activeEnvCount} {activeEnvCount === 1 ? 'variable' : 'variables'}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="text-[11px] text-slate-400">
+                                                Opcional · API Keys, tokens y variables de entorno personalizadas
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <span className={`text-slate-400 text-xs transition-transform duration-200 ${isEnvSectionOpen ? 'rotate-180' : ''}`}>
+                                        ▼
+                                    </span>
+                                </button>
+
+                                {isEnvSectionOpen && (
+                                    <div className="mt-2 p-3.5 bg-slate-950/90 rounded-xl border border-slate-800/90 space-y-3">
+                                        <div className="flex items-center justify-between pb-2 border-b border-slate-800/60">
+                                            <span className="text-[11px] font-medium text-slate-400">
+                                                Formato de edición:
+                                            </span>
+                                            <div className="flex gap-1 bg-slate-900 p-0.5 rounded-lg border border-slate-800">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setEnvEditorMode('visual')}
+                                                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${
+                                                        envEditorMode === 'visual'
+                                                            ? 'bg-indigo-600 text-white shadow-xs'
+                                                            : 'text-slate-400 hover:text-slate-200'
+                                                    }`}
+                                                >
+                                                    Modo Visual (Clave - Valor)
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setEnvEditorMode('raw')}
+                                                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${
+                                                        envEditorMode === 'raw'
+                                                            ? 'bg-indigo-600 text-white shadow-xs'
+                                                            : 'text-slate-400 hover:text-slate-200'
+                                                    }`}
+                                                >
+                                                    Texto Plano (.env)
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {envEditorMode === 'visual' ? (
+                                            <div className="space-y-2">
+                                                {envPairs.map((pair, idx) => (
+                                                    <div key={idx} className="flex items-center gap-2">
+                                                        <input
+                                                            type="text"
+                                                            value={pair.key}
+                                                            onChange={e => handleEnvPairChange(idx, 'key', e.target.value)}
+                                                            placeholder="VARIABLE_KEY"
+                                                            className="w-5/12 px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-slate-200 text-xs font-mono uppercase focus:ring-1 focus:ring-indigo-500 placeholder-slate-600"
+                                                        />
+                                                        <span className="text-slate-500 font-mono text-xs">=</span>
+                                                        <input
+                                                            type="text"
+                                                            value={pair.value}
+                                                            onChange={e => handleEnvPairChange(idx, 'value', e.target.value)}
+                                                            placeholder="valor_o_token"
+                                                            className="flex-1 px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-slate-200 text-xs font-mono focus:ring-1 focus:ring-indigo-500 placeholder-slate-600"
+                                                        />
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleRemoveEnvPair(idx)}
+                                                            title="Eliminar variable"
+                                                            className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition"
+                                                        >
+                                                            ✕
+                                                        </button>
+                                                    </div>
+                                                ))}
+
+                                                <div className="pt-1 flex items-center justify-between">
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleAddEnvPair}
+                                                        className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-indigo-400 hover:text-indigo-300 text-xs font-semibold border border-slate-800 flex items-center gap-1.5 transition"
+                                                    >
+                                                        <span>+</span> Añadir Variable
+                                                    </button>
+                                                    {envPairs.length > 1 && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setEnvPairs([{ key: '', value: '' }]);
+                                                                projectForm.setData('env_vars', '');
+                                                            }}
+                                                            className="text-[11px] text-slate-500 hover:text-rose-400 transition"
+                                                        >
+                                                            Limpiar todo
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                <textarea
+                                                    rows={5}
+                                                    value={projectForm.data.env_vars}
+                                                    onChange={e => handleRawEnvChange(e.target.value)}
+                                                    placeholder={`KEY=VALOR\nAPI_KEY=mi_super_secreto\nNEXT_PUBLIC_APP_TITLE=Mi App`}
+                                                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-slate-200 text-xs font-mono focus:ring-1 focus:ring-indigo-500 placeholder-slate-600 resize-y"
+                                                />
+                                                <p className="text-[11px] text-slate-500">
+                                                    Una variable por línea en formato <code>CLAVE=VALOR</code>. Las líneas vacías serán omitidas.
+                                                </p>
+                                            </div>
+                                        )}
+
+                                        <div className="flex items-start gap-2 p-2.5 rounded-lg bg-indigo-950/20 border border-indigo-900/40 text-[11px] text-indigo-300/80 leading-relaxed">
+                                            <svg className="w-3.5 h-3.5 text-indigo-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                            </svg>
+                                            <div>
+                                                <strong className="text-indigo-200">Nota del Sistema:</strong> Las credenciales de base de datos (<code>DB_HOST</code>, <code>DB_PASSWORD</code>, etc.) se autogeneran e inyectan automáticamente. Agrega aquí tus API keys o configuraciones particulares.
+                                            </div>
+                                        </div>
                                     </div>
                                 )}
                             </div>
