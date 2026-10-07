@@ -22,6 +22,14 @@ class ContainerController extends Controller
             return response()->json(['error' => 'No autorizado'], 403);
         }
 
+        if ($project->is_suspended) {
+            return response()->json([
+                'success' => false,
+                'status' => 'stopped',
+                'error' => 'El proyecto está pausado temporalmente por la administración institucional: ' . ($project->suspension_reason ?: 'Consulte con soporte.'),
+            ], 403);
+        }
+
         $projectPath = storage_path("app/projects/project-{$project->id}");
         $domain = env('APP_DOMAIN', 'nexus-academic.software');
 
@@ -53,7 +61,7 @@ class ContainerController extends Controller
      */
     public function stop(Project $project, StopProjectContainerAction $stopAction): JsonResponse
     {
-        if ($project->user_id !== Auth::id()) {
+        if ($project->user_id !== Auth::id() && !Auth::user()->isAdmin()) {
             return response()->json(['error' => 'No autorizado'], 403);
         }
 
@@ -84,7 +92,7 @@ class ContainerController extends Controller
      */
     public function logs(Project $project): JsonResponse
     {
-        if ($project->user_id !== Auth::id()) {
+        if ($project->user_id !== Auth::id() && !Auth::user()->isAdmin()) {
             return response()->json(['error' => 'No autorizado'], 403);
         }
 

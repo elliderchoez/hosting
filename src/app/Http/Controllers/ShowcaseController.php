@@ -21,6 +21,8 @@ class ShowcaseController extends Controller
     {
         $projects = Project::with(['user.profile', 'backendProject'])
             ->where('is_backend_service', false)
+            ->where('is_visible_in_showcase', true)
+            ->where('is_suspended', false)
             ->whereIn('status', ['running', 'sleeping', 'stopped'])
             ->orderByRaw("CASE 
                 WHEN status = 'running' THEN 1 
@@ -46,6 +48,8 @@ class ShowcaseController extends Controller
             'profile',
             'projects' => function ($query) {
                 $query->where('is_backend_service', false)
+                      ->where('is_visible_in_showcase', true)
+                      ->where('is_suspended', false)
                       ->whereIn('status', ['running', 'sleeping', 'stopped'])
                       ->orderByRaw("CASE WHEN status = 'running' THEN 1 WHEN status = 'sleeping' THEN 2 ELSE 3 END")
                       ->orderBy('updated_at', 'desc');
@@ -119,6 +123,14 @@ class ShowcaseController extends Controller
         \App\Actions\Docker\StopProjectContainerAction $stopAction
     ): \Illuminate\Http\JsonResponse {
         session_write_close();
+
+        if ($project->is_suspended) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Este proyecto está pausado temporalmente por infracción normativa institucional: ' . ($project->suspension_reason ?: 'Consulte con la administración.')
+            ], 403);
+        }
+
         $containerName = "project-{$project->id}";
         $domain = env('APP_DOMAIN', 'nexus-academic.software');
 
@@ -166,6 +178,7 @@ class ShowcaseController extends Controller
         if ($project->status === 'running' && $this->isContainerRunning($containerName)) {
             $project->last_visited_at = now();
             $project->save();
+            $project->increment('demo_runs_count');
 
             $host = "{$project->subdomain}.localhost";
             for ($j = 0; $j < 15; $j++) {
@@ -186,6 +199,7 @@ class ShowcaseController extends Controller
             $project->container_id = $result['container_id'];
             $project->last_visited_at = now();
             $project->save();
+            $project->increment('demo_runs_count');
             
             // Esperar a que la aplicación interna esté lista y respondiendo en su puerto
             $containerIp = $this->getContainerIp($result['container_id']);

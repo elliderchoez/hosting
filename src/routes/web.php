@@ -5,6 +5,7 @@ use App\Http\Controllers\ShowcaseController;
 use App\Http\Controllers\ProjectController;
 use App\Http\Controllers\ContainerController;
 use App\Http\Controllers\MessageController;
+use App\Http\Controllers\AdminController;
 use Illuminate\Support\Facades\Route;
 
 // 1. Public Vitrina Showcase routes
@@ -15,7 +16,7 @@ Route::post('/contact/{studentId}', [ShowcaseController::class, 'contactStudent'
 Route::post('/showcase/projects/{project}/start', [ShowcaseController::class, 'startDemo'])->name('showcase.start');
 Route::post('/showcase/projects/{project}/stop', [ShowcaseController::class, 'stopDemo'])->name('showcase.stop');
 
-// 2. Rutas de autenticaion de estudiantes
+// 2. Rutas de autenticacion de estudiantes
 Route::middleware(['auth', 'verified'])->group(function () {
     // Dashboard
     Route::get('/dashboard', [ProjectController::class, 'index'])->name('dashboard');
@@ -47,6 +48,22 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/messages', [MessageController::class, 'index'])->name('messages.index');
     Route::patch('/messages/{message}/read', [MessageController::class, 'markAsRead'])->name('messages.read');
     Route::delete('/messages/{message}', [MessageController::class, 'destroy'])->name('messages.destroy');
+});
+
+// 3. Rutas exclusivas del Rol de Administrador
+Route::middleware(['auth', 'verified', 'admin'])->prefix('admin')->name('admin.')->group(function () {
+    Route::get('/dashboard', [AdminController::class, 'index'])->name('dashboard');
+    Route::get('/telemetry', [AdminController::class, 'telemetry'])->name('telemetry');
+    Route::post('/docker/prune', [AdminController::class, 'pruneDockerImages'])->name('docker.prune');
+    
+    // Control de Vitrina y Moderación de Proyectos
+    Route::patch('/projects/{project}/toggle-showcase', [AdminController::class, 'toggleShowcaseVisibility'])->name('projects.toggle-showcase');
+    Route::post('/projects/{project}/suspend', [AdminController::class, 'suspendProject'])->name('projects.suspend');
+    Route::post('/projects/{project}/unsuspend', [AdminController::class, 'unsuspendProject'])->name('projects.unsuspend');
+    Route::get('/projects/{project}/build-logs', [AdminController::class, 'projectBuildLogs'])->name('projects.build-logs');
+    
+    // Gestión de Cuentas de Estudiantes
+    Route::patch('/students/{user}/toggle-status', [AdminController::class, 'toggleUserStatus'])->name('students.toggle-status');
 });
 
 require __DIR__.'/auth.php';

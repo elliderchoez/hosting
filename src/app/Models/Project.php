@@ -30,7 +30,11 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
     'db_password',
     'db_driver',
     'demo_instructions',
-    'category'
+    'category',
+    'is_visible_in_showcase',
+    'is_suspended',
+    'suspension_reason',
+    'demo_runs_count'
 ])]
 class Project extends Model
 {
@@ -40,6 +44,9 @@ class Project extends Model
         'last_visited_at' => 'datetime',
         'port' => 'integer',
         'is_backend_service' => 'boolean',
+        'is_visible_in_showcase' => 'boolean',
+        'is_suspended' => 'boolean',
+        'demo_runs_count' => 'integer',
     ];
 
     protected $hidden = [

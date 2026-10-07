@@ -431,6 +431,10 @@ class ProjectController extends Controller
             abort(403);
         }
 
+        if ($project->is_suspended) {
+            return redirect()->route('dashboard')->withErrors(['error' => 'No puedes reconstruir un proyecto pausado por infracción normativa.']);
+        }
+
         $project->status = 'building';
         $project->save();
 

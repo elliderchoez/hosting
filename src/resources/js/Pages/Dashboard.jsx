@@ -581,20 +581,44 @@ export default function Dashboard({ auth, profile, projects }) {
                                                                     Fullstack Suite
                                                                 </span>
                                                             )}
+                                                            {!project.is_visible_in_showcase && (
+                                                                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center gap-1">
+                                                                    Oculto en Vitrina
+                                                                </span>
+                                                            )}
                                                         </h4>
                                                     </div>
-                                                    <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold uppercase tracking-wider ${
-                                                        project.status === 'running' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-cyan-500/15 dark:text-cyan-400 dark:border-cyan-500/30' :
-                                                        project.status === 'sleeping' ? 'bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-400 dark:border-indigo-500/30' :
-                                                        project.status === 'building' ? 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-yellow-500/15 dark:text-yellow-400 dark:border-yellow-500/30 animate-pulse' :
-                                                        'bg-slate-100 text-slate-600 border border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700'
-                                                    }`}>
-                                                        {project.status === 'running' ? 'Activo' :
-                                                            project.status === 'sleeping' ? 'Suspendido' :
-                                                                project.status === 'building' ? 'Compilando' :
-                                                                    'Apagado'}
-                                                    </span>
+                                                    {project.is_suspended ? (
+                                                        <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-red-500/15 text-red-400 border border-red-500/30 animate-pulse">
+                                                            Pausado por Infracción
+                                                        </span>
+                                                    ) : (
+                                                        <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold uppercase tracking-wider ${
+                                                            project.status === 'running' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-cyan-500/15 dark:text-cyan-400 dark:border-cyan-500/30' :
+                                                            project.status === 'sleeping' ? 'bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-400 dark:border-indigo-500/30' :
+                                                            project.status === 'building' ? 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-yellow-500/15 dark:text-yellow-400 dark:border-yellow-500/30 animate-pulse' :
+                                                            'bg-slate-100 text-slate-600 border border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700'
+                                                        }`}>
+                                                            {project.status === 'running' ? 'Activo' :
+                                                                project.status === 'sleeping' ? 'Suspendido' :
+                                                                    project.status === 'building' ? 'Compilando' :
+                                                                        'Apagado'}
+                                                        </span>
+                                                    )}
                                                 </div>
+
+                                                {project.is_suspended && (
+                                                    <div className="p-3 bg-red-950/40 border border-red-800/60 rounded-xl mb-3 text-red-200 text-xs">
+                                                        <div className="font-bold flex items-center gap-1.5 text-red-300 mb-1">
+                                                            <svg className="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                                            </svg>
+                                                            Proyecto pausado por la administración académica
+                                                        </div>
+                                                        <p className="text-red-300/90">{project.suspension_reason || 'Infracción de normativas universitarias o contenido prohibido.'}</p>
+                                                        <p className="text-[11px] text-red-400/80 mt-1">Por favor contacta a la coordinación de carrera para regularizar la situación.</p>
+                                                    </div>
+                                                )}
 
                                                 <p className="text-xs text-slate-400 font-mono break-all mb-1">
                                                     https://{project.subdomain}.nexus-academic.software
@@ -660,30 +684,41 @@ export default function Dashboard({ auth, profile, projects }) {
 
                                             {/* Project Actions */}
                                             <div className="border-t border-slate-900 pt-3 flex flex-wrap gap-2 items-center justify-between">
-                                                <div className="flex gap-2 flex-wrap">
-                                                    {project.status === 'stopped' || project.status === 'sleeping' ? (
-                                                        <button
-                                                            onClick={() => startContainer(project.id)}
-                                                            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition"
-                                                        >
-                                                            Encender
-                                                        </button>
-                                                    ) : project.status === 'running' ? (
-                                                        <button
-                                                            onClick={() => stopContainer(project.id)}
-                                                            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-transparent transition"
-                                                        >
-                                                            Apagar
-                                                        </button>
-                                                    ) : null}
+                                                <div className="flex gap-2 flex-wrap items-center">
+                                                    {project.is_suspended ? (
+                                                        <span className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-950/30 text-red-400 border border-red-800/40 flex items-center gap-1.5">
+                                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                                            </svg>
+                                                            Operaciones bloqueadas
+                                                        </span>
+                                                    ) : (
+                                                        <>
+                                                            {project.status === 'stopped' || project.status === 'sleeping' ? (
+                                                                <button
+                                                                    onClick={() => startContainer(project.id)}
+                                                                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition"
+                                                                >
+                                                                    Encender
+                                                                </button>
+                                                            ) : project.status === 'running' ? (
+                                                                <button
+                                                                    onClick={() => stopContainer(project.id)}
+                                                                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-transparent transition"
+                                                                >
+                                                                    Apagar
+                                                                </button>
+                                                            ) : null}
 
-                                                    <button
-                                                        onClick={() => rebuildProject(project.id)}
-                                                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 dark:border-slate-800 dark:text-slate-300 transition shadow-2xs"
-                                                        disabled={project.status === 'building'}
-                                                    >
-                                                        Actualizar (Build)
-                                                    </button>
+                                                            <button
+                                                                onClick={() => rebuildProject(project.id)}
+                                                                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 dark:border-slate-800 dark:text-slate-300 transition shadow-2xs"
+                                                                disabled={project.status === 'building'}
+                                                            >
+                                                                Actualizar (Build)
+                                                            </button>
+                                                        </>
+                                                    )}
 
                                                     <button
                                                         onClick={() => fetchLogs(project)}

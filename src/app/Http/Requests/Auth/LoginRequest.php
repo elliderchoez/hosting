@@ -50,6 +50,18 @@ class LoginRequest extends FormRequest
             ]);
         }
 
+        $user = Auth::user();
+        if ($user && ! $user->is_active) {
+            $blockedReason = $user->blocked_reason ?: 'Infracción institucional o baja de matrícula.';
+            Auth::logout();
+            $this->session()->invalidate();
+            $this->session()->regenerateToken();
+
+            throw ValidationException::withMessages([
+                'email' => "Tu cuenta ha sido desactivada o bloqueada por la administración. Motivo: {$blockedReason}",
+            ]);
+        }
+
         RateLimiter::clear($this->throttleKey());
     }
 

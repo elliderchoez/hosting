@@ -41,12 +41,21 @@ export default function AuthenticatedLayout({ header, children }) {
                             </div>
 
                             <div className="hidden space-x-8 sm:-my-px sm:ms-8 sm:flex">
-                                <NavLink
-                                    href={route('dashboard')}
-                                    active={route().current('dashboard')}
-                                >
-                                    Panel de Control
-                                </NavLink>
+                                {user?.role === 'admin' ? (
+                                    <NavLink
+                                        href={route('admin.dashboard')}
+                                        active={route().current('admin.*')}
+                                    >
+                                        Consola Administrador
+                                    </NavLink>
+                                ) : (
+                                    <NavLink
+                                        href={route('dashboard')}
+                                        active={route().current('dashboard')}
+                                    >
+                                        Panel de Control
+                                    </NavLink>
+                                )}
                             </div>
                         </div>
 
@@ -61,43 +70,48 @@ export default function AuthenticatedLayout({ header, children }) {
                             >
                                 Home
                             </Link>
-                            <Link
-                                href={route('dashboard')}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition duration-150 ${
-                                    route().current('dashboard')
-                                        ? 'bg-blue-50 text-[#1534e8] border border-blue-200/80 dark:bg-slate-800 dark:text-white dark:border-slate-700 shadow-2xs'
-                                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/60'
-                                }`}
-                            >
-                                Mis Proyectos
-                            </Link>
 
-                            <Link
-                                href={route('profile.professional')}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition duration-150 ${
-                                    route().current('profile.professional')
-                                        ? 'bg-blue-50 text-[#1534e8] border border-blue-200/80 dark:bg-slate-800 dark:text-white dark:border-slate-700 shadow-2xs'
-                                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/60'
-                                }`}
-                            >
-                                Perfil
-                            </Link>
+                            {user?.role !== 'admin' && (
+                                <>
+                                    <Link
+                                        href={route('dashboard')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition duration-150 ${
+                                            route().current('dashboard')
+                                                ? 'bg-blue-50 text-[#1534e8] border border-blue-200/80 dark:bg-slate-800 dark:text-white dark:border-slate-700 shadow-2xs'
+                                                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/60'
+                                        }`}
+                                    >
+                                        Mis Proyectos
+                                    </Link>
 
-                            <Link
-                                href={route('messages.index')}
-                                className={`relative px-3 py-1.5 rounded-lg text-xs font-bold transition duration-150 flex items-center space-x-1.5 ${
-                                    route().current('messages.*')
-                                        ? 'bg-blue-50 text-[#1534e8] border border-blue-200/80 dark:bg-slate-800 dark:text-white dark:border-slate-700 shadow-2xs'
-                                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/60'
-                                }`}
-                            >
-                                <span>Mensajes</span>
-                                {usePage().props.auth?.unreadMessagesCount > 0 && (
-                                    <span className="flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-[#1534e8] px-1 text-[10px] font-extrabold text-white shadow-xs">
-                                        {usePage().props.auth.unreadMessagesCount}
-                                    </span>
-                                )}
-                            </Link>
+                                    <Link
+                                        href={route('profile.professional')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition duration-150 ${
+                                            route().current('profile.professional')
+                                                ? 'bg-blue-50 text-[#1534e8] border border-blue-200/80 dark:bg-slate-800 dark:text-white dark:border-slate-700 shadow-2xs'
+                                                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/60'
+                                        }`}
+                                    >
+                                        Perfil
+                                    </Link>
+
+                                    <Link
+                                        href={route('messages.index')}
+                                        className={`relative px-3 py-1.5 rounded-lg text-xs font-bold transition duration-150 flex items-center space-x-1.5 ${
+                                            route().current('messages.*')
+                                                ? 'bg-blue-50 text-[#1534e8] border border-blue-200/80 dark:bg-slate-800 dark:text-white dark:border-slate-700 shadow-2xs'
+                                                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/60'
+                                        }`}
+                                    >
+                                        <span>Mensajes</span>
+                                        {usePage().props.auth?.unreadMessagesCount > 0 && (
+                                            <span className="flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-[#1534e8] px-1 text-[10px] font-extrabold text-white shadow-xs">
+                                                {usePage().props.auth.unreadMessagesCount}
+                                            </span>
+                                        )}
+                                    </Link>
+                                </>
+                            )}
 
                             <button
                                 onClick={() => setTheme(theme === 'dark' || theme === 'spatial' ? 'academic' : 'dark')}
@@ -174,13 +188,23 @@ export default function AuthenticatedLayout({ header, children }) {
                     }
                 >
                     <div className="space-y-1 pb-3 pt-2">
-                        <ResponsiveNavLink
-                            href={route('dashboard')}
-                            active={route().current('dashboard')}
-                            className="text-slate-300 hover:text-white"
-                        >
-                            Panel de Control
-                        </ResponsiveNavLink>
+                        {user?.role === 'admin' ? (
+                            <ResponsiveNavLink
+                                href={route('admin.dashboard')}
+                                active={route().current('admin.*')}
+                                className="text-slate-200 hover:text-white font-semibold"
+                            >
+                                Consola Administrador
+                            </ResponsiveNavLink>
+                        ) : (
+                            <ResponsiveNavLink
+                                href={route('dashboard')}
+                                active={route().current('dashboard')}
+                                className="text-slate-300 hover:text-white"
+                            >
+                                Panel de Control
+                            </ResponsiveNavLink>
+                        )}
                     </div>
 
                     <div className="border-t border-slate-800 pb-1 pt-4">
@@ -201,32 +225,37 @@ export default function AuthenticatedLayout({ header, children }) {
                             >
                                 Home
                             </ResponsiveNavLink>
-                            <ResponsiveNavLink 
-                                href={route('dashboard')}
-                                active={route().current('dashboard')}
-                                className="text-slate-300 hover:text-white"
-                            >
-                                Mis Proyectos
-                            </ResponsiveNavLink>
-                            <ResponsiveNavLink 
-                                href={route('profile.professional')}
-                                active={route().current('profile.professional')}
-                                className="text-slate-300 hover:text-white"
-                            >
-                                Perfil
-                            </ResponsiveNavLink>
-                            <ResponsiveNavLink 
-                                href={route('messages.index')}
-                                active={route().current('messages.*')}
-                                className="text-slate-300 hover:text-white flex items-center justify-between"
-                            >
-                                <span>Mensajes</span>
-                                {usePage().props.auth?.unreadMessagesCount > 0 && (
-                                    <span className="rounded-full bg-cyan-500 px-2 py-0.5 text-xs font-bold text-slate-950">
-                                        {usePage().props.auth.unreadMessagesCount} nuevos
-                                    </span>
-                                )}
-                            </ResponsiveNavLink>
+
+                            {user?.role !== 'admin' && (
+                                <>
+                                    <ResponsiveNavLink 
+                                        href={route('dashboard')}
+                                        active={route().current('dashboard')}
+                                        className="text-slate-300 hover:text-white"
+                                    >
+                                        Mis Proyectos
+                                    </ResponsiveNavLink>
+                                    <ResponsiveNavLink 
+                                        href={route('profile.professional')}
+                                        active={route().current('profile.professional')}
+                                        className="text-slate-300 hover:text-white"
+                                    >
+                                        Perfil
+                                    </ResponsiveNavLink>
+                                    <ResponsiveNavLink 
+                                        href={route('messages.index')}
+                                        active={route().current('messages.*')}
+                                        className="text-slate-300 hover:text-white flex items-center justify-between"
+                                    >
+                                        <span>Mensajes</span>
+                                        {usePage().props.auth?.unreadMessagesCount > 0 && (
+                                            <span className="rounded-full bg-blue-600 px-2 py-0.5 text-xs font-bold text-white">
+                                                {usePage().props.auth.unreadMessagesCount} nuevos
+                                            </span>
+                                        )}
+                                    </ResponsiveNavLink>
+                                </>
+                            )}
                             <ResponsiveNavLink
                                 method="post"
                                 href={route('logout')}

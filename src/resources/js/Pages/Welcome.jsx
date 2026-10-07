@@ -621,34 +621,45 @@ export default function Welcome({ auth, projects = [] }) {
 
                             {auth.user ? (
                                 <div className="flex items-center gap-2">
-                                    <Link
-                                        href={route('dashboard')}
-                                        className="px-3 py-1.5 rounded-full text-xs font-bold text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-                                    >
-                                        Mis Proyectos
-                                    </Link>
-                                    <Link
-                                        href={route('profile.professional')}
-                                        className="px-3 py-1.5 rounded-full text-xs font-bold text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-                                    >
-                                        Perfil
-                                    </Link>
-                                    <Link
-                                        href={route('messages.index')}
-                                        className="relative px-3 py-1.5 rounded-full text-xs font-bold text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center gap-1"
-                                    >
-                                        <span>Mensajes</span>
-                                        {auth?.unreadMessagesCount > 0 && (
-                                            <span className="flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-extrabold text-white">
-                                                {auth.unreadMessagesCount}
-                                            </span>
-                                        )}
-                                    </Link>
+                                    {auth.user.role === 'admin' ? (
+                                        <Link
+                                            href={route('admin.dashboard')}
+                                            className="px-3.5 py-1.5 rounded-full text-xs font-bold bg-purple-900/70 text-purple-200 border border-purple-700/60 hover:bg-purple-800/80 transition"
+                                        >
+                                            Consola Administrador
+                                        </Link>
+                                    ) : (
+                                        <>
+                                            <Link
+                                                href={route('dashboard')}
+                                                className="px-3 py-1.5 rounded-full text-xs font-bold text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                                            >
+                                                Mis Proyectos
+                                            </Link>
+                                            <Link
+                                                href={route('profile.professional')}
+                                                className="px-3 py-1.5 rounded-full text-xs font-bold text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                                            >
+                                                Perfil
+                                            </Link>
+                                            <Link
+                                                href={route('messages.index')}
+                                                className="relative px-3 py-1.5 rounded-full text-xs font-bold text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center gap-1"
+                                            >
+                                                <span>Mensajes</span>
+                                                {auth?.unreadMessagesCount > 0 && (
+                                                    <span className="flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-extrabold text-white">
+                                                        {auth.unreadMessagesCount}
+                                                    </span>
+                                                )}
+                                            </Link>
+                                        </>
+                                    )}
                                     <Link
                                         href={route('logout')}
                                         method="post"
                                         as="button"
-                                        className="px-3 py-1.5 rounded-full text-xs font-bold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition"
+                                        className="px-3 py-1.5 rounded-full text-xs font-bold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition"
                                     >
                                         Salir
                                     </Link>

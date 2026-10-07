@@ -11,6 +11,7 @@ Artisan::command('inspire', function () {
 
 Schedule::command('projects:auto-sleep')->everyMinute();
 Schedule::command('projects:reset-databases')->dailyAt('02:00');
+Schedule::command('docker:auto-prune-disk --threshold=80')->everyTenMinutes();
 
 Artisan::command('projects:audit-tech', function () {
     $projects = \App\Models\Project::all();
