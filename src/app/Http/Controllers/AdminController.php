@@ -6,10 +6,16 @@ use App\Models\User;
 use App\Models\Project;
 use App\Models\Deployment;
 use App\Models\ContactLog;
+use App\Models\Recruiter;
 use App\Actions\Docker\StopProjectContainerAction;
+use App\Rules\CleanContentRule;
+use App\Mail\PartnerApprovedMail;
+use App\Mail\PartnerRejectedMail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\Process\Process;
@@ -46,11 +52,18 @@ class AdminController extends Controller
             ->orderBy('created_at', 'desc')
             ->get();
 
+        // Directorio de empresas y reclutadores con priorización de solicitudes pendientes
+        $recruiters = Recruiter::with('reviewer:id,name,email')
+            ->orderByRaw("CASE WHEN status = 'pending' THEN 0 WHEN status = 'approved' THEN 1 ELSE 2 END")
+            ->latest()
+            ->get();
+
         return Inertia::render('Admin/Dashboard', [
             'telemetry' => $telemetry,
             'metrics' => $metrics,
             'students' => $students,
             'projects' => $projects,
+            'recruiters' => $recruiters,
         ]);
     }
 
@@ -415,6 +428,10 @@ class AdminController extends Controller
 
         // Métricas de reclutadores y vinculación externa
         $totalContacts = ContactLog::count();
+        $totalCompanies = Recruiter::where('account_type', 'company')->count();
+        $totalRecruiters = Recruiter::where('account_type', 'recruiter')->count();
+        $pendingPartners = Recruiter::where('status', 'pending')->count();
+        $approvedPartners = Recruiter::where('status', 'approved')->count();
 
         // Métricas de estudiantes
         $totalStudents = User::where('role', 'student')->count();
@@ -431,8 +448,98 @@ class AdminController extends Controller
             'total_demo_runs' => $totalDemoRuns,
             'projects_evaluated_count' => $projectsEvaluatedCount,
             'total_contacts' => $totalContacts,
+            'total_companies' => $totalCompanies,
+            'total_recruiters' => $totalRecruiters,
+            'pending_partners' => $pendingPartners,
+            'approved_partners' => $approvedPartners,
             'total_students' => $totalStudents,
             'active_students' => $activeStudents,
         ];
+    }
+
+    /**
+     * Aprobar solicitud de registro de empresa o reclutador y notificar por correo.
+     */
+     public function approveRecruiter(Recruiter $recruiter): RedirectResponse
+     {
+         $recruiter->update([
+             'status' => 'approved',
+             'verified' => true,
+             'rejection_reason' => null,
+             'reviewed_at' => now(),
+             'reviewed_by' => Auth::id(),
+         ]);
+
+         $tipo = $recruiter->account_type === 'company' ? 'Empresa' : 'Reclutador';
+         $nombreEntidad = $recruiter->account_type === 'company' ? $recruiter->company : $recruiter->name;
+
+         // Enviar correo oficial de activación con credenciales
+         try {
+             Mail::to($recruiter->email)->send(new PartnerApprovedMail($recruiter));
+             Log::info("Correo de activación enviado exitosamente a {$recruiter->email} para {$tipo}: {$nombreEntidad}");
+         } catch (\Throwable $e) {
+             Log::error("Error al enviar correo de aprobación a {$recruiter->email}: " . $e->getMessage());
+         }
+
+         return redirect()->back()->with('status', "¡La solicitud de {$tipo} \"{$nombreEntidad}\" ha sido aprobada con éxito! Se ha enviado el correo oficial de activación a {$recruiter->email}.");
+     }
+
+    /**
+     * Rechazar solicitud de registro de empresa o reclutador con motivo y notificar por correo.
+     */
+     public function rejectRecruiter(Request $request, Recruiter $recruiter): RedirectResponse
+     {
+         $request->validate([
+             'reason' => ['required', 'string', 'min:4', 'max:1000', new CleanContentRule(1, 'motivo de rechazo')],
+         ]);
+
+         $cleanReason = strip_tags(trim($request->reason));
+
+         $recruiter->update([
+             'status' => 'rejected',
+             'verified' => false,
+             'rejection_reason' => $cleanReason,
+             'reviewed_at' => now(),
+             'reviewed_by' => Auth::id(),
+         ]);
+
+         $tipo = $recruiter->account_type === 'company' ? 'Empresa' : 'Reclutador';
+         $nombreEntidad = $recruiter->account_type === 'company' ? $recruiter->company : $recruiter->name;
+
+         // Enviar correo oficial con el motivo del rechazo
+         try {
+             Mail::to($recruiter->email)->send(new PartnerRejectedMail($recruiter, $cleanReason));
+             Log::info("Correo de rechazo con observaciones enviado exitosamente a {$recruiter->email} para {$tipo}: {$nombreEntidad}");
+         } catch (\Throwable $e) {
+             Log::error("Error al enviar correo de rechazo a {$recruiter->email}: " . $e->getMessage());
+         }
+
+         return redirect()->back()->with('status', "La solicitud de {$tipo} \"{$nombreEntidad}\" ha sido rechazada y se notificó el motivo a {$recruiter->email}.");
+     }
+
+    /**
+     * Alternar estado de activación (Activar / Desactivar cuenta) de una empresa o reclutador.
+     */
+    public function toggleRecruiterStatus(Recruiter $recruiter): RedirectResponse
+    {
+        $isCurrentlyActive = ($recruiter->status === 'approved' && $recruiter->verified);
+        $tipo = $recruiter->account_type === 'company' ? 'Empresa' : 'Reclutador';
+        $nombreEntidad = $recruiter->account_type === 'company' ? $recruiter->company : $recruiter->name;
+
+        if ($isCurrentlyActive) {
+            $recruiter->update([
+                'status' => 'inactive',
+                'verified' => false,
+            ]);
+            $mensaje = "La cuenta de {$tipo} \"{$nombreEntidad}\" ha sido desactivada temporalmente.";
+        } else {
+            $recruiter->update([
+                'status' => 'approved',
+                'verified' => true,
+            ]);
+            $mensaje = "La cuenta de {$tipo} \"{$nombreEntidad}\" ha sido activada exitosamente.";
+        }
+
+        return redirect()->back()->with('status', $mensaje);
     }
 }

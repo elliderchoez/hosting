@@ -628,6 +628,13 @@ export default function Welcome({ auth, projects = [] }) {
                                         >
                                             Consola Administrador
                                         </Link>
+                                    ) : auth.user.is_partner ? (
+                                        <div className="flex items-center gap-2">
+                                            <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1.5 shadow-xs">
+                                                <span className="text-emerald-500 font-bold">✓</span>
+                                                <span>{auth.user.role === 'company' ? 'Empresa Verificada' : 'Reclutador Tech'}: <strong className="font-bold">{auth.user.company || auth.user.name}</strong></span>
+                                            </span>
+                                        </div>
                                     ) : (
                                         <>
                                             <Link
@@ -665,7 +672,7 @@ export default function Welcome({ auth, projects = [] }) {
                                     </Link>
                                 </div>
                             ) : (
-                                <div className="flex items-center gap-2.5">
+                                <div className="flex items-center gap-2">
                                     <Link
                                         href={route('register')}
                                         className="text-xs font-bold text-slate-700 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 px-2 py-1 transition"

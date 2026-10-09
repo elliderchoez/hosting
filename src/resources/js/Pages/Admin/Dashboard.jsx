@@ -2,13 +2,58 @@ import React, { useState, useEffect } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, router } from '@inertiajs/react';
 
-export default function AdminDashboard({ telemetry: initialTelemetry, metrics, students, projects }) {
+export default function AdminDashboard({ telemetry: initialTelemetry, metrics, students, projects, recruiters = [] }) {
     const [telemetry, setTelemetry] = useState(initialTelemetry);
     const [isRefreshingTelemetry, setIsRefreshingTelemetry] = useState(false);
     const [autoRefresh, setAutoRefresh] = useState(true);
 
-    // Active sub-navigation tab
-    const [activeTab, setActiveTab] = useState('telemetry'); // 'telemetry' | 'moderation' | 'students' | 'metrics'
+    // Active sub-navigation tab - Persistente ante recarga de página (Enfoque Operativo Diario)
+    const validTabs = ['partners', 'moderation', 'students', 'managed_partners', 'telemetry', 'metrics'];
+    const [activeTab, setActiveTab] = useState(() => {
+        if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            const tabParam = params.get('tab');
+            if (tabParam && validTabs.includes(tabParam)) {
+                return tabParam;
+            }
+            const stored = localStorage.getItem('admin_active_tab');
+            if (stored && validTabs.includes(stored)) {
+                return stored;
+            }
+        }
+        return 'partners';
+    });
+
+    const handleTabChange = (tabKey) => {
+        setActiveTab(tabKey);
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('admin_active_tab', tabKey);
+            const url = new URL(window.location.href);
+            url.searchParams.set('tab', tabKey);
+            window.history.replaceState({}, '', url.toString());
+        }
+    };
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('admin_active_tab', activeTab);
+            const url = new URL(window.location.href);
+            if (url.searchParams.get('tab') !== activeTab) {
+                url.searchParams.set('tab', activeTab);
+                window.history.replaceState({}, '', url.toString());
+            }
+
+            const handlePopState = () => {
+                const params = new URLSearchParams(window.location.search);
+                const tabParam = params.get('tab');
+                if (tabParam && validTabs.includes(tabParam)) {
+                    setActiveTab(tabParam);
+                }
+            };
+            window.addEventListener('popstate', handlePopState);
+            return () => window.removeEventListener('popstate', handlePopState);
+        }
+    }, [activeTab]);
 
     // Moderation search & filters
     const [projectSearch, setProjectSearch] = useState('');
@@ -40,6 +85,38 @@ export default function AdminDashboard({ telemetry: initialTelemetry, metrics, s
     const [blockModal, setBlockModal] = useState({ isOpen: false, student: null, reason: '' });
     const [logModal, setLogModal] = useState({ isOpen: false, project: null, buildLog: '', containerLog: '', activeLogTab: 'build', loading: false });
     const [pruneResultModal, setPruneResultModal] = useState({ isOpen: false, message: '', reclaimed: '', loading: false });
+    const [rejectPartnerModal, setRejectPartnerModal] = useState({ isOpen: false, partner: null, reason: '', isSubmitting: false });
+    const [approvePartnerModal, setApprovePartnerModal] = useState({ isOpen: false, partner: null, isSubmitting: false });
+    const [approvingPartnerId, setApprovingPartnerId] = useState(null);
+
+    // Partners & Recruiters moderation state
+    const [recruiterSearch, setRecruiterSearch] = useState('');
+    const [recruiterStatusFilter, setRecruiterStatusFilter] = useState('pending'); // Por defecto 'pending' para enfocar en solicitudes por revisar
+    const [recruiterTypeFilter, setRecruiterTypeFilter] = useState('all'); // 'all' | 'company' | 'recruiter'
+    const [recruiterPage, setRecruiterPage] = useState(1);
+    const recruiterPageSize = 8;
+
+    // Managed Partners (Tab 6: Gestión de Cuentas Aprobadas) state
+    const [manageSearch, setManageSearch] = useState('');
+    const [manageTypeFilter, setManageTypeFilter] = useState('all'); // 'all' | 'company' | 'recruiter'
+    const [manageStatusFilter, setManageStatusFilter] = useState('all'); // 'all' | 'active' | 'inactive'
+    const [managePage, setManagePage] = useState(1);
+    const managePageSize = 8;
+    const [togglePartnerModal, setTogglePartnerModal] = useState({ isOpen: false, partner: null, isSubmitting: false });
+
+    // Copiar RUC/Cédula al portapapeles
+    const [copiedTaxId, setCopiedTaxId] = useState(null);
+    const handleCopyTaxId = (taxId) => {
+        if (!taxId) return;
+        navigator.clipboard.writeText(taxId);
+        setCopiedTaxId(taxId);
+        showToast(`Identificación "${taxId}" copiada al portapapeles.`);
+        setTimeout(() => {
+            setCopiedTaxId(null);
+        }, 2000);
+    };
+
+    const pendingPartnersCount = recruiters.filter(r => r.status === 'pending').length;
 
     // Toast alert feedback
     const [toastMessage, setToastMessage] = useState(null);
@@ -70,6 +147,22 @@ export default function AdminDashboard({ telemetry: initialTelemetry, metrics, s
         const interval = setInterval(fetchLiveTelemetry, 12000);
         return () => clearInterval(interval);
     }, [autoRefresh]);
+
+    // Sondeo en tiempo real para recibir nuevas solicitudes de empresas/reclutadores sin tener que recargar
+    useEffect(() => {
+        const pollInterval = setInterval(() => {
+            // Solo recargar si no hay modales abiertos para evitar interrumpir al administrador
+            if (!rejectPartnerModal.isOpen && !approvePartnerModal.isOpen && !suspendModal.isOpen && !blockModal.isOpen) {
+                router.reload({
+                    only: ['recruiters'],
+                    preserveScroll: true,
+                    preserveState: true,
+                });
+            }
+        }, 5000);
+
+        return () => clearInterval(pollInterval);
+    }, [rejectPartnerModal.isOpen, approvePartnerModal.isOpen, suspendModal.isOpen, blockModal.isOpen]);
 
     // Safe Docker Prune Action
     const handleSafeDockerPrune = async () => {
@@ -237,6 +330,100 @@ export default function AdminDashboard({ telemetry: initialTelemetry, metrics, s
         });
     };
 
+    // Approve Partner / Recruiter - Modal Institucional
+    const openApprovePartnerModal = (partner) => {
+        setApprovePartnerModal({
+            isOpen: true,
+            partner,
+            isSubmitting: false,
+        });
+    };
+
+    const submitApprovePartner = () => {
+        if (!approvePartnerModal.partner) return;
+        const partner = approvePartnerModal.partner;
+        const nombreEntidad = partner.account_type === 'company' ? partner.company : partner.name;
+
+        setApprovePartnerModal(prev => ({ ...prev, isSubmitting: true }));
+        router.post(route('admin.recruiters.approve', partner.id), {}, {
+            preserveScroll: true,
+            onSuccess: () => {
+                showToast(`¡Cuenta de "${nombreEntidad}" aprobada y correo oficial enviado!`);
+                setApprovePartnerModal({ isOpen: false, partner: null, isSubmitting: false });
+            },
+            onError: () => {
+                setApprovePartnerModal(prev => ({ ...prev, isSubmitting: false }));
+            },
+        });
+    };
+
+    // Open Reject Partner Modal
+    const openRejectPartnerModal = (partner) => {
+        setRejectPartnerModal({
+            isOpen: true,
+            partner,
+            reason: '',
+            isSubmitting: false,
+        });
+    };
+
+    // Submit Reject Partner
+    const submitRejectPartner = (e) => {
+        e.preventDefault();
+        const trimmed = rejectPartnerModal.reason.trim();
+        if (!trimmed || trimmed.length < 4) {
+            alert('Por favor ingresa un motivo detallado del rechazo (mínimo 4 caracteres).');
+            return;
+        }
+
+        setRejectPartnerModal(prev => ({ ...prev, isSubmitting: true }));
+        router.post(route('admin.recruiters.reject', rejectPartnerModal.partner.id), {
+            reason: trimmed,
+        }, {
+            preserveScroll: true,
+            onSuccess: () => {
+                showToast(`Solicitud de ${rejectPartnerModal.partner?.name} rechazada y correo de notificación enviado.`);
+                setRejectPartnerModal({ isOpen: false, partner: null, reason: '', isSubmitting: false });
+            },
+            onError: () => {
+                setRejectPartnerModal(prev => ({ ...prev, isSubmitting: false }));
+            },
+        });
+    };
+
+    // Open Toggle Partner Status Modal (Activar / Desactivar cuenta)
+    const handleTogglePartner = (partner) => {
+        setTogglePartnerModal({
+            isOpen: true,
+            partner,
+            isSubmitting: false,
+        });
+    };
+
+    const confirmTogglePartner = () => {
+        if (!togglePartnerModal.partner) return;
+        const partner = togglePartnerModal.partner;
+        const isCurrentlyActive = (partner.status === 'approved' && partner.verified);
+        const entidad = partner.account_type === 'company' ? partner.company : partner.name;
+
+        setTogglePartnerModal(prev => ({ ...prev, isSubmitting: true }));
+        router.patch(route('admin.recruiters.toggle-status', partner.id), {}, {
+            preserveScroll: true,
+            onSuccess: () => {
+                setTogglePartnerModal({ isOpen: false, partner: null, isSubmitting: false });
+                showToast(
+                    isCurrentlyActive
+                        ? `La cuenta de "${entidad}" ha sido desactivada temporalmente.`
+                        : `La cuenta de "${entidad}" ha sido reactivada con éxito.`
+                );
+            },
+            onError: () => {
+                setTogglePartnerModal(prev => ({ ...prev, isSubmitting: false }));
+                showToast('Error al modificar el estado de la cuenta.');
+            }
+        });
+    };
+
     // Filter projects
     const filteredProjects = projects.filter(p => {
         const matchesSearch =
@@ -248,11 +435,11 @@ export default function AdminDashboard({ telemetry: initialTelemetry, metrics, s
 
         const matchesStatus =
             statusFilter === 'all' ? true :
-            statusFilter === 'running' ? p.status === 'running' :
-            statusFilter === 'sleeping' ? p.status === 'sleeping' :
-            statusFilter === 'stopped' ? p.status === 'stopped' :
-            statusFilter === 'suspended' ? p.is_suspended :
-            statusFilter === 'hidden' ? !p.is_visible_in_showcase : true;
+                statusFilter === 'running' ? p.status === 'running' :
+                    statusFilter === 'sleeping' ? p.status === 'sleeping' :
+                        statusFilter === 'stopped' ? p.status === 'stopped' :
+                            statusFilter === 'suspended' ? p.is_suspended :
+                                statusFilter === 'hidden' ? !p.is_visible_in_showcase : true;
 
         const matchesLang = languageFilter === 'all' ? true : p.language === languageFilter;
 
@@ -275,14 +462,67 @@ export default function AdminDashboard({ telemetry: initialTelemetry, metrics, s
 
         const matchesStatus =
             studentStatusFilter === 'all' ? true :
-            studentStatusFilter === 'active' ? s.is_active :
-            studentStatusFilter === 'blocked' ? !s.is_active : true;
+                studentStatusFilter === 'active' ? s.is_active :
+                    studentStatusFilter === 'blocked' ? !s.is_active : true;
 
         return matchesSearch && matchesStatus;
     });
 
     const totalStudentPages = Math.ceil(filteredStudents.length / studentPageSize) || 1;
     const paginatedStudents = filteredStudents.slice((studentPage - 1) * studentPageSize, studentPage * studentPageSize);
+
+    // Filter Recruiters & Companies
+    const filteredRecruiters = recruiters.filter(r => {
+        const matchesSearch =
+            r.name.toLowerCase().includes(recruiterSearch.toLowerCase()) ||
+            r.email.toLowerCase().includes(recruiterSearch.toLowerCase()) ||
+            (r.company || '').toLowerCase().includes(recruiterSearch.toLowerCase()) ||
+            (r.tax_id || '').toLowerCase().includes(recruiterSearch.toLowerCase()) ||
+            (r.position || '').toLowerCase().includes(recruiterSearch.toLowerCase());
+
+        const matchesStatus =
+            recruiterStatusFilter === 'all' ? true :
+                recruiterStatusFilter === 'pending' ? r.status === 'pending' :
+                    recruiterStatusFilter === 'approved' ? r.status === 'approved' :
+                        recruiterStatusFilter === 'rejected' ? r.status === 'rejected' : true;
+
+        const matchesType =
+            recruiterTypeFilter === 'all' ? true :
+                recruiterTypeFilter === 'company' ? r.account_type === 'company' :
+                    recruiterTypeFilter === 'recruiter' ? r.account_type === 'recruiter' : true;
+
+        return matchesSearch && matchesStatus && matchesType;
+    });
+
+    const totalRecruiterPages = Math.ceil(filteredRecruiters.length / recruiterPageSize) || 1;
+    const paginatedRecruiters = filteredRecruiters.slice((recruiterPage - 1) * recruiterPageSize, recruiterPage * recruiterPageSize);
+
+    // Listado y Filtros de Empresas / Reclutadores Aprobados (Pestaña 6)
+    const managedPartnersList = recruiters.filter(r => r.status === 'approved' || r.status === 'inactive');
+    const filteredManagedPartners = managedPartnersList.filter(r => {
+        const matchesSearch =
+            r.name.toLowerCase().includes(manageSearch.toLowerCase()) ||
+            r.email.toLowerCase().includes(manageSearch.toLowerCase()) ||
+            (r.company || '').toLowerCase().includes(manageSearch.toLowerCase()) ||
+            (r.tax_id || '').toLowerCase().includes(manageSearch.toLowerCase()) ||
+            (r.position || '').toLowerCase().includes(manageSearch.toLowerCase());
+
+        const isActive = (r.status === 'approved' && r.verified);
+        const matchesStatus =
+            manageStatusFilter === 'all' ? true :
+                manageStatusFilter === 'active' ? isActive :
+                    manageStatusFilter === 'inactive' ? !isActive : true;
+
+        const matchesType =
+            manageTypeFilter === 'all' ? true :
+                manageTypeFilter === 'company' ? r.account_type === 'company' :
+                    manageTypeFilter === 'recruiter' ? r.account_type === 'recruiter' : true;
+
+        return matchesSearch && matchesStatus && matchesType;
+    });
+
+    const totalManagePages = Math.ceil(filteredManagedPartners.length / managePageSize) || 1;
+    const paginatedManagedPartners = filteredManagedPartners.slice((managePage - 1) * managePageSize, managePage * managePageSize);
 
     const availableLanguages = Array.from(new Set(projects.map(p => p.language).filter(Boolean)));
 
@@ -305,47 +545,68 @@ export default function AdminDashboard({ telemetry: initialTelemetry, metrics, s
                 <div className="flex border-b border-slate-200 dark:border-slate-800 pb-0">
                     <div className="flex gap-2 sm:gap-6 overflow-x-auto scrollbar-none text-xs sm:text-sm">
                         <button
-                            onClick={() => setActiveTab('telemetry')}
-                            className={`pb-2.5 font-bold transition whitespace-nowrap border-b-2 cursor-pointer ${
-                                activeTab === 'telemetry'
-                                    ? 'border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400'
-                                    : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                            }`}
+                            onClick={() => handleTabChange('partners')}
+                            className={`pb-2.5 font-bold transition whitespace-nowrap border-b-2 cursor-pointer flex items-center gap-1.5 ${activeTab === 'partners'
+                                ? 'border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400'
+                                : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                                }`}
                         >
-                            1. Telemetría del Host
+                            <span>1. Solicitudes de Empresas</span>
+                            {pendingPartnersCount > 0 && (
+                                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-blue-600 text-white">
+                                    {pendingPartnersCount}
+                                </span>
+                            )}
                         </button>
 
                         <button
-                            onClick={() => setActiveTab('moderation')}
-                            className={`pb-2.5 font-bold transition whitespace-nowrap border-b-2 cursor-pointer ${
-                                activeTab === 'moderation'
-                                    ? 'border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400'
-                                    : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                            }`}
+                            onClick={() => handleTabChange('moderation')}
+                            className={`pb-2.5 font-bold transition whitespace-nowrap border-b-2 cursor-pointer ${activeTab === 'moderation'
+                                ? 'border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400'
+                                : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                                }`}
                         >
                             2. Control de Vitrina & Moderación
                         </button>
 
                         <button
-                            onClick={() => setActiveTab('students')}
-                            className={`pb-2.5 font-bold transition whitespace-nowrap border-b-2 cursor-pointer ${
-                                activeTab === 'students'
-                                    ? 'border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400'
-                                    : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                            }`}
+                            onClick={() => handleTabChange('students')}
+                            className={`pb-2.5 font-bold transition whitespace-nowrap border-b-2 cursor-pointer ${activeTab === 'students'
+                                ? 'border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400'
+                                : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                                }`}
                         >
                             3. Gestión de Estudiantes
                         </button>
 
                         <button
-                            onClick={() => setActiveTab('metrics')}
-                            className={`pb-2.5 font-bold transition whitespace-nowrap border-b-2 cursor-pointer ${
-                                activeTab === 'metrics'
-                                    ? 'border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400'
-                                    : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                            }`}
+                            onClick={() => handleTabChange('managed_partners')}
+                            className={`pb-2.5 font-bold transition whitespace-nowrap border-b-2 cursor-pointer flex items-center gap-1.5 ${activeTab === 'managed_partners'
+                                ? 'border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400'
+                                : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                                }`}
                         >
-                            4. Métricas Institucionales
+                            <span>4. Gestión de Empresas/Reclutadores</span>
+                        </button>
+
+                        <button
+                            onClick={() => handleTabChange('telemetry')}
+                            className={`pb-2.5 font-bold transition whitespace-nowrap border-b-2 cursor-pointer ${activeTab === 'telemetry'
+                                ? 'border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400'
+                                : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                                }`}
+                        >
+                            5. Telemetría del Host
+                        </button>
+
+                        <button
+                            onClick={() => handleTabChange('metrics')}
+                            className={`pb-2.5 font-bold transition whitespace-nowrap border-b-2 cursor-pointer ${activeTab === 'metrics'
+                                ? 'border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400'
+                                : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                                }`}
+                        >
+                            6. Métricas Institucionales
                         </button>
                     </div>
                 </div>
@@ -693,16 +954,15 @@ export default function AdminDashboard({ telemetry: initialTelemetry, metrics, s
 
                                                             {/* Estado VM - sin emojis, sin verdes/rojos */}
                                                             <td className="px-3.5 py-2.5">
-                                                                <span className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${
-                                                                    project.status === 'running' ? 'bg-blue-50 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30' :
+                                                                <span className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${project.status === 'running' ? 'bg-blue-50 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30' :
                                                                     project.status === 'sleeping' ? 'bg-indigo-50 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30' :
-                                                                    project.status === 'building' ? 'bg-amber-50 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30' :
-                                                                    'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
-                                                                }`}>
+                                                                        project.status === 'building' ? 'bg-amber-50 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30' :
+                                                                            'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+                                                                    }`}>
                                                                     {project.status === 'running' ? 'Running' :
-                                                                     project.status === 'sleeping' ? 'Sleeping' :
-                                                                     project.status === 'building' ? 'Building' :
-                                                                     'Stopped'}
+                                                                        project.status === 'sleeping' ? 'Sleeping' :
+                                                                            project.status === 'building' ? 'Building' :
+                                                                                'Stopped'}
                                                                 </span>
                                                             </td>
 
@@ -710,11 +970,10 @@ export default function AdminDashboard({ telemetry: initialTelemetry, metrics, s
                                                             <td className="px-3.5 py-2.5 text-center">
                                                                 <button
                                                                     onClick={() => handleToggleShowcase(project)}
-                                                                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                                                                        project.is_visible_in_showcase
-                                                                            ? 'bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700/50 hover:bg-blue-100 dark:hover:bg-blue-800/50'
-                                                                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
-                                                                    }`}
+                                                                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${project.is_visible_in_showcase
+                                                                        ? 'bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700/50 hover:bg-blue-100 dark:hover:bg-blue-800/50'
+                                                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
+                                                                        }`}
                                                                 >
                                                                     {project.is_visible_in_showcase ? 'Visible' : 'Oculto'}
                                                                 </button>
@@ -821,11 +1080,10 @@ export default function AdminDashboard({ telemetry: initialTelemetry, metrics, s
                                         <button
                                             key={p}
                                             onClick={() => setCurrentPage(p)}
-                                            className={`px-2.5 py-1 rounded text-xs font-bold transition cursor-pointer ${
-                                                currentPage === p
-                                                    ? 'bg-blue-600 text-white'
-                                                    : 'bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-                                            }`}
+                                            className={`px-2.5 py-1 rounded text-xs font-bold transition cursor-pointer ${currentPage === p
+                                                ? 'bg-blue-600 text-white'
+                                                : 'bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                                                }`}
                                         >
                                             {p}
                                         </button>
@@ -979,11 +1237,10 @@ export default function AdminDashboard({ telemetry: initialTelemetry, metrics, s
                                         <button
                                             key={p}
                                             onClick={() => setStudentPage(p)}
-                                            className={`px-2.5 py-1 rounded text-xs font-bold transition cursor-pointer ${
-                                                studentPage === p
-                                                    ? 'bg-blue-600 text-white'
-                                                    : 'bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-                                            }`}
+                                            className={`px-2.5 py-1 rounded text-xs font-bold transition cursor-pointer ${studentPage === p
+                                                ? 'bg-blue-600 text-white'
+                                                : 'bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                                                }`}
                                         >
                                             {p}
                                         </button>
@@ -1138,6 +1395,525 @@ export default function AdminDashboard({ telemetry: initialTelemetry, metrics, s
                         </div>
                     </div>
                 )}
+
+                {/* TAB 5: GESTIÓN Y VALIDACIÓN DE EMPRESAS Y RECLUTADORES */}
+                {activeTab === 'partners' && (
+                    <div className="space-y-4">
+                        {/* Tarjetas resumen superior - Flujo de Solicitudes */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+                            <div className="p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 shadow-xs">
+                                <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Pendientes de Revisión</div>
+                                <div className="text-2xl sm:text-3xl font-black text-blue-600 dark:text-blue-400 mt-1">{pendingPartnersCount}</div>
+                            </div>
+
+                            <div className="p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 shadow-xs">
+                                <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Solicitudes Aprobadas</div>
+                                <div className="text-2xl sm:text-3xl font-black text-cyan-600 dark:text-cyan-400 mt-1">
+                                    {recruiters.filter(r => r.status === 'approved' || r.status === 'inactive').length}
+                                </div>
+                            </div>
+
+                            <div className="p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 shadow-xs">
+                                <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Solicitudes Rechazadas</div>
+                                <div className="text-2xl sm:text-3xl font-black text-slate-700 dark:text-slate-300 mt-1">
+                                    {recruiters.filter(r => r.status === 'rejected').length}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Filtros de búsqueda */}
+                        <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 shadow-xs space-y-3">
+                            <div className="flex flex-col sm:flex-row gap-3 justify-between items-center">
+                                <div className="w-full sm:w-80">
+                                    <input
+                                        type="text"
+                                        value={recruiterSearch}
+                                        onChange={(e) => {
+                                            setRecruiterSearch(e.target.value);
+                                            setRecruiterPage(1);
+                                        }}
+                                        placeholder="Buscar por nombre, empresa, RUC, cargo..."
+                                        className="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white px-3 py-2 focus:ring-1 focus:ring-blue-500"
+                                    />
+                                </div>
+
+                                <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+                                    {/* Filtro Tipo */}
+                                    <select
+                                        value={recruiterTypeFilter}
+                                        onChange={(e) => {
+                                            setRecruiterTypeFilter(e.target.value);
+                                            setRecruiterPage(1);
+                                        }}
+                                        className="rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white px-3 py-2 cursor-pointer"
+                                    >
+                                        <option value="all">Tipo: Todos</option>
+                                        <option value="company">Solo Empresas</option>
+                                        <option value="recruiter">Solo Reclutadores</option>
+                                    </select>
+
+                                    {/* Filtro Estado */}
+                                    <select
+                                        value={recruiterStatusFilter}
+                                        onChange={(e) => {
+                                            setRecruiterStatusFilter(e.target.value);
+                                            setRecruiterPage(1);
+                                        }}
+                                        className="rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white px-3 py-2 cursor-pointer"
+                                    >
+                                        <option value="pending">Solo Pendientes de Revisión</option>
+                                        <option value="rejected">Solo Rechazadas</option>
+                                        <option value="approved">Solo Aprobadas</option>
+                                        <option value="all">Todas las Solicitudes</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Listado de Solicitudes */}
+                        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 shadow-xs overflow-hidden">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left text-xs">
+                                    <thead className="bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 uppercase text-[10px] tracking-wider font-semibold">
+                                        <tr>
+                                            <th className="py-3 px-4">Tipo</th>
+                                            <th className="py-3 px-4">Empresa / Reclutador</th>
+                                            <th className="py-3 px-4">Identificación Fiscal</th>
+                                            <th className="py-3 px-4">Evidencia Digital</th>
+                                            <th className="py-3 px-4">Contacto Directo</th>
+                                            <th className="py-3 px-4">Estado</th>
+                                            <th className="py-3 px-4 text-right">Acciones de Verificación</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                                        {paginatedRecruiters.length === 0 ? (
+                                            <tr>
+                                                <td colSpan="7" className="py-8 text-center text-slate-500 dark:text-slate-400">
+                                                    No se encontraron registros de empresas o reclutadores que coincidan con los filtros.
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            paginatedRecruiters.map((item) => (
+                                                <tr key={item.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition">
+                                                    <td className="py-3 px-4 whitespace-nowrap">
+                                                        {item.account_type === 'company' ? (
+                                                            <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/70 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                                                                Empresa
+                                                            </span>
+                                                        ) : (
+                                                            <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                                                Reclutador
+                                                            </span>
+                                                        )}
+                                                    </td>
+
+                                                    <td className="py-3 px-4">
+                                                        <div className="font-bold text-slate-900 dark:text-white">
+                                                            {item.account_type === 'company' ? item.company : item.name}
+                                                        </div>
+                                                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                                                            {item.account_type === 'company' ? (
+                                                                <span>Contacto: <strong>{item.name}</strong> ({item.position || 'Representante'})</span>
+                                                            ) : (
+                                                                <span>{item.position || 'Recruiter'} · {item.company}</span>
+                                                            )}
+                                                        </div>
+                                                    </td>
+
+                                                    <td className="py-3 px-4 whitespace-nowrap font-mono text-[11px] text-slate-700 dark:text-slate-300">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <span className="font-bold text-slate-900 dark:text-slate-100">{item.tax_id || 'Sin ID'}</span>
+                                                            {item.tax_id && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleCopyTaxId(item.tax_id)}
+                                                                    className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-blue-500 transition cursor-pointer"
+                                                                    title="Copiar RUC / Cédula"
+                                                                >
+                                                                    {copiedTaxId === item.tax_id ? (
+                                                                        <svg className="w-3.5 h-3.5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                                                        </svg>
+                                                                    ) : (
+                                                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                                                        </svg>
+                                                                    )}
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                        <span className="text-[10px] text-slate-400">
+                                                            {item.account_type === 'company' ? 'RUC Jurídico' : 'Cédula / RUC'}
+                                                        </span>
+                                                    </td>
+
+                                                    <td className="py-3 px-4 whitespace-nowrap">
+                                                        {item.account_type === 'company' && item.website_url ? (
+                                                            <a
+                                                                href={item.website_url}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline font-semibold"
+                                                            >
+                                                                <span>Ver Sitio Web</span>
+                                                                <span>↗</span>
+                                                            </a>
+                                                        ) : item.account_type === 'recruiter' && item.linkedin_url ? (
+                                                            <a
+                                                                href={item.linkedin_url}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline font-semibold"
+                                                            >
+                                                                <span>Ver LinkedIn</span>
+                                                                <span>↗</span>
+                                                            </a>
+                                                        ) : (
+                                                            <span className="text-slate-400 italic">No especificado</span>
+                                                        )}
+                                                    </td>
+
+                                                    <td className="py-3 px-4 whitespace-nowrap text-[11px]">
+                                                        <div className="text-slate-800 dark:text-slate-200">{item.email}</div>
+                                                        <div className="text-slate-500 dark:text-slate-400">{item.phone || 'Sin teléfono'}</div>
+                                                    </td>
+
+                                                    <td className="py-3 px-4 whitespace-nowrap">
+                                                        {item.status === 'pending' && (
+                                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+                                                                Pendiente
+                                                            </span>
+                                                        )}
+                                                        {item.status === 'approved' && (
+                                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/70 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+                                                                Aprobado
+                                                            </span>
+                                                        )}
+                                                        {item.status === 'rejected' && (
+                                                            <div>
+                                                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 dark:bg-rose-950/70 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                                                                    Rechazado
+                                                                </span>
+                                                                {item.rejection_reason && (
+                                                                    <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 max-w-xs truncate" title={item.rejection_reason}>
+                                                                        Motivo: {item.rejection_reason}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </td>
+
+                                                    <td className="py-3 px-4 whitespace-nowrap text-right">
+                                                        <div className="flex items-center justify-end gap-1.5">
+                                                            {item.status !== 'approved' && (
+                                                                <button
+                                                                    onClick={() => openApprovePartnerModal(item)}
+                                                                    className="px-3 py-1 rounded-lg text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 transition cursor-pointer shadow-xs flex items-center gap-1"
+                                                                >
+                                                                    <span>Aprobar</span>
+                                                                </button>
+                                                            )}
+
+                                                            {item.status !== 'rejected' && (
+                                                                <button
+                                                                    onClick={() => openRejectPartnerModal(item)}
+                                                                    className="px-2.5 py-1 rounded-lg text-xs font-bold text-rose-700 dark:text-rose-300 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/50 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800 transition cursor-pointer"
+                                                                >
+                                                                    Rechazar
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* Paginación */}
+                            {totalRecruiterPages > 1 && (
+                                <div className="p-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                                    <div>
+                                        Página {recruiterPage} de {totalRecruiterPages} ({filteredRecruiters.length} registros)
+                                    </div>
+                                    <div className="flex gap-1">
+                                        <button
+                                            disabled={recruiterPage <= 1}
+                                            onClick={() => setRecruiterPage(p => Math.max(1, p - 1))}
+                                            className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                                        >
+                                            Anterior
+                                        </button>
+                                        <button
+                                            disabled={recruiterPage >= totalRecruiterPages}
+                                            onClick={() => setRecruiterPage(p => Math.min(totalRecruiterPages, p + 1))}
+                                            className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                                        >
+                                            Siguiente
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* TAB 6: GESTIÓN DE EMPRESAS Y RECLUTADORES APROBADOS */}
+                {activeTab === 'managed_partners' && (
+                    <div className="space-y-4">
+                        {/* Tarjetas resumen superior - Directorio Activo */}
+                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 sm:gap-4">
+                            <div className="p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 shadow-xs">
+                                <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Cuentas Aprobadas</div>
+                                <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-1">
+                                    {managedPartnersList.length}
+                                </div>
+                            </div>
+
+                            <div className="p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 shadow-xs">
+                                <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Empresas Aliadas</div>
+                                <div className="text-2xl sm:text-3xl font-black text-blue-600 dark:text-blue-400 mt-1">
+                                    {managedPartnersList.filter(r => r.account_type === 'company').length}
+                                </div>
+                            </div>
+
+                            <div className="p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 shadow-xs">
+                                <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Reclutadores</div>
+                                <div className="text-2xl sm:text-3xl font-black text-cyan-600 dark:text-cyan-400 mt-1">
+                                    {managedPartnersList.filter(r => r.account_type === 'recruiter').length}
+                                </div>
+                            </div>
+
+                            <div className="p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 shadow-xs">
+                                <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Cuentas Desactivadas</div>
+                                <div className="text-2xl sm:text-3xl font-black text-slate-500 dark:text-slate-400 mt-1">
+                                    {managedPartnersList.filter(r => !r.verified || r.status === 'inactive').length}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Filtros de búsqueda */}
+                        <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 shadow-xs space-y-3">
+                            <div className="flex flex-col sm:flex-row gap-3 justify-between items-center">
+                                <div className="w-full sm:w-80">
+                                    <input
+                                        type="text"
+                                        value={manageSearch}
+                                        onChange={(e) => {
+                                            setManageSearch(e.target.value);
+                                            setManagePage(1);
+                                        }}
+                                        placeholder="Buscar por empresa, contacto, RUC, correo..."
+                                        className="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white px-3 py-2 focus:ring-1 focus:ring-blue-500"
+                                    />
+                                </div>
+
+                                <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+                                    {/* Filtro Tipo */}
+                                    <select
+                                        value={manageTypeFilter}
+                                        onChange={(e) => {
+                                            setManageTypeFilter(e.target.value);
+                                            setManagePage(1);
+                                        }}
+                                        className="rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white px-3 py-2 cursor-pointer"
+                                    >
+                                        <option value="all">Tipo: Todos</option>
+                                        <option value="company">Solo Empresas</option>
+                                        <option value="recruiter">Solo Reclutadores</option>
+                                    </select>
+
+                                    {/* Filtro Estado */}
+                                    <select
+                                        value={manageStatusFilter}
+                                        onChange={(e) => {
+                                            setManageStatusFilter(e.target.value);
+                                            setManagePage(1);
+                                        }}
+                                        className="rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white px-3 py-2 cursor-pointer"
+                                    >
+                                        <option value="all">Estado: Todos</option>
+                                        <option value="active">Solo Activas (Acceso Permitido)</option>
+                                        <option value="inactive">Solo Desactivadas (Acceso Bloqueado)</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Listado de Empresas y Reclutadores Aprobados */}
+                        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 shadow-xs overflow-hidden">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left text-xs">
+                                    <thead className="bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 uppercase text-[10px] tracking-wider font-semibold">
+                                        <tr>
+                                            <th className="py-3 px-4">Tipo</th>
+                                            <th className="py-3 px-4">Empresa / Reclutador</th>
+                                            <th className="py-3 px-4">Identificación Fiscal</th>
+                                            <th className="py-3 px-4">Evidencia Digital</th>
+                                            <th className="py-3 px-4">Contacto Directo</th>
+                                            <th className="py-3 px-4">Estado de Acceso</th>
+                                            <th className="py-3 px-4 text-right">Acciones de Cuenta</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                                        {paginatedManagedPartners.length === 0 ? (
+                                            <tr>
+                                                <td colSpan="7" className="py-8 text-center text-slate-500 dark:text-slate-400">
+                                                    No se encontraron cuentas de empresas o reclutadores aprobados.
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            paginatedManagedPartners.map((item) => {
+                                                const isActive = (item.status === 'approved' && item.verified);
+                                                return (
+                                                    <tr key={item.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition">
+                                                        <td className="py-3 px-4 whitespace-nowrap">
+                                                            {item.account_type === 'company' ? (
+                                                                <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/70 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                                                                    Empresa
+                                                                </span>
+                                                            ) : (
+                                                                <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                                                    Reclutador
+                                                                </span>
+                                                            )}
+                                                        </td>
+
+                                                        <td className="py-3 px-4">
+                                                            <div className="font-bold text-slate-900 dark:text-white">
+                                                                {item.account_type === 'company' ? item.company : item.name}
+                                                            </div>
+                                                            <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                                                                {item.account_type === 'company' ? (
+                                                                    <span>Contacto: <strong>{item.name}</strong> ({item.position || 'Representante'})</span>
+                                                                ) : (
+                                                                    <span>{item.position || 'Recruiter'} · {item.company}</span>
+                                                                )}
+                                                            </div>
+                                                        </td>
+
+                                                        <td className="py-3 px-4 whitespace-nowrap font-mono text-[11px] text-slate-700 dark:text-slate-300">
+                                                            <div className="flex items-center gap-1.5">
+                                                                <span className="font-bold text-slate-900 dark:text-slate-100">{item.tax_id || 'Sin ID'}</span>
+                                                                {item.tax_id && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleCopyTaxId(item.tax_id)}
+                                                                        className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-blue-500 transition cursor-pointer"
+                                                                        title="Copiar RUC / Cédula"
+                                                                    >
+                                                                        {copiedTaxId === item.tax_id ? (
+                                                                            <svg className="w-3.5 h-3.5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                                                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                                                            </svg>
+                                                                        ) : (
+                                                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                                                                <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                                                            </svg>
+                                                                        )}
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                            <span className="text-[10px] text-slate-400">
+                                                                {item.account_type === 'company' ? 'RUC Jurídico' : 'Cédula / RUC'}
+                                                            </span>
+                                                        </td>
+
+                                                        <td className="py-3 px-4 whitespace-nowrap">
+                                                            {item.account_type === 'company' && item.website_url ? (
+                                                                <a
+                                                                    href={item.website_url}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline font-semibold"
+                                                                >
+                                                                    <span>Ver Sitio Web</span>
+                                                                    <span>↗</span>
+                                                                </a>
+                                                            ) : item.account_type === 'recruiter' && item.linkedin_url ? (
+                                                                <a
+                                                                    href={item.linkedin_url}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline font-semibold"
+                                                                >
+                                                                    <span>Ver LinkedIn</span>
+                                                                    <span>↗</span>
+                                                                </a>
+                                                            ) : (
+                                                                <span className="text-slate-400 italic">No especificado</span>
+                                                            )}
+                                                        </td>
+
+                                                        <td className="py-3 px-4 whitespace-nowrap text-[11px]">
+                                                            <div className="text-slate-800 dark:text-slate-200">{item.email}</div>
+                                                            <div className="text-slate-500 dark:text-slate-400">{item.phone || 'Sin teléfono'}</div>
+                                                        </td>
+
+                                                        <td className="py-3 px-4 whitespace-nowrap">
+                                                            {isActive ? (
+                                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/70 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                                                                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+                                                                    Activa
+                                                                </span>
+                                                            ) : (
+                                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                                                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                                                                    Desactivada
+                                                                </span>
+                                                            )}
+                                                        </td>
+
+                                                        <td className="py-3 px-4 whitespace-nowrap text-right">
+                                                            <button
+                                                                onClick={() => handleTogglePartner(item)}
+                                                                className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                                                                    isActive
+                                                                        ? 'text-slate-700 dark:text-slate-300 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
+                                                                        : 'text-white bg-blue-600 hover:bg-blue-700 shadow-xs'
+                                                                }`}
+                                                            >
+                                                                {isActive ? 'Desactivar Cuenta' : 'Activar Cuenta'}
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* Paginación */}
+                            {totalManagePages > 1 && (
+                                <div className="p-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                                    <div>
+                                        Página {managePage} de {totalManagePages} ({filteredManagedPartners.length} cuentas)
+                                    </div>
+                                    <div className="flex gap-1">
+                                        <button
+                                            disabled={managePage <= 1}
+                                            onClick={() => setManagePage(p => Math.max(1, p - 1))}
+                                            className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                                        >
+                                            Anterior
+                                        </button>
+                                        <button
+                                            disabled={managePage >= totalManagePages}
+                                            onClick={() => setManagePage(p => Math.min(totalManagePages, p + 1))}
+                                            className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                                        >
+                                            Siguiente
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* MODAL: PAUSAR PROYECTO */}
@@ -1257,8 +2033,11 @@ export default function AdminDashboard({ telemetry: initialTelemetry, metrics, s
                             <button
                                 onClick={() => setLogModal(prev => ({ ...prev, isOpen: false }))}
                                 className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white bg-slate-100 dark:bg-slate-800 cursor-pointer"
+                                title="Cerrar"
                             >
-                                ✕
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
                             </button>
                         </div>
 
@@ -1266,21 +2045,19 @@ export default function AdminDashboard({ telemetry: initialTelemetry, metrics, s
                         <div className="flex gap-2">
                             <button
                                 onClick={() => setLogModal(prev => ({ ...prev, activeLogTab: 'build' }))}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
-                                    logModal.activeLogTab === 'build'
-                                        ? 'bg-blue-600 text-white'
-                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                                }`}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${logModal.activeLogTab === 'build'
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                                    }`}
                             >
                                 Logs de Compilación (build_log)
                             </button>
                             <button
                                 onClick={() => setLogModal(prev => ({ ...prev, activeLogTab: 'container' }))}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
-                                    logModal.activeLogTab === 'container'
-                                        ? 'bg-blue-600 text-white'
-                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                                }`}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${logModal.activeLogTab === 'container'
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                                    }`}
                             >
                                 Salida Docker Daemon (Runtime)
                             </button>
@@ -1360,6 +2137,274 @@ export default function AdminDashboard({ telemetry: initialTelemetry, metrics, s
                                 </button>
                             </div>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL: APROBAR SOLICITUD DE EMPRESA O RECLUTADOR (PLATAFORMA INSTITUCIONAL) */}
+            {approvePartnerModal.isOpen && (
+                <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="w-full max-w-lg rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-2xl space-y-4">
+                        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                            <div className="flex items-center gap-2.5 text-slate-900 dark:text-slate-100 font-bold text-sm">
+                                <span className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                    </svg>
+                                </span>
+                                <span>
+                                    {approvePartnerModal.partner?.account_type === 'company'
+                                        ? 'Aprobar Solicitud de Empresa'
+                                        : 'Aprobar Solicitud de Reclutador'}
+                                </span>
+                            </div>
+                            <button
+                                type="button"
+                                disabled={approvePartnerModal.isSubmitting}
+                                onClick={() => setApprovePartnerModal({ isOpen: false, partner: null, isSubmitting: false })}
+                                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg transition disabled:opacity-50 cursor-pointer"
+                                title="Cerrar"
+                            >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div className="space-y-3">
+                            <p className="text-sm text-slate-700 dark:text-slate-300">
+                                {approvePartnerModal.partner?.account_type === 'company' ? (
+                                    <>
+                                        ¿Confirmas la aprobación y activación oficial de la empresa <strong className="text-slate-900 dark:text-white">"{approvePartnerModal.partner?.company}"</strong>?
+                                    </>
+                                ) : (
+                                    <>
+                                        ¿Confirmas la aprobación y activación oficial del reclutador <strong className="text-slate-900 dark:text-white">"{approvePartnerModal.partner?.name}"</strong>?
+                                    </>
+                                )}
+                            </p>
+
+                            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs space-y-1.5">
+                                {approvePartnerModal.partner?.account_type === 'company' ? (
+                                    <>
+                                        <div><strong className="text-slate-700 dark:text-slate-300">Empresa:</strong> <span className="font-semibold text-blue-600 dark:text-blue-400">{approvePartnerModal.partner?.company}</span></div>
+                                        <div><strong className="text-slate-700 dark:text-slate-300">Representante:</strong> {approvePartnerModal.partner?.name} ({approvePartnerModal.partner?.position || 'Contacto'})</div>
+                                        <div><strong className="text-slate-700 dark:text-slate-300">RUC:</strong> <span className="font-mono">{approvePartnerModal.partner?.tax_id}</span></div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div><strong className="text-slate-700 dark:text-slate-300">Reclutador:</strong> <span className="font-semibold text-blue-600 dark:text-blue-400">{approvePartnerModal.partner?.name}</span></div>
+                                        <div><strong className="text-slate-700 dark:text-slate-300">Agencia / Cargo:</strong> {approvePartnerModal.partner?.company} · {approvePartnerModal.partner?.position}</div>
+                                        <div><strong className="text-slate-700 dark:text-slate-300">Identificación:</strong> <span className="font-mono">{approvePartnerModal.partner?.tax_id}</span></div>
+                                    </>
+                                )}
+                                <div><strong className="text-slate-700 dark:text-slate-300">Correo de Acceso:</strong> {approvePartnerModal.partner?.email}</div>
+                                {approvePartnerModal.partner?.phone && (
+                                    <div><strong className="text-slate-700 dark:text-slate-300">Teléfono:</strong> {approvePartnerModal.partner?.phone}</div>
+                                )}
+                            </div>
+
+                            <div className="p-3 rounded-xl bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200/60 dark:border-blue-900/60 text-xs text-blue-800 dark:text-blue-300 flex items-start gap-2.5">
+                                <svg className="w-4 h-4 shrink-0 text-blue-600 dark:text-blue-400 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <div>
+                                    Se enviará automáticamente un correo a <span className="font-semibold underline">{approvePartnerModal.partner?.email}</span> indicando que su cuenta fue aprobada y que ya puede iniciar sesión con sus credenciales registradas.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                            <button
+                                type="button"
+                                disabled={approvePartnerModal.isSubmitting}
+                                onClick={() => setApprovePartnerModal({ isOpen: false, partner: null, isSubmitting: false })}
+                                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 cursor-pointer disabled:opacity-50"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                disabled={approvePartnerModal.isSubmitting}
+                                onClick={submitApprovePartner}
+                                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 transition cursor-pointer shadow-xs disabled:opacity-50 flex items-center gap-1.5"
+                            >
+                                {approvePartnerModal.isSubmitting ? (
+                                    <>
+                                        <span className="animate-spin inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full"></span>
+                                        <span>Aprobando y enviando correo...</span>
+                                    </>
+                                ) : (
+                                    <span>Confirmar Aprobación</span>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL: RECHAZAR SOLICITUD DE EMPRESA O RECLUTADOR */}
+            {rejectPartnerModal.isOpen && (
+                <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="w-full max-w-lg rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-2xl space-y-4">
+                        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                            <div className="flex items-center gap-2 text-slate-900 dark:text-slate-100 font-bold text-sm">
+                                <span className="w-6 h-6 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center">
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </span>
+                                Rechazar Solicitud de {rejectPartnerModal.partner?.account_type === 'company' ? 'Empresa' : 'Reclutador'}
+                            </div>
+                            <button
+                                type="button"
+                                disabled={rejectPartnerModal.isSubmitting}
+                                onClick={() => setRejectPartnerModal({ isOpen: false, partner: null, reason: '', isSubmitting: false })}
+                                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg transition disabled:opacity-50 cursor-pointer"
+                                title="Cerrar"
+                            >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div className="bg-slate-50 dark:bg-slate-950 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs space-y-1.5">
+                            <div className="text-slate-800 dark:text-slate-200">
+                                <strong>Solicitante:</strong> {rejectPartnerModal.partner?.name} ({rejectPartnerModal.partner?.company})
+                            </div>
+                            <div className="text-slate-500 dark:text-slate-400">
+                                <strong>Correo destino:</strong> {rejectPartnerModal.partner?.email}
+                            </div>
+                            <div className="text-rose-600 dark:text-rose-400 text-[11px] font-medium pt-1 flex items-start gap-1.5">
+                                <svg className="w-3.5 h-3.5 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <span>Al confirmar, se enviará automáticamente un correo electrónico oficial notificando el motivo del rechazo al solicitante.</span>
+                            </div>
+                        </div>
+
+                        <form onSubmit={submitRejectPartner} className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                                    Motivo del Rechazo / Observaciones Institucionales *:
+                                </label>
+                                <textarea
+                                    value={rejectPartnerModal.reason}
+                                    onChange={(e) => setRejectPartnerModal(prev => ({ ...prev, reason: e.target.value }))}
+                                    rows="4"
+                                    required
+                                    disabled={rejectPartnerModal.isSubmitting}
+                                    placeholder="Detalla la razón del rechazo (ej. RUC no coincide en base SRI, correo corporativo no verificable, enlace web caído...)"
+                                    className="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white p-3 text-xs focus:ring-1 focus:ring-rose-500 focus:outline-none"
+                                ></textarea>
+                                <div className="text-[10px] text-slate-400 text-right mt-1">
+                                    {rejectPartnerModal.reason.length} caracteres (mínimo 4)
+                                </div>
+                            </div>
+
+                            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                                <button
+                                    type="button"
+                                    disabled={rejectPartnerModal.isSubmitting}
+                                    onClick={() => setRejectPartnerModal({ isOpen: false, partner: null, reason: '', isSubmitting: false })}
+                                    className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 cursor-pointer disabled:opacity-50"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={rejectPartnerModal.isSubmitting || rejectPartnerModal.reason.trim().length < 4}
+                                    className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 transition cursor-pointer shadow-xs disabled:opacity-50 flex items-center gap-1.5"
+                                >
+                                    {rejectPartnerModal.isSubmitting ? (
+                                        <>
+                                            <span className="animate-spin inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full"></span>
+                                            <span>Enviando correo y rechazando...</span>
+                                        </>
+                                    ) : (
+                                        <span>Confirmar Rechazo y Notificar</span>
+                                    )}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL: ACTIVAR / DESACTIVAR CUENTA DE EMPRESA O RECLUTADOR */}
+            {togglePartnerModal.isOpen && togglePartnerModal.partner && (
+                <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="w-full max-w-md rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-2xl space-y-4">
+                        <div className="flex items-center gap-3">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                                (togglePartnerModal.partner.status === 'approved' && togglePartnerModal.partner.verified)
+                                    ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800'
+                                    : 'bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800'
+                            }`}>
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                            </div>
+                            <div>
+                                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                                    {(togglePartnerModal.partner.status === 'approved' && togglePartnerModal.partner.verified)
+                                        ? '¿Desactivar acceso de la cuenta?'
+                                        : '¿Activar acceso de la cuenta?'}
+                                </h3>
+                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                    Control institucional de credenciales
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs space-y-1.5">
+                            <div className="text-slate-800 dark:text-slate-200">
+                                <strong>Entidad:</strong> {togglePartnerModal.partner.company || togglePartnerModal.partner.name}
+                            </div>
+                            <div className="text-slate-600 dark:text-slate-400">
+                                <strong>Contacto:</strong> {togglePartnerModal.partner.name} ({togglePartnerModal.partner.email})
+                            </div>
+                            <div className="text-slate-500 dark:text-slate-400 text-[11px] pt-1 border-t border-slate-200 dark:border-slate-800/80">
+                                {(togglePartnerModal.partner.status === 'approved' && togglePartnerModal.partner.verified)
+                                    ? 'Al desactivar, la empresa o reclutador no podrá iniciar sesión en Nexus Academic hasta que sea reactivada.'
+                                    : 'Al activar, la empresa o reclutador podrá ingresar de inmediato con su correo y contraseña.'}
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                            <button
+                                type="button"
+                                disabled={togglePartnerModal.isSubmitting}
+                                onClick={() => setTogglePartnerModal({ isOpen: false, partner: null, isSubmitting: false })}
+                                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 cursor-pointer disabled:opacity-50"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                disabled={togglePartnerModal.isSubmitting}
+                                onClick={confirmTogglePartner}
+                                className={`px-4 py-2 rounded-xl text-xs font-bold text-white transition cursor-pointer shadow-xs disabled:opacity-50 flex items-center gap-1.5 ${
+                                    (togglePartnerModal.partner.status === 'approved' && togglePartnerModal.partner.verified)
+                                        ? 'bg-rose-600 hover:bg-rose-700'
+                                        : 'bg-blue-600 hover:bg-blue-700'
+                                }`}
+                            >
+                                {togglePartnerModal.isSubmitting ? (
+                                    <>
+                                        <span className="animate-spin inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full"></span>
+                                        <span>Procesando...</span>
+                                    </>
+                                ) : (
+                                    <span>
+                                        {(togglePartnerModal.partner.status === 'approved' && togglePartnerModal.partner.verified)
+                                            ? 'Confirmar Desactivación'
+                                            : 'Confirmar Activación'}
+                                    </span>
+                                )}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

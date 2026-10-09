@@ -1,0 +1,58 @@
+<?php
+
+namespace App\Mail;
+
+use App\Models\Recruiter;
+use Illuminate\Bus\Queueable;
+use Illuminate\Mail\Mailable;
+use Illuminate\Mail\Mailables\Content;
+use Illuminate\Mail\Mailables\Envelope;
+use Illuminate\Queue\SerializesModels;
+
+class PartnerApprovedMail extends Mailable
+{
+    use Queueable, SerializesModels;
+
+    public Recruiter $partner;
+    public string $loginUrl;
+
+    /**
+     * Create a new message instance.
+     */
+    public function __construct(Recruiter $partner)
+    {
+        $this->partner = $partner;
+        $this->loginUrl = url('/login');
+    }
+
+    /**
+     * Get the message envelope.
+     */
+    public function envelope(): Envelope
+    {
+        $tipo = $this->partner->account_type === 'company' ? 'Empresa' : 'Reclutador';
+        return new Envelope(
+            subject: "Cuenta de {$tipo} Aprobada — Bienvenido a Nexus Academic",
+        );
+    }
+
+    /**
+     * Get the message content definition.
+     */
+    public function content(): Content
+    {
+        return new Content(
+            view: 'emails.partner-approved',
+        );
+    }
+
+    /**
+     * Get the attachments for the message.
+     *
+     * @return array<int, \Illuminate\Mail\Mailables\Attachment>
+     */
+    public function attachments(): array
+    {
+        return [];
+    }
+}

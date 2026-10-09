@@ -64,6 +64,11 @@ Route::middleware(['auth', 'verified', 'admin'])->prefix('admin')->name('admin.'
     
     // Gestión de Cuentas de Estudiantes
     Route::patch('/students/{user}/toggle-status', [AdminController::class, 'toggleUserStatus'])->name('students.toggle-status');
+
+    // Gestión y Validación de Empresas y Reclutadores
+    Route::post('/recruiters/{recruiter}/approve', [AdminController::class, 'approveRecruiter'])->name('recruiters.approve');
+    Route::post('/recruiters/{recruiter}/reject', [AdminController::class, 'rejectRecruiter'])->name('recruiters.reject');
+    Route::patch('/recruiters/{recruiter}/toggle-status', [AdminController::class, 'toggleRecruiterStatus'])->name('recruiters.toggle-status');
 });
 
 require __DIR__.'/auth.php';

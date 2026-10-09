@@ -135,6 +135,18 @@ export default function Login({ status, canResetPassword }) {
                         Iniciar Sesión
                     </button>
                 </div>
+
+                <div className="mt-4 pt-4 border-t border-slate-900 text-center">
+                    <p className="text-xs text-slate-400">
+                        ¿Empresa o Reclutador?{' '}
+                        <Link
+                            href={route('register.partner')}
+                            className="font-bold text-cyan-400 hover:text-cyan-300 underline"
+                        >
+                            Solicita tu cuenta aquí
+                        </Link>
+                    </p>
+                </div>
             </form>
         </GuestLayout>
     );

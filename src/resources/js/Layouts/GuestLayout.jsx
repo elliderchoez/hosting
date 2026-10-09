@@ -2,7 +2,7 @@ import ApplicationLogo from '@/Components/ApplicationLogo';
 import { Link } from '@inertiajs/react';
 import { useState, useEffect } from 'react';
 
-export default function GuestLayout({ children }) {
+export default function GuestLayout({ children, maxWidth = 'sm:max-w-md' }) {
     const [theme, setTheme] = useState(localStorage.getItem('theme') || 'academic');
 
     useEffect(() => {
@@ -17,7 +17,7 @@ export default function GuestLayout({ children }) {
     }, [theme]);
 
     return (
-        <div className="relative flex min-h-screen flex-col items-center bg-[#f3f5f9] dark:bg-[#090d16] pt-6 sm:justify-center sm:pt-0 text-[#1e293b] dark:text-[#f1f5f9] transition-colors duration-200">
+        <div className="relative flex min-h-screen flex-col items-center bg-[#f3f5f9] dark:bg-[#090d16] pt-10 sm:pt-15 md:pt-6 pb-20 text-[#1e293b] dark:text-[#f1f5f9] transition-colors duration-200">
             {/* Botón flotante para alternar tema */}
             <div className="absolute top-4 right-4 z-20">
                 <button
@@ -47,7 +47,7 @@ export default function GuestLayout({ children }) {
                 </Link>
             </div>
 
-            <div className="mt-6 w-full overflow-hidden bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-slate-800 px-8 py-7 shadow-xl sm:max-w-md sm:rounded-2xl transition-colors duration-200">
+            <div className={`mt-6 w-full overflow-hidden bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-slate-800 px-6 sm:px-8 py-7 shadow-xl ${maxWidth} sm:rounded-2xl transition-colors duration-200`}>
                 {children}
             </div>
         </div>

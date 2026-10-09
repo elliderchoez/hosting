@@ -23,10 +23,10 @@ export default function Register() {
     const hasLowercase = /[a-z]/.test(data.password);
     const hasNumber = /[0-9]/.test(data.password);
     const hasSpecial = /[@$!%*?&._-]/.test(data.password);
-    
+
     const isPasswordValid = hasMinLength && hasUppercase && hasLowercase && hasNumber && hasSpecial;
     const passwordsMatch = data.password === data.password_confirmation && data.password_confirmation.length > 0;
-    
+
     const isFormValid = data.name.trim() !== '' && data.email.trim() !== '' && isPasswordValid && passwordsMatch;
 
     const submit = (e) => {
@@ -125,7 +125,7 @@ export default function Register() {
                             )}
                         </button>
                     </div>
-                    
+
                     {/* Password requirements hint */}
                     <div className="mt-2 text-[11px] bg-slate-900/40 p-2.5 rounded-lg border border-slate-900 space-y-1">
                         <p className="text-slate-400 font-semibold">Criterios de seguridad para la contraseña:</p>
@@ -210,25 +210,38 @@ export default function Register() {
                     />
                 </div>
 
-                <div className="mt-6 flex items-center justify-between">
-                    <Link
-                        href={route('login')}
-                        className="text-xs text-slate-400 underline hover:text-slate-200 focus:outline-none"
-                    >
-                        ¿Ya tienes una cuenta registrada?
-                    </Link>
-
-                    <button 
+                <div className="mt-6 space-y-3">
+                    <button
                         type="submit"
                         disabled={processing || !isFormValid}
-                        className={`px-5 py-2.5 rounded-xl text-sm font-bold border-none transition duration-200 ${
-                            isFormValid && !processing
-                                ? "bg-gradient-to-r from-cyan-500 to-indigo-500 hover:from-cyan-400 hover:to-indigo-400 text-slate-950 cursor-pointer shadow-lg shadow-cyan-500/10"
-                                : "bg-slate-800 text-slate-500 cursor-not-allowed"
-                        }`}
+                        className={`w-full py-2.5 px-4 rounded-xl text-sm font-bold border-none transition duration-200 flex items-center justify-center ${isFormValid && !processing
+                            ? "bg-gradient-to-r from-cyan-500 to-indigo-500 hover:from-cyan-400 hover:to-indigo-400 text-slate-950 cursor-pointer shadow-lg shadow-cyan-500/10"
+                            : "bg-slate-800 text-slate-500 cursor-not-allowed"
+                            }`}
                     >
                         Registrarse
                     </button>
+
+                    <div className="text-center">
+                        <Link
+                            href={route('login')}
+                            className="text-xs text-slate-400 hover:text-slate-200 underline focus:outline-none"
+                        >
+                            ¿Ya tienes una cuenta registrada? Iniciar sesión
+                        </Link>
+                    </div>
+                </div>
+
+                <div className="mt-4 pt-3.5 border-t border-slate-200 dark:border-slate-800/80 text-center">
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                        ¿Representas a una empresa o eres reclutador?{' '}
+                        <Link
+                            href={route('register.partner')}
+                            className="font-bold text-cyan-400 hover:text-cyan-300 underline whitespace-nowrap"
+                        >
+                            Registro de Empresas y Reclutadores
+                        </Link>
+                    </p>
                 </div>
             </form>
         </GuestLayout>
