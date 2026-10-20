@@ -383,7 +383,7 @@ export default function StudentProfile({ auth = {}, student }) {
                                                 </div>
 
                                                 <div className="pt-2 text-[11px] text-slate-400 dark:text-slate-500">
-                                                    Subdominio: <span className="font-mono">{project.subdomain}.localhost</span>
+                                                    Subdominio: <span className="font-mono">{project.subdomain}.uleamcode.software</span>
                                                 </div>
                                             </div>
 
@@ -418,15 +418,18 @@ export default function StudentProfile({ auth = {}, student }) {
                     4. MODAL DE DEMO EN VIVO (VISOR INTERACTIVO)
                     ========================================================================= */}
                 {activeDemo && (
-                    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4">
-                        <div className="w-full h-full max-w-7xl max-h-[95vh] bg-white dark:bg-[#0f172a] rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800">
+                    <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col">
+                        <div className="w-full h-full bg-white dark:bg-[#0f172a] flex flex-col overflow-hidden">
                             {/* Cabecera del visor */}
                             <div className="px-6 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900/60">
                                 <div>
                                     <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
                                         <span>{activeDemo.name}</span>
-                                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                                            http://{activeDemo.subdomain}.localhost
+                                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                                            <svg className="w-3 h-3 text-emerald-500 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                                            </svg>
+                                            <span>https://{activeDemo.subdomain}.uleamcode.software</span>
                                         </span>
                                     </h3>
                                     <p className="text-[11px] text-slate-500 dark:text-slate-400">

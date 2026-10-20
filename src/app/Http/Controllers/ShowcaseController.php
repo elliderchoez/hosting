@@ -132,7 +132,7 @@ class ShowcaseController extends Controller
         }
 
         $containerName = "project-{$project->id}";
-        $domain = env('APP_DOMAIN', 'nexus-academic.software');
+        $domain = env('APP_DOMAIN', 'uleamcode.software');
 
         // 1. Si el proyecto tiene un backend enlazado (ej: suite frontend + backend), asegurar que esté activo
         if ($project->backend_project_id) {

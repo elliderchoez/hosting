@@ -925,7 +925,7 @@ export default function AdminDashboard({ telemetry: initialTelemetry, metrics, s
                                                                     {project.name}
                                                                 </div>
                                                                 <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
-                                                                    {project.subdomain}.nexus-academic.software
+                                                                    {project.subdomain}.uleamcode.software
                                                                 </div>
                                                             </td>
 

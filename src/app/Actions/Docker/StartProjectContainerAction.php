@@ -215,7 +215,7 @@ class StartProjectContainerAction
             $command[] = '-e';
             $command[] = 'BETTER_AUTH_SECRET=' . hash('sha256', $project->id . 'better_auth');
             $command[] = '-e';
-            $command[] = 'SUPPORT_EMAIL=support@nexus-academic.software';
+            $command[] = 'SUPPORT_EMAIL=support@uleamcode.software';
             $command[] = '-e';
             $command[] = 'HOSTNAME=0.0.0.0';
             $command[] = '-e';

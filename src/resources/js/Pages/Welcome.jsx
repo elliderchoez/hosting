@@ -257,7 +257,7 @@ export default function Welcome({ auth, projects = [] }) {
         const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
         const projectBaseUrl = isLocal
             ? `${window.location.protocol}//${project.subdomain}.localhost`
-            : `${window.location.protocol}//${project.subdomain}.nexus-academic.software`;
+            : `${window.location.protocol}//${project.subdomain}.uleamcode.software`;
 
         // 2. Disparar limpieza universal de cookies y storage mediante iframe oculto hacia /uleam-clear-session
         try {
@@ -1356,8 +1356,8 @@ export default function Welcome({ auth, projects = [] }) {
                     7. MODAL DE DEMO EN VIVO (100% Funcional e Integrado en Sandbox gVisor)
                     ========================================================================= */}
                 {activeDemo && (
-                    <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4">
-                        <div className="demo-modal-container w-full max-w-6xl h-[88vh] bg-white dark:bg-[#0b0f19] border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden flex flex-col shadow-2xl">
+                    <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col">
+                        <div className="demo-modal-container w-full h-full bg-white dark:bg-[#0b0f19] overflow-hidden flex flex-col">
 
                             {/* Cabecera del Modal */}
                             <div className="demo-modal-header px-6 py-3.5 flex items-center justify-between border-b border-slate-200 dark:border-slate-800">
@@ -1368,8 +1368,11 @@ export default function Welcome({ auth, projects = [] }) {
                                     <div>
                                         <h3 className="demo-modal-title font-bold text-sm flex items-center gap-2 text-slate-900 dark:text-white">
                                             <span>{activeDemo.name}</span>
-                                            <span className="demo-modal-badge text-[10px] font-mono px-2 py-0.5 rounded-md font-semibold">
-                                                http://{activeDemo.subdomain}.localhost
+                                            <span className="demo-modal-badge text-[10px] font-mono px-2 py-0.5 rounded-md font-semibold flex items-center gap-1.5">
+                                                <svg className="w-3 h-3 text-emerald-500 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                                                </svg>
+                                                <span>https://{activeDemo.subdomain}.uleamcode.software</span>
                                             </span>
                                         </h3>
                                         <p className="demo-modal-subtitle text-[11px]">
@@ -1539,7 +1542,7 @@ export default function Welcome({ auth, projects = [] }) {
                                         </div>
 
                                         <div className="pt-3 border-t demo-evaluator-footer text-center">
-                                            <span className="text-[10px] font-mono">Uleam Academic Code PaaS v2.0</span>
+                                            <span className="text-[10px] font-mono">Uleam Academic Code</span>
                                         </div>
                                     </div>
                                 )}

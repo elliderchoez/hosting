@@ -171,7 +171,7 @@ class ProjectController extends Controller
             $frontendSubdomain = Str::lower($request->subdomain);
             $backendSubdomain = Str::lower($request->backend_subdomain);
             $scheme = request()->getScheme() ?: 'http';
-            $baseDomain = config('app.env') === 'production' ? env('APP_DOMAIN', 'nexus-academic.software') : 'localhost';
+            $baseDomain = config('app.env') === 'production' ? env('APP_DOMAIN', 'uleamcode.software') : 'localhost';
             $backendApiUrl = "{$scheme}://{$backendSubdomain}.{$baseDomain}/api";
 
             // 1. Crear el Backend (Servicio API satélite)
@@ -181,7 +181,9 @@ class ProjectController extends Controller
             $backendBranch = ($fullstackSource === 'separate' && !$isFolderUpload)
                 ? ($request->backend_branch ?: 'main')
                 : ($isFolderUpload ? 'local' : $request->branch);
-            $backendRootDir = $request->input('backend_dir') ?: 'backend';
+            $backendRootDir = ($fullstackSource === 'separate' && !$isFolderUpload)
+                ? ($request->input('backend_dir') ?: null)
+                : ($request->input('backend_dir') ?: 'backend');
 
             $backendProject = Project::create([
                 'user_id' => $user->id,
@@ -204,7 +206,9 @@ class ProjectController extends Controller
                 "API_URL={$backendApiUrl}",
                 "BACKEND_URL={$scheme}://{$backendSubdomain}.{$baseDomain}"
             ];
-            $frontendRootDir = $request->input('frontend_dir') ?: 'frontend';
+            $frontendRootDir = ($fullstackSource === 'separate' && !$isFolderUpload)
+                ? ($request->input('frontend_dir') ?: null)
+                : ($request->input('frontend_dir') ?: 'frontend');
 
             $frontendProject = Project::create([
                 'user_id' => $user->id,
@@ -298,7 +302,7 @@ class ProjectController extends Controller
         if ($parentProject) {
             $parentProject->backend_project_id = $project->id;
             $scheme = request()->getScheme() ?: 'http';
-            $baseDomain = config('app.env') === 'production' ? env('APP_DOMAIN', 'nexus-academic.software') : 'localhost';
+            $baseDomain = config('app.env') === 'production' ? env('APP_DOMAIN', 'uleamcode.software') : 'localhost';
             $backendApiUrl = "{$scheme}://{$subdomain}.{$baseDomain}/api";
             $vars = [
                 "VITE_API_URL={$backendApiUrl}",
@@ -401,7 +405,7 @@ class ProjectController extends Controller
 
             $project->backend_project_id = $backend->id;
             $scheme = request()->getScheme() ?: 'http';
-            $baseDomain = config('app.env') === 'production' ? env('APP_DOMAIN', 'nexus-academic.software') : 'localhost';
+            $baseDomain = config('app.env') === 'production' ? env('APP_DOMAIN', 'uleamcode.software') : 'localhost';
             $backendApiUrl = "{$scheme}://{$backend->subdomain}.{$baseDomain}/api";
             $vars = [
                 "VITE_API_URL={$backendApiUrl}",

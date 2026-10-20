@@ -31,7 +31,7 @@ class ContainerController extends Controller
         }
 
         $projectPath = storage_path("app/projects/project-{$project->id}");
-        $domain = env('APP_DOMAIN', 'nexus-academic.software');
+        $domain = env('APP_DOMAIN', 'uleamcode.software');
 
         $result = $startAction->execute($project, $projectPath, $domain);
 

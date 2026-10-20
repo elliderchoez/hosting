@@ -66,11 +66,12 @@ export default function Dashboard({ auth, profile, projects }) {
 
     // Form for adding new project
     const projectForm = useForm({
-        deployment_mode: 'fullstack',
+        deployment_mode: 'simple',
         fullstack_source: 'monorepo',
         name: '',
         category: '',
         subdomain: '',
+        backend_subdomain: '',
         github_repo_url: '',
         branch: 'main',
         backend_github_repo_url: '',
@@ -126,13 +127,13 @@ export default function Dashboard({ auth, profile, projects }) {
             setEnvPairs([{ key: '', value: '' }]);
             return;
         }
-        const apiUrl = `https://${subdomain}.nexus-academic.software/api`;
+        const apiUrl = `https://${subdomain}.uleamcode.software/api`;
         const vars = [
             `VITE_API_URL=${apiUrl}`,
             `REACT_APP_API_URL=${apiUrl}`,
             `NEXT_PUBLIC_API_URL=${apiUrl}`,
             `API_URL=${apiUrl}`,
-            `BACKEND_URL=https://${subdomain}.nexus-academic.software`
+            `BACKEND_URL=https://${subdomain}.uleamcode.software`
         ].join('\n');
         projectForm.setData('env_vars', vars);
         setEnvPairs(parseEnvToPairs(vars));
@@ -281,6 +282,44 @@ export default function Dashboard({ auth, profile, projects }) {
         });
     };
 
+    // Formatear texto a slug válido para subdominio (solo letras, números y guiones bajos)
+    const formatToSlug = (text) => {
+        return (text || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9_-]/g, '_')
+            .replace(/_+/g, '_')
+            .replace(/^_+|_+$/g, '');
+    };
+
+    // Actualizar nombre del proyecto y sincronizar en tiempo real el subdominio no editable
+    const handleProjectNameChange = (newName) => {
+        const slug = formatToSlug(newName);
+        const isFullstack = projectForm.data.deployment_mode === 'fullstack';
+        projectForm.setData(prev => ({
+            ...prev,
+            name: newName,
+            subdomain: isFullstack ? (slug ? `${slug}_frontend` : '') : slug,
+            backend_subdomain: isFullstack ? (slug ? `${slug}_backend` : '') : ''
+        }));
+    };
+
+    // Alternar modo Fullstack (Frontend + Backend) con recálculo automático de subdominios
+    const handleToggleFullstack = (checked) => {
+        const isFullstack = checked;
+        const slug = formatToSlug(projectForm.data.name);
+        projectForm.setData(prev => ({
+            ...prev,
+            deployment_mode: isFullstack ? 'fullstack' : 'simple',
+            fullstack_source: 'monorepo',
+            subdomain: isFullstack ? (slug ? `${slug}_frontend` : '') : slug,
+            backend_subdomain: isFullstack ? (slug ? `${slug}_backend` : '') : '',
+            frontend_dir: isFullstack ? (prev.frontend_dir || 'frontend') : 'frontend',
+            backend_dir: isFullstack ? (prev.backend_dir || 'backend') : 'backend'
+        }));
+    };
+
     // Auto-completado inteligente al pegar el repositorio de GitHub o subir archivo
     const handleRepoUrlChange = (url) => {
         let repoName = '';
@@ -301,18 +340,12 @@ export default function Dashboard({ auth, profile, projects }) {
                 .replace(/[-_]+/g, ' ')
                 .replace(/\b\w/g, l => l.toUpperCase());
 
-            const cleanSlug = repoName.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/^_+|_+$/g, '');
+            const slug = formatToSlug(repoName);
+            const isFullstack = projectForm.data.deployment_mode === 'fullstack';
 
-            if (!projectForm.data.name || projectForm.data.name === 'Mi Portal Académico') {
-                updates.name = prettyName;
-            }
-
-            if (projectForm.data.deployment_mode === 'fullstack') {
-                updates.subdomain = `${cleanSlug}_frontend`;
-                updates.backend_subdomain = `${cleanSlug}_backend`;
-            } else {
-                updates.subdomain = cleanSlug;
-            }
+            updates.name = prettyName;
+            updates.subdomain = isFullstack ? (slug ? `${slug}_frontend` : '') : slug;
+            updates.backend_subdomain = isFullstack ? (slug ? `${slug}_backend` : '') : '';
 
             // Auto-detección inteligente de categoría a partir de palabras clave en el repositorio
             const lowerUrl = `${url} ${repoName}`.toLowerCase();
@@ -348,27 +381,20 @@ export default function Dashboard({ auth, profile, projects }) {
     };
 
     const handleZipChange = (e) => {
-        const file = e.target.files[0];
+        const file = e.target.files && e.target.files[0];
         if (file) {
             const rawName = file.name.replace(/\.zip$/i, '');
             const prettyName = rawName.replace(/[-_]+/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-            const cleanSlug = rawName.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/^_+|_+$/g, '');
+            const slug = formatToSlug(rawName);
+            const isFullstack = projectForm.data.deployment_mode === 'fullstack';
 
             const updates = {
                 folder_files: [file],
-                folder_paths: [file.name]
+                folder_paths: [file.name],
+                name: prettyName,
+                subdomain: isFullstack ? (slug ? `${slug}_frontend` : '') : slug,
+                backend_subdomain: isFullstack ? (slug ? `${slug}_backend` : '') : ''
             };
-
-            if (!projectForm.data.name || projectForm.data.name === 'Mi Portal Académico') {
-                updates.name = prettyName;
-            }
-
-            if (projectForm.data.deployment_mode === 'fullstack') {
-                updates.subdomain = `${cleanSlug}_frontend`;
-                updates.backend_subdomain = `${cleanSlug}_backend`;
-            } else {
-                updates.subdomain = cleanSlug;
-            }
 
             projectForm.setData(prev => ({
                 ...prev,
@@ -525,11 +551,13 @@ export default function Dashboard({ auth, profile, projects }) {
                                     onClick={() => {
                                         setAttachParentProjectId('');
                                         setUploadType('github');
+                                        setLocalUploadMode('zip');
                                         setSelectedGuideOption(null);
                                         projectForm.setData({
-                                            deployment_mode: 'fullstack',
+                                            deployment_mode: 'simple',
                                             fullstack_source: 'monorepo',
                                             name: '',
+                                            category: '',
                                             subdomain: '',
                                             backend_subdomain: '',
                                             github_repo_url: '',
@@ -594,12 +622,11 @@ export default function Dashboard({ auth, profile, projects }) {
                                                             Pausado por Infracción
                                                         </span>
                                                     ) : (
-                                                        <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold uppercase tracking-wider ${
-                                                            project.status === 'running' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-cyan-500/15 dark:text-cyan-400 dark:border-cyan-500/30' :
+                                                        <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold uppercase tracking-wider ${project.status === 'running' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-cyan-500/15 dark:text-cyan-400 dark:border-cyan-500/30' :
                                                             project.status === 'sleeping' ? 'bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-400 dark:border-indigo-500/30' :
-                                                            project.status === 'building' ? 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-yellow-500/15 dark:text-yellow-400 dark:border-yellow-500/30 animate-pulse' :
-                                                            'bg-slate-100 text-slate-600 border border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700'
-                                                        }`}>
+                                                                project.status === 'building' ? 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-yellow-500/15 dark:text-yellow-400 dark:border-yellow-500/30 animate-pulse' :
+                                                                    'bg-slate-100 text-slate-600 border border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700'
+                                                            }`}>
                                                             {project.status === 'running' ? 'Activo' :
                                                                 project.status === 'sleeping' ? 'Suspendido' :
                                                                     project.status === 'building' ? 'Compilando' :
@@ -622,7 +649,7 @@ export default function Dashboard({ auth, profile, projects }) {
                                                 )}
 
                                                 <p className="text-xs text-slate-400 font-mono break-all mb-1">
-                                                    https://{project.subdomain}.nexus-academic.software
+                                                    https://{project.subdomain}.uleamcode.software
                                                 </p>
                                                 <p className="text-xs text-slate-500 break-all mb-3">
                                                     Git: {project.github_repo_url} (Rama: {project.branch})
@@ -643,7 +670,7 @@ export default function Dashboard({ auth, profile, projects }) {
                                                             </span>
                                                         </div>
                                                         <p className="text-[11px] text-slate-400 font-mono truncate">
-                                                            API: https://{linkedBackendObj.subdomain}.nexus-academic.software/api
+                                                            API: https://{linkedBackendObj.subdomain}.uleamcode.software/api
                                                         </p>
                                                         <div className="flex items-center justify-between pt-1 border-t border-slate-800 text-[11px]">
                                                             <div className="flex space-x-2">
@@ -759,29 +786,29 @@ export default function Dashboard({ auth, profile, projects }) {
             {isAddProjectOpen && (
                 <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
                     {/* Tarjeta Principal: Formulario de Despliegue */}
-                    <div className="w-full max-w-xl bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto border border-slate-200 dark:border-slate-800">
-                        <div className="flex justify-between items-start mb-5">
+                    {/* Tarjeta Principal: Formulario de Despliegue */}
+                    <div className="w-full max-w-xl bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-2xl h-[90vh] flex flex-col border border-slate-200 dark:border-slate-800">
+                        <div className="flex justify-between items-start mb-4 shrink-0">
                             <div>
                                 <h3 className="text-lg font-bold text-slate-900 dark:text-white tracking-wide">
                                     {attachParentProjectId ? (
                                         `Desplegar Backend para ${mainProjects.find(p => p.id === attachParentProjectId)?.name || 'Aplicación'}`
                                     ) : projectForm.data.deployment_mode === 'fullstack' ? (
-                                        'Desplegar Suite Fullstack'
+                                        'Desplegar Proyecto Fullstack'
                                     ) : (
-                                        'Desplegar Aplicación Simple'
+                                        'Desplegar Proyecto'
                                     )}
                                 </h3>
                                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                                     {attachParentProjectId
                                         ? 'Este servicio se vinculará como API backend y no consumirá cupo de vitrina.'
-                                        : projectForm.data.deployment_mode === 'fullstack'
-                                            ? 'Despliega Frontend y Backend en un solo paso con conexión automática.'
-                                            : 'Publica un monolito o frontend individual.'}
+                                        : 'Indica el enlace o archivo de tu proyecto para desplegarlo en la plataforma.'}
                                 </p>
                             </div>
 
                             <div>
                                 <button
+                                    type="button"
                                     onClick={() => {
                                         setIsAddProjectOpen(false);
                                         setAttachParentProjectId('');
@@ -793,63 +820,55 @@ export default function Dashboard({ auth, profile, projects }) {
                                         setIsEnvSectionOpen(false);
                                     }}
                                     className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white transition font-bold border-0"
+                                    title="Cerrar"
                                 >
                                     ✕
                                 </button>
                             </div>
                         </div>
 
-                        {/* Selector de Modo de Despliegue (Fullstack vs Simple) */}
-                        {!attachParentProjectId && (
-                            <div className="grid grid-cols-2 gap-2 deploy-config-track mb-4">
-                                <button
-                                    type="button"
-                                    onClick={() => projectForm.setData('deployment_mode', 'fullstack')}
-                                    className={`py-2 px-3 rounded-lg text-xs font-bold transition border-0 ${projectForm.data.deployment_mode === 'fullstack'
-                                        ? 'deploy-config-btn-active'
-                                        : 'deploy-config-btn-inactive'
-                                        }`}
-                                >
-                                    Suite Fullstack (Frontend + API)
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => projectForm.setData('deployment_mode', 'simple')}
-                                    className={`py-2 px-3 rounded-lg text-xs font-bold transition border-0 ${projectForm.data.deployment_mode === 'simple'
-                                        ? 'deploy-config-btn-active'
-                                        : 'deploy-config-btn-inactive'
-                                        }`}
-                                >
-                                    Aplicación Simple / Monolito
-                                </button>
-                            </div>
-                        )}
-
-                        {/* Pestañas de Selección de tipo de subida */}
-                        <div className="flex gap-2 deploy-config-track mb-4">
+                        {/* Selector Superior Segmentado: GitHub vs Archivo ZIP */}
+                        <div className="grid grid-cols-2 gap-2 deploy-config-track mb-4 shrink-0">
                             <button
                                 type="button"
-                                onClick={() => setUploadType('github')}
-                                className={`flex-1 py-2 rounded-lg text-xs font-bold transition border-0 ${uploadType === 'github'
+                                onClick={() => {
+                                    setUploadType('github');
+                                    projectForm.setData(prev => ({
+                                        ...prev,
+                                        folder_files: null,
+                                        folder_paths: null
+                                    }));
+                                }}
+                                className={`py-2 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 border-0 ${uploadType === 'github'
                                     ? 'deploy-config-btn-active'
                                     : 'deploy-config-btn-inactive'
                                     }`}
                             >
-                                GitHub
+                                <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+                                    <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
+                                </svg>
+                                <span>GitHub</span>
                             </button>
                             <button
                                 type="button"
-                                onClick={() => setUploadType('folder')}
-                                className={`flex-1 py-2 rounded-lg text-xs font-bold transition border-0 ${uploadType === 'folder'
+                                onClick={() => {
+                                    setUploadType('folder');
+                                    setLocalUploadMode('zip');
+                                }}
+                                className={`py-2 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 border-0 ${uploadType === 'folder'
                                     ? 'deploy-config-btn-active'
                                     : 'deploy-config-btn-inactive'
                                     }`}
                             >
-                                Carpeta Local / ZIP
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                                </svg>
+                                <span>Archivo ZIP</span>
                             </button>
                         </div>
 
-                        <form onSubmit={handleProjectSubmit} className="space-y-4">
+                        <form onSubmit={handleProjectSubmit} className="flex-1 flex flex-col min-h-0">
+                            <div className="flex-1 overflow-y-auto space-y-4 pr-1.5">
                             {Object.keys(projectForm.errors).length > 0 && (
                                 <div className="p-3.5 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/60 rounded-xl text-xs space-y-1.5 shadow-2xs">
                                     {Object.keys(projectForm.errors).length === 1 && projectForm.errors.category ? (
@@ -886,262 +905,117 @@ export default function Dashboard({ auth, profile, projects }) {
                                     )}
                                 </div>
                             )}
+
                             {/* ======================================================= */}
-                            {/* PASO 1: FUENTE DE CÓDIGO (GitHub o Local)              */}
+                            {/* BLOQUE 1: ORIGEN DEL CODIGO (GitHub o Archivo ZIP)     */}
                             {/* ======================================================= */}
-                            {projectForm.data.deployment_mode === 'fullstack' && !attachParentProjectId ? (
-                                <div className="space-y-4">
-                                    {uploadType === 'github' && (
-                                        <div className="flex gap-1.5 deploy-config-track mb-1">
-                                            <button
-                                                type="button"
-                                                onClick={() => projectForm.setData('fullstack_source', 'monorepo')}
-                                                className={`flex-1 py-1.5 text-center text-xs font-bold rounded-lg transition border-0 ${projectForm.data.fullstack_source === 'monorepo'
-                                                    ? 'deploy-config-btn-active'
-                                                    : 'deploy-config-btn-inactive'
-                                                    }`}
-                                            >
-                                                Mismo Repositorio (Monorepo)
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => projectForm.setData('fullstack_source', 'separate')}
-                                                className={`flex-1 py-1.5 text-center text-xs font-bold rounded-lg transition border-0 ${projectForm.data.fullstack_source === 'separate'
-                                                    ? 'deploy-config-btn-active'
-                                                    : 'deploy-config-btn-inactive'
-                                                    }`}
-                                            >
-                                                Repositorios Separados
-                                            </button>
-                                        </div>
-                                    )}
+                            {uploadType === 'github' ? (
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                                            URL del Repositorio GitHub
+                                        </label>
+                                        <input
+                                            type="url"
+                                            value={projectForm.data.github_repo_url}
+                                            onChange={e => handleRepoUrlChange(e.target.value)}
+                                            required
+                                            className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder-slate-400 dark:placeholder-slate-600 text-xs sm:text-sm font-mono"
+                                            placeholder="https://github.com/usuario/mi-proyecto"
+                                        />
+                                        {projectForm.errors.github_repo_url && (
+                                            <p className="text-xs text-red-500 dark:text-red-400 mt-1">{projectForm.errors.github_repo_url}</p>
+                                        )}
+                                        {renderGithubPreflightBadge()}
+                                    </div>
 
-                                    {uploadType === 'github' ? (
-                                        projectForm.data.fullstack_source === 'monorepo' ? (
-                                            <>
-                                                <div>
-                                                    <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-                                                        URL del Repositorio GitHub
-                                                    </label>
-                                                    <input
-                                                        type="url"
-                                                        value={projectForm.data.github_repo_url}
-                                                        onChange={e => handleRepoUrlChange(e.target.value)}
-                                                        required
-                                                        className="w-full px-4 py-2.5 bg-slate-950 border-0 rounded-xl text-slate-200 focus:ring-1 focus:ring-indigo-500 placeholder-slate-700 text-sm font-mono"
-                                                        placeholder="https://github.com/usuario/proyecto-grupoC.git"
-                                                    />
-                                                    {projectForm.errors.github_repo_url && <p className="text-xs text-red-400 mt-1">{projectForm.errors.github_repo_url}</p>}
-                                                    {renderGithubPreflightBadge()}
-                                                </div>
-
-                                                <div className="grid grid-cols-2 gap-3">
-                                                    <div>
-                                                        <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Subcarpeta Frontend</label>
-                                                        <input
-                                                            type="text"
-                                                            value={projectForm.data.frontend_dir}
-                                                            onChange={e => projectForm.setData('frontend_dir', e.target.value)}
-                                                            className="w-full px-3 py-2 bg-slate-950 border-0 rounded-xl text-slate-200 focus:ring-1 focus:ring-indigo-500 text-xs font-mono"
-                                                            placeholder="frontend"
-                                                        />
-                                                    </div>
-                                                    <div>
-                                                        <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Subcarpeta Backend</label>
-                                                        <input
-                                                            type="text"
-                                                            value={projectForm.data.backend_dir}
-                                                            onChange={e => projectForm.setData('backend_dir', e.target.value)}
-                                                            className="w-full px-3 py-2 bg-slate-950 border-0 rounded-xl text-slate-200 focus:ring-1 focus:ring-indigo-500 text-xs font-mono"
-                                                            placeholder="backend"
-                                                        />
-                                                    </div>
-                                                </div>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <div className="space-y-2 p-3 bg-slate-950 rounded-xl border-0">
-                                                    <h5 className="text-xs font-semibold text-slate-300 uppercase tracking-wider">1. Repositorio de Frontend (React / Vue)</h5>
-                                                    <input
-                                                        type="url"
-                                                        value={projectForm.data.github_repo_url}
-                                                        onChange={e => handleRepoUrlChange(e.target.value)}
-                                                        required
-                                                        className="w-full px-3 py-2 bg-slate-900 border-0 rounded-lg text-slate-200 text-xs font-mono focus:ring-1 focus:ring-indigo-500"
-                                                        placeholder="https://github.com/usuario/frontend-repo"
-                                                    />
-                                                    {renderGithubPreflightBadge()}
-                                                </div>
-
-                                                <div className="space-y-2 p-3 bg-slate-950 rounded-xl border-0">
-                                                    <h5 className="text-xs font-semibold text-slate-300 uppercase tracking-wider">2. Repositorio de Backend (Laravel / Python)</h5>
-                                                    <input
-                                                        type="url"
-                                                        value={projectForm.data.backend_github_repo_url}
-                                                        onChange={e => projectForm.setData('backend_github_repo_url', e.target.value)}
-                                                        required
-                                                        className="w-full px-3 py-2 bg-slate-900 border-0 rounded-lg text-slate-200 text-xs font-mono focus:ring-1 focus:ring-indigo-500"
-                                                        placeholder="https://github.com/usuario/backend-repo"
-                                                    />
-                                                </div>
-                                            </>
-                                        )
-                                    ) : (
-                                        <div className="space-y-3">
-                                            <div>
-                                                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Selecciona archivo ZIP del Proyecto Fullstack</label>
-                                                <div className="bg-slate-950 rounded-xl p-5 text-center cursor-pointer transition relative border-0">
-                                                    <input
-                                                        type="file"
-                                                        accept=".zip"
-                                                        onChange={handleZipChange}
-                                                        required
-                                                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                                    />
-                                                    <p className="text-xs font-semibold text-slate-300">
-                                                        {projectForm.data.folder_files ? projectForm.data.folder_files[0].name : 'Selecciona tu archivo .zip (máx. 50MB)'}
-                                                    </p>
-                                                </div>
-                                            </div>
-
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <div>
-                                                    <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Subcarpeta Frontend</label>
-                                                    <input
-                                                        type="text"
-                                                        value={projectForm.data.frontend_dir}
-                                                        onChange={e => projectForm.setData('frontend_dir', e.target.value)}
-                                                        className="w-full px-3 py-2 bg-slate-950 border-0 rounded-xl text-slate-200 focus:ring-1 focus:ring-indigo-500 text-xs font-mono"
-                                                        placeholder="frontend"
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Subcarpeta Backend</label>
-                                                    <input
-                                                        type="text"
-                                                        value={projectForm.data.backend_dir}
-                                                        onChange={e => projectForm.setData('backend_dir', e.target.value)}
-                                                        className="w-full px-3 py-2 bg-slate-950 border-0 rounded-xl text-slate-200 focus:ring-1 focus:ring-indigo-500 text-xs font-mono"
-                                                        placeholder="backend"
-                                                    />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                                            Rama para Deploy
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={projectForm.data.branch}
+                                            onChange={e => projectForm.setData('branch', e.target.value)}
+                                            required
+                                            className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs font-mono"
+                                            placeholder="main"
+                                        />
+                                    </div>
                                 </div>
                             ) : (
-                                <div className="space-y-4">
-                                    {uploadType === 'github' ? (
-                                        <>
-                                            <div>
-                                                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">URL del Repositorio Público (GitHub)</label>
-                                                <input
-                                                    type="url"
-                                                    value={projectForm.data.github_repo_url}
-                                                    onChange={e => handleRepoUrlChange(e.target.value)}
-                                                    required
-                                                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-0 rounded-xl text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-indigo-500 placeholder-slate-400 dark:placeholder-slate-700 text-sm font-mono"
-                                                    placeholder="https://github.com/usuario/nombre-repositorio"
-                                                />
-                                                {projectForm.errors.github_repo_url && <p className="text-xs text-red-500 dark:text-red-400 mt-1">{projectForm.errors.github_repo_url}</p>}
-                                                {renderGithubPreflightBadge()}
-                                            </div>
-
-                                            <div>
-                                                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Rama para Deploy</label>
-                                                <input
-                                                    type="text"
-                                                    value={projectForm.data.branch}
-                                                    onChange={e => projectForm.setData('branch', e.target.value)}
-                                                    required
-                                                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-0 rounded-xl text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-indigo-500 placeholder-slate-400 dark:placeholder-slate-700 text-sm"
-                                                    placeholder="main"
-                                                />
-                                            </div>
-                                        </>
-                                    ) : (
-                                        <div className="space-y-4">
-                                            <div className="flex gap-1.5 deploy-config-track mb-1">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => { setLocalUploadMode('zip'); projectForm.setData({ ...projectForm.data, folder_files: null, folder_paths: null }); }}
-                                                    className={`flex-1 py-1.5 text-center text-xs font-bold rounded-lg transition border-0 ${localUploadMode === 'zip'
-                                                        ? 'deploy-config-btn-active'
-                                                        : 'deploy-config-btn-inactive'
-                                                        }`}
-                                                >
-                                                    Archivo ZIP (Recomendado)
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => { setLocalUploadMode('folder'); projectForm.setData({ ...projectForm.data, folder_files: null, folder_paths: null }); }}
-                                                    className={`flex-1 py-1.5 text-center text-xs font-bold rounded-lg transition border-0 ${localUploadMode === 'folder'
-                                                        ? 'deploy-config-btn-active'
-                                                        : 'deploy-config-btn-inactive'
-                                                        }`}
-                                                >
-                                                    Carpeta Local
-                                                </button>
-                                            </div>
-
-                                            {localUploadMode === 'zip' ? (
-                                                <div>
-                                                    <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Selecciona archivo ZIP del Proyecto</label>
-                                                    <div className="bg-slate-950 rounded-xl p-5 text-center cursor-pointer transition relative border-0">
-                                                        <input
-                                                            type="file"
-                                                            accept=".zip"
-                                                            onChange={handleZipChange}
-                                                            required
-                                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                                        />
-                                                        <p className="text-xs font-semibold text-slate-300">
-                                                            {projectForm.data.folder_files ? projectForm.data.folder_files[0].name : 'Selecciona tu archivo .zip'}
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                                        Archivo ZIP del Proyecto
+                                    </label>
+                                    <div className="relative border-2 border-dashed rounded-xl p-5 text-center transition border-slate-300 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 hover:bg-slate-50 dark:hover:bg-slate-950/70">
+                                        <input
+                                            type="file"
+                                            accept=".zip"
+                                            onChange={handleZipChange}
+                                            required={!projectForm.data.folder_files}
+                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                        />
+                                        {projectForm.data.folder_files && projectForm.data.folder_files[0] ? (
+                                            <div className="flex items-center justify-between pointer-events-none">
+                                                <div className="flex items-center gap-3 text-left">
+                                                    <div className="p-2.5 rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400">
+                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                        </svg>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate max-w-xs sm:max-w-sm">
+                                                            {projectForm.data.folder_files[0].name}
+                                                        </p>
+                                                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                                            {(projectForm.data.folder_files[0].size / (1024 * 1024)).toFixed(2)} MB · Archivo listo para desplegar
                                                         </p>
                                                     </div>
                                                 </div>
-                                            ) : (
-                                                <div>
-                                                    <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Selecciona la Carpeta del Proyecto</label>
-                                                    <div className="bg-slate-950 rounded-xl p-5 text-center cursor-pointer transition relative border-0">
-                                                        <input
-                                                            type="file"
-                                                            webkitdirectory="true"
-                                                            directory="true"
-                                                            multiple
-                                                            onChange={handleFolderChange}
-                                                            required
-                                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                                        />
-                                                        <p className="text-xs font-semibold text-slate-300">
-                                                            {projectForm.data.folder_files ? `${projectForm.data.folder_files.length} archivos seleccionados` : 'Selecciona una carpeta local'}
-                                                        </p>
-                                                    </div>
+                                                <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">
+                                                    Cambiar
+                                                </span>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-1.5 pointer-events-none">
+                                                <div className="mx-auto w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-900 flex items-center justify-center text-slate-500 dark:text-slate-400">
+                                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                                    </svg>
                                                 </div>
-                                            )}
-                                        </div>
+                                                <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                                                    Haz clic o arrastra tu archivo .zip aquí
+                                                </p>
+                                                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                                    Formato .ZIP (máximo 50 MB)
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
+                                    {projectForm.errors.folder_files && (
+                                        <p className="text-xs text-red-500 dark:text-red-400 mt-1">{projectForm.errors.folder_files}</p>
                                     )}
                                 </div>
                             )}
 
                             {/* ======================================================= */}
-                            {/* PASO 2: NOMBRE Y SUBDOMINIOS                            */}
+                            {/* BLOQUE 2: IDENTIFICACION DEL PROYECTO                   */}
                             {/* ======================================================= */}
-                            <div className="space-y-3 pt-3">
+                            <div className="space-y-3 pt-1">
                                 <div>
-                                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
                                         <span>Categoría del Proyecto</span>
-                                        <span className="text-[10px] text-amber-700 dark:text-amber-400 font-semibold uppercase bg-amber-100 dark:bg-amber-400/10 px-2 py-0.5 rounded border border-amber-200 dark:border-transparent">Obligatorio</span>
                                     </label>
                                     <select
                                         value={projectForm.data.category || ''}
                                         onChange={e => projectForm.setData('category', e.target.value)}
                                         required
-                                        className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-indigo-500 text-xs sm:text-sm font-medium cursor-pointer"
+                                        className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs sm:text-sm font-medium cursor-pointer"
                                     >
                                         <option value="">-- Selecciona una categoría de software --</option>
                                         {PROJECT_CATEGORIES.map(cat => (
-                                            <option key={cat} value={cat} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 py-1">
+                                            <option key={cat} value={cat} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200">
                                                 {cat}
                                             </option>
                                         ))}
@@ -1154,97 +1028,172 @@ export default function Dashboard({ auth, profile, projects }) {
                                 </div>
 
                                 <div>
-                                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Nombre del Proyecto</label>
+                                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                                        Nombre del Proyecto
+                                    </label>
                                     <input
                                         type="text"
                                         value={projectForm.data.name}
-                                        onChange={e => projectForm.setData('name', e.target.value)}
+                                        onChange={e => handleProjectNameChange(e.target.value)}
                                         required
-                                        className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-0 rounded-xl text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-indigo-500 placeholder-slate-400 dark:placeholder-slate-700 text-sm"
-                                        placeholder="Mi Portal Académico"
+                                        className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder-slate-400 dark:placeholder-slate-600 text-sm"
+                                        placeholder="Ej: Mi Portal Académico"
                                     />
                                     {projectForm.errors.name && <p className="text-xs text-red-500 dark:text-red-400 mt-1">{projectForm.errors.name}</p>}
                                 </div>
 
-                                {projectForm.data.deployment_mode === 'fullstack' && !attachParentProjectId ? (
-                                    <div className="space-y-3">
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                            <div>
-                                                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Subdominio Frontend</label>
-                                                <div className="flex rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950">
-                                                    <input
-                                                        type="text"
-                                                        value={projectForm.data.subdomain}
-                                                        onChange={e => projectForm.setData('subdomain', e.target.value)}
-                                                        required
-                                                        className="subdomain-clean-input flex-1 px-3 py-2 bg-transparent border-0 text-slate-800 dark:text-slate-200 focus:ring-0 placeholder-slate-400 dark:placeholder-slate-700 text-xs font-mono"
-                                                        placeholder="mi_app_frontend"
-                                                    />
-                                                    <span className="px-2.5 py-2 bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 text-[10px] flex items-center font-mono select-none border-l border-slate-200 dark:border-slate-800">
-                                                        .nexus...
-                                                    </span>
-                                                </div>
-                                                {projectForm.errors.subdomain && <p className="text-xs text-red-500 dark:text-red-400 mt-1">{projectForm.errors.subdomain}</p>}
-                                            </div>
-
-                                            <div>
-                                                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Subdominio Backend (API)</label>
-                                                <div className="flex rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950">
-                                                    <input
-                                                        type="text"
-                                                        value={projectForm.data.backend_subdomain || ''}
-                                                        onChange={e => projectForm.setData('backend_subdomain', e.target.value)}
-                                                        required
-                                                        className="subdomain-clean-input flex-1 px-3 py-2 bg-transparent border-0 text-slate-800 dark:text-slate-200 focus:ring-0 placeholder-slate-400 dark:placeholder-slate-700 text-xs font-mono"
-                                                        placeholder="mi_app_backend"
-                                                    />
-                                                    <span className="px-2.5 py-2 bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 text-[10px] flex items-center font-mono select-none border-l border-slate-200 dark:border-slate-800">
-                                                        .nexus...
-                                                    </span>
-                                                </div>
-                                                {projectForm.errors.backend_subdomain && <p className="text-xs text-red-500 dark:text-red-400 mt-1">{projectForm.errors.backend_subdomain}</p>}
-                                            </div>
-                                        </div>
-
-                                        {/* Vista Previa de URLs en Vivo */}
-                                        {projectForm.data.subdomain && (
-                                            <div className="mt-2 p-2.5 bg-slate-100 dark:bg-slate-950 rounded-xl text-[11px] font-mono space-y-1 border border-slate-200 dark:border-slate-800">
-                                                <div className="text-slate-700 dark:text-slate-300 truncate">
-                                                    Frontend: http://{projectForm.data.subdomain}.nexus-academic.software
-                                                </div>
-                                                <div className="text-slate-500 dark:text-slate-400 truncate">
-                                                    API: http://{projectForm.data.backend_subdomain || (projectForm.data.subdomain + '_backend')}.nexus-academic.software/api
-                                                </div>
-                                            </div>
-                                        )}
+                                {/* Subdominio (Siempre visible y no editable) */}
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                                        <span>Subdominio</span>
+                                    </label>
+                                    <div className={`flex rounded-xl overflow-hidden border ${projectForm.errors.subdomain ? 'border-red-500/60' : 'border-slate-300 dark:border-slate-800'} bg-slate-100 dark:bg-slate-950/70`}>
+                                        <input
+                                            type="text"
+                                            value={projectForm.data.subdomain}
+                                            readOnly
+                                            tabIndex={-1}
+                                            className="subdomain-clean-input flex-1 px-3.5 py-2.5 bg-transparent border-0 text-slate-700 dark:text-slate-300 focus:ring-0 text-sm font-mono cursor-not-allowed select-none"
+                                            placeholder="nombre_del_proyecto"
+                                        />
+                                        <span className="px-3.5 py-2.5 bg-slate-200/70 dark:bg-slate-900 text-slate-600 dark:text-slate-400 text-xs sm:text-sm flex items-center font-mono select-none border-l border-slate-300/80 dark:border-slate-800">
+                                            .uleamcode.software
+                                        </span>
                                     </div>
-                                ) : (
-                                    <div>
-                                        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Subdominio</label>
-                                        <div className={`flex rounded-xl overflow-hidden border ${projectForm.errors.subdomain ? 'border-red-500/60' : 'border-slate-200 dark:border-slate-800'} bg-slate-50 dark:bg-slate-950`}>
-                                            <input
-                                                type="text"
-                                                value={projectForm.data.subdomain}
-                                                onChange={e => projectForm.setData('subdomain', e.target.value)}
-                                                required
-                                                className="subdomain-clean-input flex-1 px-4 py-2.5 bg-transparent border-0 text-slate-800 dark:text-slate-200 focus:ring-0 placeholder-slate-400 dark:placeholder-slate-700 text-sm font-mono"
-                                                placeholder="mi-proyecto"
-                                            />
-                                            <span className="px-4 py-2.5 bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 text-sm flex items-center font-mono select-none border-l border-slate-200 dark:border-slate-800">
-                                                .nexus-academic.software
-                                            </span>
-                                        </div>
-                                        {projectForm.errors.subdomain && (
-                                            <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium">
-                                                {projectForm.errors.subdomain}
-                                            </p>
-                                        )}
-                                    </div>
-                                )}
+
+                                    {projectForm.errors.subdomain && (
+                                        <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium">
+                                            {projectForm.errors.subdomain}
+                                        </p>
+                                    )}
+                                </div>
+
                             </div>
 
                             {/* ======================================================= */}
-                            {/* EDITOR VISUAL DE VARIABLES DE ENTORNO (.env)            */}
+                            {/* BLOQUE 3: OPCION DE FULLSTACK (FRONTEND + BACKEND)       */}
+                            {/* ======================================================= */}
+                            {!attachParentProjectId && (
+                                <div className="pt-1">
+                                    <div
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={() => handleToggleFullstack(projectForm.data.deployment_mode !== 'fullstack')}
+                                        className={`flex items-start gap-3 p-3.5 rounded-xl border transition cursor-pointer select-none ${projectForm.data.deployment_mode === 'fullstack'
+                                            ? 'border-indigo-500 bg-indigo-50/40 dark:bg-indigo-950/20'
+                                            : 'border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50 hover:bg-slate-100/70 dark:hover:bg-slate-950'
+                                            }`}
+                                    >
+                                        <div
+                                            className={`w-5 h-5 mt-0.5 rounded-md flex items-center justify-center shrink-0 transition-colors border ${projectForm.data.deployment_mode === 'fullstack'
+                                                ? 'bg-indigo-600 border-indigo-600'
+                                                : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700'
+                                                }`}
+                                        >
+                                            {projectForm.data.deployment_mode === 'fullstack' && (
+                                                <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="3">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                                </svg>
+                                            )}
+                                        </div>
+                                        <div className="flex-1 text-xs">
+                                            <span className="font-semibold text-slate-800 dark:text-slate-200 block text-xs sm:text-sm">
+                                                Desplegar en 2 servicios separados (Web + API)
+                                            </span>
+                                            <span className="text-slate-500 dark:text-slate-400 text-[11px] block mt-0.5">
+                                                Actívalo solo si tu proyecto está dividido en interfaz web y servidor API independiente.
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Opciones simplificadas cuando el checkbox Fullstack está activo */}
+                            {projectForm.data.deployment_mode === 'fullstack' && !attachParentProjectId && (
+                                <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 space-y-3">
+                                    {/* Subcarpetas solo si es Monorepo o archivo ZIP */}
+                                    {(uploadType === 'folder' || projectForm.data.fullstack_source === 'monorepo') && (
+                                        <>
+                                            <p className="text-xs text-slate-600 dark:text-slate-400">
+                                                Carpetas donde se encuentran tu interfaz y tu servidor en este repositorio:
+                                            </p>
+
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div>
+                                                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                                                        Carpeta Frontend
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        value={projectForm.data.frontend_dir}
+                                                        onChange={e => projectForm.setData('frontend_dir', e.target.value)}
+                                                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 text-xs font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                                                        placeholder="frontend"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                                                        Carpeta Backend
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        value={projectForm.data.backend_dir}
+                                                        onChange={e => projectForm.setData('backend_dir', e.target.value)}
+                                                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 text-xs font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                                                        placeholder="backend"
+                                                    />
+                                                </div>
+                                            </div>
+                                        </>
+                                    )}
+
+                                    {uploadType === 'github' && projectForm.data.fullstack_source === 'separate' && (
+                                        <div>
+                                            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                                                URL Repositorio Backend (GitHub)
+                                            </label>
+                                            <input
+                                                type="url"
+                                                value={projectForm.data.backend_github_repo_url}
+                                                onChange={e => projectForm.setData('backend_github_repo_url', e.target.value)}
+                                                required
+                                                className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 text-xs font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                                                placeholder="https://github.com/usuario/backend-repo"
+                                            />
+                                        </div>
+                                    )}
+
+                                    {uploadType === 'github' && (
+                                        <div className="text-right">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const nextSource = projectForm.data.fullstack_source === 'monorepo' ? 'separate' : 'monorepo';
+                                                    projectForm.setData({
+                                                        ...projectForm.data,
+                                                        fullstack_source: nextSource,
+                                                        frontend_dir: nextSource === 'separate' ? '' : (projectForm.data.frontend_dir || 'frontend'),
+                                                        backend_dir: nextSource === 'separate' ? '' : (projectForm.data.backend_dir || 'backend')
+                                                    });
+                                                }}
+                                                className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline border-0 bg-transparent cursor-pointer font-medium"
+                                            >
+                                                {projectForm.data.fullstack_source === 'monorepo'
+                                                    ? '¿Tienes el Backend en otro repositorio de GitHub?'
+                                                    : 'Usar un solo repositorio para ambos'}
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    <div className="text-[11px] text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-900/60 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 space-y-0.5">
+                                        <div>Frontend: <span className="font-mono font-semibold text-indigo-600 dark:text-indigo-400">{projectForm.data.subdomain}.uleamcode.software</span></div>
+                                        <div>Backend API: <span className="font-mono font-semibold text-indigo-600 dark:text-indigo-400">{projectForm.data.backend_subdomain || (projectForm.data.subdomain + '_backend')}.uleamcode.software/api</span></div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* ======================================================= */}
+                            {/* BLOQUE 4: VARIABLES DE ENTORNO (.env)                   */}
                             {/* ======================================================= */}
                             <div className="pt-2 border-t border-slate-200 dark:border-slate-800/80">
                                 <button
@@ -1287,22 +1236,20 @@ export default function Dashboard({ auth, profile, projects }) {
                                                 <button
                                                     type="button"
                                                     onClick={() => setEnvEditorMode('visual')}
-                                                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${
-                                                        envEditorMode === 'visual'
-                                                            ? 'bg-indigo-600 text-white shadow-xs'
-                                                            : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
-                                                    }`}
+                                                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${envEditorMode === 'visual'
+                                                        ? 'bg-indigo-600 text-white shadow-xs'
+                                                        : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
+                                                        }`}
                                                 >
                                                     Modo Visual (Clave - Valor)
                                                 </button>
                                                 <button
                                                     type="button"
                                                     onClick={() => setEnvEditorMode('raw')}
-                                                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${
-                                                        envEditorMode === 'raw'
-                                                            ? 'bg-indigo-600 text-white shadow-xs'
-                                                            : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
-                                                    }`}
+                                                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${envEditorMode === 'raw'
+                                                        ? 'bg-indigo-600 text-white shadow-xs'
+                                                        : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
+                                                        }`}
                                                 >
                                                     Texto Plano (.env)
                                                 </button>
@@ -1386,30 +1333,38 @@ export default function Dashboard({ auth, profile, projects }) {
                                         </div>
                                     </div>
                                 )}
+                                </div>
                             </div>
 
-                            <button
-                                type="submit"
-                                disabled={projectForm.processing || (uploadType === 'github' && githubCheckStatus === 'invalid')}
-                                className="w-full py-3 mt-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold transition cursor-pointer text-sm shadow-md border-0"
-                            >
-                                {projectForm.processing
-                                    ? 'Preparando Despliegue...'
-                                    : projectForm.data.deployment_mode === 'fullstack'
-                                        ? 'Desplegar Suite Fullstack'
-                                        : 'Iniciar Despliegue'}
-                            </button>
+                            <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 shrink-0">
+                                <button
+                                    type="submit"
+                                    disabled={projectForm.processing || (uploadType === 'github' && githubCheckStatus === 'invalid')}
+                                    className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold transition cursor-pointer text-sm shadow-md border-0"
+                                >
+                                    {projectForm.processing
+                                        ? 'Preparando Despliegue...'
+                                        : projectForm.data.deployment_mode === 'fullstack'
+                                            ? 'Desplegar Proyecto (Web + API)'
+                                            : 'Iniciar Despliegue'}
+                                </button>
+                            </div>
                         </form>
                     </div>
 
                     {/* Tarjeta Flotante Independiente: Guía de Despliegue (a la derecha de la pantalla, arriba del botón) */}
                     {isDeployHelpOpen && (
-                        <div className="fixed bottom-20 right-6 z-[60] w-80 md:w-96 max-h-[75vh] bg-slate-900 rounded-2xl p-5 shadow-2xl overflow-y-auto flex flex-col justify-between animate-fadeIn border-0">
+                        <div className="fixed bottom-20 right-6 z-[60] w-80 md:w-96 max-h-[75vh] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-2xl overflow-y-auto flex flex-col justify-between animate-fadeIn">
                             <div>
-                                <div className="flex justify-between items-center pb-3 mb-4 border-b border-slate-200 dark:border-slate-800">
-                                    <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wider">
-                                        Guía de Despliegue
-                                    </h4>
+                                <div className="flex justify-between items-center pb-3 mb-3 border-b border-slate-200 dark:border-slate-800">
+                                    <div>
+                                        <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wider">
+                                            Guía de Despliegue
+                                        </h4>
+                                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                            Selecciona tu tipo de proyecto para autoconfigurar el formulario:
+                                        </p>
+                                    </div>
                                     <button
                                         type="button"
                                         onClick={() => setIsDeployHelpOpen(false)}
@@ -1421,7 +1376,7 @@ export default function Dashboard({ auth, profile, projects }) {
                                 </div>
 
                                 <div className="space-y-2.5 text-xs">
-                                    {/* Opción 1: Fullstack Monorepo GitHub */}
+                                    {/* Opción 1: Una sola aplicación desde GitHub */}
                                     <button
                                         type="button"
                                         onClick={() => {
@@ -1429,12 +1384,16 @@ export default function Dashboard({ auth, profile, projects }) {
                                                 setSelectedGuideOption(null);
                                             } else {
                                                 setSelectedGuideOption(1);
+                                                const slug = formatToSlug(projectForm.data.name);
                                                 projectForm.setData({
                                                     ...projectForm.data,
-                                                    deployment_mode: 'fullstack',
+                                                    deployment_mode: 'simple',
                                                     fullstack_source: 'monorepo',
-                                                    frontend_dir: 'frontend',
-                                                    backend_dir: 'backend'
+                                                    subdomain: slug,
+                                                    backend_subdomain: '',
+                                                    frontend_dir: '',
+                                                    backend_dir: '',
+                                                    backend_github_repo_url: ''
                                                 });
                                                 setUploadType('github');
                                             }
@@ -1445,17 +1404,17 @@ export default function Dashboard({ auth, profile, projects }) {
                                             }`}
                                     >
                                         <div className="flex justify-between items-center mb-1">
-                                            <h5 className="guide-card-title text-xs">1. Fullstack GitHub (Monorepo)</h5>
+                                            <h5 className="guide-card-title text-xs">1. Una sola aplicación (GitHub)</h5>
                                             {selectedGuideOption === 1 && (
                                                 <span className="guide-card-badge text-[10px] font-bold px-2 py-0.5 rounded-full">Activo</span>
                                             )}
                                         </div>
                                         <p className="guide-card-desc text-[11px] leading-relaxed">
-                                            Frontend y Backend en un solo repositorio con subcarpetas <code>frontend/</code> y <code>backend/</code>.
+                                            Tu proyecto completo está en un solo repositorio (por ejemplo: PHP, Laravel tradicional, Python, React o HTML/JS).
                                         </p>
                                     </button>
 
-                                    {/* Opción 2: Fullstack Repositorios Separados GitHub */}
+                                    {/* Opción 2: Una sola aplicación en archivo ZIP */}
                                     <button
                                         type="button"
                                         onClick={() => {
@@ -1463,12 +1422,19 @@ export default function Dashboard({ auth, profile, projects }) {
                                                 setSelectedGuideOption(null);
                                             } else {
                                                 setSelectedGuideOption(2);
+                                                const slug = formatToSlug(projectForm.data.name);
                                                 projectForm.setData({
                                                     ...projectForm.data,
-                                                    deployment_mode: 'fullstack',
-                                                    fullstack_source: 'separate'
+                                                    deployment_mode: 'simple',
+                                                    fullstack_source: 'monorepo',
+                                                    subdomain: slug,
+                                                    backend_subdomain: '',
+                                                    frontend_dir: '',
+                                                    backend_dir: '',
+                                                    backend_github_repo_url: ''
                                                 });
-                                                setUploadType('github');
+                                                setUploadType('folder');
+                                                setLocalUploadMode('zip');
                                             }
                                         }}
                                         className={`deploy-guide-card ${selectedGuideOption === 2
@@ -1477,17 +1443,17 @@ export default function Dashboard({ auth, profile, projects }) {
                                             }`}
                                     >
                                         <div className="flex justify-between items-center mb-1">
-                                            <h5 className="guide-card-title text-xs">2. Fullstack GitHub (2 Repositorios)</h5>
+                                            <h5 className="guide-card-title text-xs">2. Una sola aplicación (Archivo ZIP)</h5>
                                             {selectedGuideOption === 2 && (
                                                 <span className="guide-card-badge text-[10px] font-bold px-2 py-0.5 rounded-full">Activo</span>
                                             )}
                                         </div>
                                         <p className="guide-card-desc text-[11px] leading-relaxed">
-                                            Frontend y Backend en 2 repositorios de GitHub independientes.
+                                            Sube tu proyecto comprimido en un archivo <code>.zip</code> (hasta 50 MB) directamente desde tu computadora.
                                         </p>
                                     </button>
 
-                                    {/* Opción 3: Fullstack en Archivo ZIP */}
+                                    {/* Opción 3: Web y API en el mismo repositorio GitHub */}
                                     <button
                                         type="button"
                                         onClick={() => {
@@ -1495,14 +1461,18 @@ export default function Dashboard({ auth, profile, projects }) {
                                                 setSelectedGuideOption(null);
                                             } else {
                                                 setSelectedGuideOption(3);
+                                                const slug = formatToSlug(projectForm.data.name);
                                                 projectForm.setData({
                                                     ...projectForm.data,
                                                     deployment_mode: 'fullstack',
+                                                    fullstack_source: 'monorepo',
+                                                    subdomain: slug ? `${slug}_frontend` : '',
+                                                    backend_subdomain: slug ? `${slug}_backend` : '',
                                                     frontend_dir: 'frontend',
-                                                    backend_dir: 'backend'
+                                                    backend_dir: 'backend',
+                                                    backend_github_repo_url: ''
                                                 });
-                                                setUploadType('folder');
-                                                setLocalUploadMode('zip');
+                                                setUploadType('github');
                                             }
                                         }}
                                         className={`deploy-guide-card ${selectedGuideOption === 3
@@ -1511,17 +1481,17 @@ export default function Dashboard({ auth, profile, projects }) {
                                             }`}
                                     >
                                         <div className="flex justify-between items-center mb-1">
-                                            <h5 className="guide-card-title text-xs">3. Fullstack en Archivo ZIP</h5>
+                                            <h5 className="guide-card-title text-xs">3. Web + API en el mismo repositorio (GitHub)</h5>
                                             {selectedGuideOption === 3 && (
                                                 <span className="guide-card-badge text-[10px] font-bold px-2 py-0.5 rounded-full">Activo</span>
                                             )}
                                         </div>
                                         <p className="guide-card-desc text-[11px] leading-relaxed">
-                                            Sube un <code>.zip</code> local con las carpetas frontend y backend juntas.
+                                            Tienes la interfaz web en la carpeta <code>frontend/</code> y el servidor en la carpeta <code>backend/</code> dentro del mismo link de GitHub.
                                         </p>
                                     </button>
 
-                                    {/* Opción 4: Proyecto Simple GitHub */}
+                                    {/* Opción 4: Web y API en 2 repositorios diferentes GitHub */}
                                     <button
                                         type="button"
                                         onClick={() => {
@@ -1529,9 +1499,15 @@ export default function Dashboard({ auth, profile, projects }) {
                                                 setSelectedGuideOption(null);
                                             } else {
                                                 setSelectedGuideOption(4);
+                                                const slug = formatToSlug(projectForm.data.name);
                                                 projectForm.setData({
                                                     ...projectForm.data,
-                                                    deployment_mode: 'simple'
+                                                    deployment_mode: 'fullstack',
+                                                    fullstack_source: 'separate',
+                                                    subdomain: slug ? `${slug}_frontend` : '',
+                                                    backend_subdomain: slug ? `${slug}_backend` : '',
+                                                    frontend_dir: '',
+                                                    backend_dir: ''
                                                 });
                                                 setUploadType('github');
                                             }
@@ -1542,17 +1518,17 @@ export default function Dashboard({ auth, profile, projects }) {
                                             }`}
                                     >
                                         <div className="flex justify-between items-center mb-1">
-                                            <h5 className="guide-card-title text-xs">4. Proyecto Simple (GitHub)</h5>
+                                            <h5 className="guide-card-title text-xs">4. Web + API en dos repositorios (GitHub)</h5>
                                             {selectedGuideOption === 4 && (
                                                 <span className="guide-card-badge text-[10px] font-bold px-2 py-0.5 rounded-full">Activo</span>
                                             )}
                                         </div>
                                         <p className="guide-card-desc text-[11px] leading-relaxed">
-                                            Para monolitos (Laravel con Blade, PHP puro, Python) o SPA individual desde GitHub.
+                                            Tienes dos repositorios distintos en GitHub: uno para la página web y otro para el servidor API backend.
                                         </p>
                                     </button>
 
-                                    {/* Opción 5: Proyecto Simple en Archivo ZIP */}
+                                    {/* Opción 5: Web y API en un solo archivo ZIP */}
                                     <button
                                         type="button"
                                         onClick={() => {
@@ -1560,9 +1536,16 @@ export default function Dashboard({ auth, profile, projects }) {
                                                 setSelectedGuideOption(null);
                                             } else {
                                                 setSelectedGuideOption(5);
+                                                const slug = formatToSlug(projectForm.data.name);
                                                 projectForm.setData({
                                                     ...projectForm.data,
-                                                    deployment_mode: 'simple'
+                                                    deployment_mode: 'fullstack',
+                                                    fullstack_source: 'monorepo',
+                                                    subdomain: slug ? `${slug}_frontend` : '',
+                                                    backend_subdomain: slug ? `${slug}_backend` : '',
+                                                    frontend_dir: 'frontend',
+                                                    backend_dir: 'backend',
+                                                    backend_github_repo_url: ''
                                                 });
                                                 setUploadType('folder');
                                                 setLocalUploadMode('zip');
@@ -1574,20 +1557,20 @@ export default function Dashboard({ auth, profile, projects }) {
                                             }`}
                                     >
                                         <div className="flex justify-between items-center mb-1">
-                                            <h5 className="guide-card-title text-xs">5. Proyecto Simple en Archivo ZIP</h5>
+                                            <h5 className="guide-card-title text-xs">5. Web + API en un solo archivo ZIP</h5>
                                             {selectedGuideOption === 5 && (
                                                 <span className="guide-card-badge text-[10px] font-bold px-2 py-0.5 rounded-full">Activo</span>
                                             )}
                                         </div>
                                         <p className="guide-card-desc text-[11px] leading-relaxed">
-                                            Sube un <code>.zip</code> local de hasta 50MB para una sola aplicación o monolito.
+                                            Tu archivo <code>.zip</code> contiene adentro las subcarpetas <code>frontend/</code> y <code>backend/</code> para desplegar ambos servicios juntos.
                                         </p>
                                     </button>
                                 </div>
                             </div>
 
-                            <div className="pt-4 mt-4 text-[11px] text-slate-500 text-center">
-                                Uleam Academic Code
+                            <div className="pt-4 mt-4 text-[11px] text-slate-400 dark:text-slate-500 text-center border-t border-slate-100 dark:border-slate-800">
+                                ULEAM Academic Code
                             </div>
                         </div>
                     )}
@@ -1597,9 +1580,9 @@ export default function Dashboard({ auth, profile, projects }) {
                         <button
                             type="button"
                             onClick={() => setIsDeployHelpOpen(!isDeployHelpOpen)}
-                            className="px-4 py-2.5 rounded-xl bg-slate-900/90 hover:bg-slate-850 text-slate-300 hover:text-white shadow-2xl backdrop-blur-md text-xs font-semibold flex items-center gap-2 transition cursor-pointer border-0"
+                            className="px-4 py-2.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 shadow-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold flex items-center gap-2 transition cursor-pointer"
                         >
-                            <span>{isDeployHelpOpen ? 'Ocultar Guía' : 'Guía de Ayuda'}</span>
+                            <span>{isDeployHelpOpen ? 'Ocultar Guía' : 'Guía de Despliegue'}</span>
                         </button>
                     </div>
                 </div>
@@ -1661,7 +1644,7 @@ export default function Dashboard({ auth, profile, projects }) {
                                         className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-slate-200 text-xs mb-3"
                                     >
                                         {backendProjects.map(p => (
-                                            <option key={p.id} value={p.id}>{p.name} ({p.subdomain}.nexus-academic.software)</option>
+                                            <option key={p.id} value={p.id}>{p.name} ({p.subdomain}.uleamcode.software)</option>
                                         ))}
                                     </select>
                                     <button

@@ -71,7 +71,7 @@ class BuildProjectJob implements ShouldQueue
 
         // Paths
         $projectPath = storage_path("app/projects/project-{$project->id}");
-        $domain = env('APP_DOMAIN', 'nexus-academic.software');
+        $domain = env('APP_DOMAIN', 'uleamcode.software');
 
         // Detener cualquier contenedor previo para liberar locks de archivos montados
         $containerName = "project-{$project->id}";
@@ -243,19 +243,19 @@ class BuildProjectJob implements ShouldQueue
             }
 
             // Auto-parchear config/cors.php de proyectos Laravel para aceptar
-            // cualquier origen *.localhost y *.nexus-academic.software automáticamente,
+            // cualquier origen *.localhost y *.uleamcode.software automáticamente,
             // eliminando la necesidad de que el estudiante configure FRONTEND_URL.
             $corsConfigPath = $projectPath . '/config/cors.php';
             if (\Illuminate\Support\Facades\File::exists($corsConfigPath)) {
                 $corsContent = \Illuminate\Support\Facades\File::get($corsConfigPath);
                 $needsPatch = strpos($corsContent, 'localhost') === false
-                    || (strpos($corsContent, 'nexus-academic') === false && strpos($corsContent, 'uleam-academic') === false);
+                    || (strpos($corsContent, 'uleamcode') === false && strpos($corsContent, 'uleam-academic') === false);
                 if ($needsPatch) {
                     $logs .= "Detectado config/cors.php en proyecto Laravel. Habilitando CORS automático para dominios de la plataforma...\n";
                     // Insertar patrones al inicio del array 'allowed_origins_patterns'
                     $corsContent = preg_replace(
                         "/('allowed_origins_patterns'\s*=>\s*\[)/",
-                        "$1\n        '#^https?://.*\\.localhost\$#',\n        '#^https?://.*\\.nexus-academic\\.software\$#',\n        '#^https?://.*\\.uleam-academic\\.software\$#',",
+                        "$1\n        '#^https?://.*\\.localhost\$#',\n        '#^https?://.*\\.uleamcode\\.software\$#',\n        '#^https?://.*\\.uleam-academic\\.software\$#',",
                         $corsContent
                     );
                     // También agregar wildcard al array 'allowed_origins' si usa env()
@@ -267,7 +267,7 @@ class BuildProjectJob implements ShouldQueue
                         );
                     }
                     \Illuminate\Support\Facades\File::put($corsConfigPath, $corsContent);
-                    $logs .= "CORS habilitado automáticamente para *.localhost y *.nexus-academic.software.\n";
+                    $logs .= "CORS habilitado automáticamente para *.localhost y *.uleamcode.software.\n";
                 }
             }
 
@@ -1119,7 +1119,7 @@ class BuildProjectJob implements ShouldQueue
      */
     private function runFrameworkMigrations(Project $project, string $projectPath, &$logs): void
     {
-        $baseDomain = env('APP_DOMAIN', 'nexus-academic.software');
+        $baseDomain = env('APP_DOMAIN', 'uleamcode.software');
         $dbHost = $project->db_driver === 'mysql' ? 'uleam_mysql_students' : 'uleam_postgres_students';
         $dbPort = $project->db_driver === 'mysql' ? '3306' : '5432';
 
@@ -2566,7 +2566,7 @@ RB;
 
         $dbHost = $project->db_driver === 'mysql' ? ($project->language === 'ruby' ? 'uleam-mysql-students' : 'uleam_mysql_students') : ($project->db_driver === 'mongodb' ? 'uleam_mongodb_students' : ($project->language === 'ruby' ? 'uleam-postgres-students' : 'uleam_postgres_students'));
         $dbPort = $project->db_driver === 'mysql' ? '3306' : ($project->db_driver === 'mongodb' ? '27017' : '5432');
-        $baseDomain = env('APP_DOMAIN', 'nexus-academic.software');
+        $baseDomain = env('APP_DOMAIN', 'uleamcode.software');
         $isProd = config('app.env') === 'production';
         $projectHost = $isProd ? "{$project->subdomain}.{$baseDomain}" : "{$project->subdomain}.localhost";
         $appUrl = $isProd ? "https://{$projectHost}" : "http://{$projectHost}";
@@ -2624,7 +2624,7 @@ RB;
             'FILESYSTEM_DISK' => 'public',
             'SANCTUM_STATEFUL_DOMAINS' => "{$project->subdomain}.localhost,localhost,127.0.0.1",
             'SESSION_DOMAIN' => '',
-            'APP_TRUSTED_HOSTS' => "{$projectHost},localhost,127.0.0.1,{$project->subdomain}.localhost,{$project->subdomain}.nexus-academic.software",
+            'APP_TRUSTED_HOSTS' => "{$projectHost},localhost,127.0.0.1,{$project->subdomain}.localhost,{$project->subdomain}.uleamcode.software",
             'APP_X_FRAME_OPTIONS' => 'false',
             'APP_INSTALLED' => 'true',
             'INSTALLED' => 'true',
@@ -2677,7 +2677,7 @@ RB;
             $commonEnvVars['NEXT_PUBLIC_BASE_URL'] = $appUrl;
             $commonEnvVars['AUTH_URL'] = $appUrl;
             $commonEnvVars['NEXT_PUBLIC_SELF_HOSTED'] = 'true';
-            $commonEnvVars['SUPPORT_EMAIL'] = 'support@nexus-academic.software';
+            $commonEnvVars['SUPPORT_EMAIL'] = 'support@uleamcode.software';
         }
 
         // Buscar posibles ubicaciones de .env (.env en raíz, en backend, api, server, apps/web, packages/database)
