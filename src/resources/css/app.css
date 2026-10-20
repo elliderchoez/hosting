@@ -22,7 +22,7 @@
 }
 
 /* =========================================================
-   2. TEMA CLARO - NEXUS ACADEMIC (IDÉNTICO A LA CAPTURA)
+   2. TEMA CLARO - ULEAM ACADEMIC CODE (IDÉNTICO A LA CAPTURA)
    ========================================================= */
 
 /* Activo en el elemento root <html> con clase .theme-academic */
@@ -687,7 +687,7 @@ input.search-input-borderless:focus {
 }
 
 /* =========================================================
-   3. TEMA OSCURO - NEXUS ACADEMIC (ELEGANTE Y DE ALTO RENDIMIENTO)
+   3. TEMA OSCURO - ULEAM ACADEMIC CODE (ELEGANTE Y DE ALTO RENDIMIENTO)
    ========================================================= */
 
 /* Activo en el elemento root <html> con clase .dark */
@@ -1295,4 +1295,79 @@ iframe.demo-iframe {
 .dark .deploy-guide-card-inactive code {
     background-color: #1e293b !important;
     color: #94a3b8 !important;
+}
+
+/* ==========================================================================
+   6. MEJORAS DE CONTRASTE Y TEMA CLARO: DESPLIEGUE, PREFLIGHT Y VARIABLES .ENV
+   ========================================================================== */
+
+/* Limpieza de bordes internos en grupos de subdominio */
+.theme-academic input.subdomain-clean-input,
+.theme-academic .subdomain-clean-input {
+    border: 0 !important;
+    border-width: 0 !important;
+    box-shadow: none !important;
+    outline: none !important;
+    background-color: transparent !important;
+}
+
+.theme-academic input.subdomain-clean-input:focus,
+.theme-academic .subdomain-clean-input:focus {
+    border: 0 !important;
+    border-width: 0 !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+/* Badge Pre-flight de GitHub en tema claro */
+.theme-academic .github-preflight-valid {
+    background-color: #ecfdf5 !important;
+    border: 1px solid #a7f3d0 !important;
+    color: #065f46 !important;
+}
+
+.theme-academic .github-preflight-valid strong {
+    color: #022c22 !important;
+}
+
+.theme-academic .github-preflight-valid .branch-badge {
+    background-color: #d1fae5 !important;
+    color: #065f46 !important;
+    border: 1px solid #6ee7b7 !important;
+    font-weight: 600 !important;
+}
+
+.theme-academic .github-preflight-checking {
+    background-color: #eff6ff !important;
+    border: 1px solid #bfdbfe !important;
+    color: #1d4ed8 !important;
+}
+
+.theme-academic .github-preflight-invalid {
+    background-color: #fff1f2 !important;
+    border: 1px solid #fecdd3 !important;
+    color: #9f1239 !important;
+}
+
+/* Contenedor del Editor de Variables de Entorno en tema claro */
+.theme-academic .env-section-box {
+    background-color: #f8fafc !important;
+    border: 1px solid #e2e8f0 !important;
+}
+
+.theme-academic .env-system-note {
+    color: #1e3a8a !important;
+}
+
+.theme-academic .env-system-note strong {
+    color: #172554 !important;
+}
+
+.theme-academic .env-system-note code {
+    background-color: #e0e7ff !important;
+    color: #3730a3 !important;
+    padding: 0.125rem 0.35rem !important;
+    border-radius: 0.25rem !important;
+    font-size: 0.7rem !important;
+    font-weight: 600 !important;
 }

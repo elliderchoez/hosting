@@ -4,7 +4,7 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
 
-        <title inertia>{{ config('app.name', 'Nexus Academic') }}</title>
+        <title inertia>{{ config('app.name', 'Uleam Academic Code') }}</title>
 
         <!-- Favicon -->
         <link rel="icon" type="image/png" href="/images/iamgen_sin_fondo.png" />

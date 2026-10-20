@@ -103,7 +103,7 @@ class PartnerRegisterController extends Controller
 
         return redirect()->route('login')->with(
             'status',
-            "¡Solicitud enviada con éxito! Tu cuenta de {$tipoTexto} ha sido registrada y está en proceso de revisión por la administración de Nexus Academic. Te enviaremos un correo electrónico una vez sea aprobada."
+            "¡Solicitud enviada con éxito! Tu cuenta de {$tipoTexto} ha sido registrada y está en proceso de revisión por la administración de Uleam Academic Code. Te enviaremos un correo electrónico una vez sea aprobada."
         );
     }
 }

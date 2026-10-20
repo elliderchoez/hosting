@@ -42,9 +42,11 @@ class LoginRequest extends FormRequest
     {
         $this->ensureIsNotRateLimited();
 
-        if (! Auth::attempt($this->only('email', 'password'), $this->boolean('remember'))) {
+        $cleanEmail = strtolower(trim($this->email));
+
+        if (! Auth::attempt(['email' => $cleanEmail, 'password' => $this->password], $this->boolean('remember'))) {
             // Check if user is a registered Recruiter or Company
-            $recruiter = \App\Models\Recruiter::where('email', strtolower($this->email))->first();
+            $recruiter = \App\Models\Recruiter::where('email', $cleanEmail)->first();
             if ($recruiter && \Illuminate\Support\Facades\Hash::check($this->password, $recruiter->password)) {
                 if ($recruiter->status === 'pending') {
                     RateLimiter::clear($this->throttleKey());
@@ -57,19 +59,27 @@ class LoginRequest extends FormRequest
                     RateLimiter::clear($this->throttleKey());
                     $reason = $recruiter->rejection_reason ?: 'No cumple con las políticas de validación institucional.';
                     throw ValidationException::withMessages([
-                        'email' => "Tu solicitud de cuenta fue rechazada por la administración de Nexus Academic. Motivo: {$reason}",
+                        'email' => "Tu solicitud de cuenta fue rechazada por la administración de Uleam Academic Code. Motivo: {$reason}",
                     ]);
                 }
 
                 if ($recruiter->status === 'inactive' || ! $recruiter->verified) {
                     RateLimiter::clear($this->throttleKey());
                     throw ValidationException::withMessages([
-                        'email' => 'Tu cuenta ha sido desactivada temporalmente por la administración de Nexus Academic. Por favor comunícate con soporte.',
+                        'email' => 'Tu cuenta ha sido desactivada temporalmente por la administración de Uleam Academic Code. Por favor comunícate con soporte.',
                     ]);
                 }
 
                 // If approved / verified, log in using the recruiter guard
+                Auth::guard('web')->logout();
                 Auth::guard('recruiter')->login($recruiter, $this->boolean('remember'));
+
+                // Limpiar cualquier URL restringida guardada previamente en sesión
+                $intended = session()->get('url.intended');
+                if ($intended && (str_contains($intended, '/admin') || str_contains($intended, '/dashboard') || str_contains($intended, '/profile/account'))) {
+                    session()->forget('url.intended');
+                }
+
                 RateLimiter::clear($this->throttleKey());
                 return;
             }
@@ -80,6 +90,9 @@ class LoginRequest extends FormRequest
                 'email' => trans('auth.failed'),
             ]);
         }
+
+        // Si se autenticó usuario del guard 'web', desloguear cualquier recruiter residual
+        Auth::guard('recruiter')->logout();
 
         $user = Auth::user();
         if ($user && ! $user->is_active) {

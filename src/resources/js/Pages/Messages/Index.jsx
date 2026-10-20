@@ -280,7 +280,7 @@ export default function MessagesIndex({ messages = [], unreadCount = 0 }) {
 
                                                             {/* Opción Gmail */}
                                                             <a
-                                                                href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(selectedMessage.sender_email)}&su=${encodeURIComponent('Respuesta a contacto profesional - Nexus Academic')}&body=${encodeURIComponent(`Hola ${selectedMessage.sender_name || ''},\n\nGracias por tu mensaje sobre mi proyecto en Nexus Academic.\n\n`)}`}
+                                                                href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(selectedMessage.sender_email)}&su=${encodeURIComponent('Respuesta a contacto profesional - Uleam Academic Code')}&body=${encodeURIComponent(`Hola ${selectedMessage.sender_name || ''},\n\nGracias por tu mensaje sobre mi proyecto en Uleam Academic Code.\n\n`)}`}
                                                                 target="_blank"
                                                                 rel="noopener noreferrer"
                                                                 onClick={() => setShowReplyMenu(false)}
@@ -299,7 +299,7 @@ export default function MessagesIndex({ messages = [], unreadCount = 0 }) {
 
                                                             {/* Opción Outlook */}
                                                             <a
-                                                                href={`https://outlook.live.com/mail/0/deeplink/compose?to=${encodeURIComponent(selectedMessage.sender_email)}&subject=${encodeURIComponent('Respuesta a contacto profesional - Nexus Academic')}&body=${encodeURIComponent(`Hola ${selectedMessage.sender_name || ''},\n\nGracias por contactarme respecto a mi proyecto en Nexus Academic.\n\n`)}`}
+                                                                href={`https://outlook.live.com/mail/0/deeplink/compose?to=${encodeURIComponent(selectedMessage.sender_email)}&subject=${encodeURIComponent('Respuesta a contacto profesional - Uleam Academic Code')}&body=${encodeURIComponent(`Hola ${selectedMessage.sender_name || ''},\n\nGracias por contactarme respecto a mi proyecto en Uleam Academic Code.\n\n`)}`}
                                                                 target="_blank"
                                                                 rel="noopener noreferrer"
                                                                 onClick={() => setShowReplyMenu(false)}

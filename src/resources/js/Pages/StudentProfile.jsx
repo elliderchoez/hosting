@@ -44,9 +44,9 @@ export default function StudentProfile({ auth = {}, student }) {
         setIsContactSent(false);
         reset();
         if (project) {
-            setData('message', `Hola ${student.name}, vi tu proyecto "${project.name}" en la Vitrina de Nexus Academic y me gustaría conversar contigo sobre oportunidades profesionales.`);
+            setData('message', `Hola ${student.name}, vi tu proyecto "${project.name}" en la Vitrina de Uleam Academic Code y me gustaría conversar contigo sobre oportunidades profesionales.`);
         } else {
-            setData('message', `Hola ${student.name}, revisé tu perfil en Nexus Academic y me gustaría ponerme en contacto contigo.`);
+            setData('message', `Hola ${student.name}, revisé tu perfil en Uleam Academic Code y me gustaría ponerme en contacto contigo.`);
         }
         setIsContactOpen(true);
     };
@@ -115,7 +115,7 @@ export default function StudentProfile({ auth = {}, student }) {
 
     return (
         <>
-            <Head title={`Perfil de ${student.name} - Nexus Academic`} />
+            <Head title={`Perfil de ${student.name} - Uleam Academic Code`} />
             <div className="min-h-screen bg-[#f3f5f9] dark:bg-[#090d16] text-[#1e293b] dark:text-[#f1f5f9] font-sans antialiased selection:bg-blue-600 selection:text-white transition-colors duration-200">
 
                 {/* =========================================================================
@@ -126,9 +126,9 @@ export default function StudentProfile({ auth = {}, student }) {
                         <div className="flex items-center gap-4">
                             <Link href="/" className="flex items-center gap-2.5 shrink-0 group">
                                 <ApplicationLogo className="h-8 w-auto object-contain transition group-hover:scale-105" />
-                                <div className="flex items-center">
-                                    <span className="brand-nexus text-xl font-black tracking-tight text-blue-700 dark:text-blue-500">nexus</span>
-                                    <span className="brand-academic text-xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">academic</span>
+                                <div className="flex items-center gap-1.5">
+                                    <span className="brand-nexus text-xl font-black tracking-tight text-blue-700 dark:text-blue-500">Uleam Academic</span>
+                                    <span className="brand-academic text-xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">Code</span>
                                 </div>
                             </Link>
 
@@ -472,7 +472,7 @@ export default function StudentProfile({ auth = {}, student }) {
                                                     <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
                                                         {wakingUp ? 'Iniciando demostración en vivo...' : 'Conectando con la aplicación...'}
                                                     </p>
-                                                    <p className="text-xs text-slate-500 mt-1">Nexus Academic PaaS</p>
+                                                    <p className="text-xs text-slate-500 mt-1">Uleam Academic Code PaaS</p>
                                                 </div>
                                             )}
                                             <iframe
@@ -510,7 +510,7 @@ export default function StudentProfile({ auth = {}, student }) {
                                     </div>
 
                                     <div className="text-center pt-3 border-t border-slate-200 dark:border-slate-800 text-[10px] text-slate-400 font-mono">
-                                        Nexus Academic Platform
+                                        Uleam Academic Code Platform
                                     </div>
                                 </div>
                             </div>

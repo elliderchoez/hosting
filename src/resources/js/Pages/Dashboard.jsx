@@ -210,8 +210,8 @@ export default function Dashboard({ auth, profile, projects }) {
     const renderGithubPreflightBadge = () => {
         if (githubCheckStatus === 'checking') {
             return (
-                <div className="flex items-center gap-2 mt-2 px-3 py-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs animate-pulse">
-                    <svg className="animate-spin h-3.5 w-3.5 text-indigo-400 shrink-0" fill="none" viewBox="0 0 24 24">
+                <div className="github-preflight-checking flex items-center gap-2 mt-2 px-3 py-1.5 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 dark:bg-indigo-500/10 dark:border-indigo-500/30 dark:text-indigo-300 text-xs animate-pulse">
+                    <svg className="animate-spin h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" fill="none" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
                     </svg>
@@ -221,18 +221,19 @@ export default function Dashboard({ auth, profile, projects }) {
         }
         if (githubCheckStatus === 'valid') {
             return (
-                <div className="flex flex-wrap items-center justify-between gap-1 mt-2 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs">
+                <div className="github-preflight-valid flex flex-wrap items-center justify-between gap-1 mt-2 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 dark:bg-emerald-500/10 dark:border-emerald-500/30 dark:text-emerald-300 text-xs">
                     <div className="flex items-center gap-2">
-                        <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
                         </svg>
                         <span>
-                            <strong>Repositorio verificado:</strong> {githubCheckDetails?.name || 'Válido'}
-                            {githubCheckDetails?.language && <span className="ml-1 text-emerald-400/80">({githubCheckDetails.language})</span>}
+                            <strong className="text-emerald-950 dark:text-emerald-100">Repositorio verificado:</strong>{' '}
+                            <span className="font-semibold text-emerald-800 dark:text-emerald-300">{githubCheckDetails?.name || 'Válido'}</span>
+                            {githubCheckDetails?.language && <span className="ml-1 text-emerald-700 dark:text-emerald-400/80">({githubCheckDetails.language})</span>}
                         </span>
                     </div>
                     {githubCheckDetails?.default_branch && (
-                        <span className="text-[11px] font-mono bg-emerald-500/20 px-2 py-0.5 rounded text-emerald-200">
+                        <span className="branch-badge text-[11px] font-mono bg-emerald-100 dark:bg-emerald-500/20 px-2 py-0.5 rounded text-emerald-800 dark:text-emerald-200 border border-emerald-300/60 dark:border-transparent font-medium">
                             Rama: {githubCheckDetails.default_branch}
                         </span>
                     )}
@@ -241,8 +242,8 @@ export default function Dashboard({ auth, profile, projects }) {
         }
         if (githubCheckStatus === 'invalid') {
             return (
-                <div className="flex items-start gap-2 mt-2 px-3 py-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
-                    <svg className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="github-preflight-invalid flex items-start gap-2 mt-2 px-3 py-2 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 dark:bg-rose-500/10 dark:border-rose-500/30 dark:text-rose-300 text-xs">
+                    <svg className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                     </svg>
                     <span>{githubCheckDetails?.message || 'Repositorio no accesible o privado en GitHub.'}</span>
@@ -758,10 +759,10 @@ export default function Dashboard({ auth, profile, projects }) {
             {isAddProjectOpen && (
                 <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
                     {/* Tarjeta Principal: Formulario de Despliegue */}
-                    <div className="w-full max-w-xl bg-slate-900 rounded-2xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto border-0">
+                    <div className="w-full max-w-xl bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto border border-slate-200 dark:border-slate-800">
                         <div className="flex justify-between items-start mb-5">
                             <div>
-                                <h3 className="text-lg font-bold text-white tracking-wide">
+                                <h3 className="text-lg font-bold text-slate-900 dark:text-white tracking-wide">
                                     {attachParentProjectId ? (
                                         `Desplegar Backend para ${mainProjects.find(p => p.id === attachParentProjectId)?.name || 'Aplicación'}`
                                     ) : projectForm.data.deployment_mode === 'fullstack' ? (
@@ -770,7 +771,7 @@ export default function Dashboard({ auth, profile, projects }) {
                                         'Desplegar Aplicación Simple'
                                     )}
                                 </h3>
-                                <p className="text-xs text-slate-400 mt-1">
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                                     {attachParentProjectId
                                         ? 'Este servicio se vinculará como API backend y no consumirá cupo de vitrina.'
                                         : projectForm.data.deployment_mode === 'fullstack'
@@ -791,7 +792,7 @@ export default function Dashboard({ auth, profile, projects }) {
                                         setEnvPairs([{ key: '', value: '' }]);
                                         setIsEnvSectionOpen(false);
                                     }}
-                                    className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition font-bold border-0"
+                                    className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white transition font-bold border-0"
                                 >
                                     ✕
                                 </button>
@@ -1033,27 +1034,27 @@ export default function Dashboard({ auth, profile, projects }) {
                                     {uploadType === 'github' ? (
                                         <>
                                             <div>
-                                                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">URL del Repositorio Público (GitHub)</label>
+                                                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">URL del Repositorio Público (GitHub)</label>
                                                 <input
                                                     type="url"
                                                     value={projectForm.data.github_repo_url}
                                                     onChange={e => handleRepoUrlChange(e.target.value)}
                                                     required
-                                                    className="w-full px-4 py-2.5 bg-slate-950 border-0 rounded-xl text-slate-200 focus:ring-1 focus:ring-indigo-500 placeholder-slate-700 text-sm font-mono"
+                                                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-0 rounded-xl text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-indigo-500 placeholder-slate-400 dark:placeholder-slate-700 text-sm font-mono"
                                                     placeholder="https://github.com/usuario/nombre-repositorio"
                                                 />
-                                                {projectForm.errors.github_repo_url && <p className="text-xs text-red-400 mt-1">{projectForm.errors.github_repo_url}</p>}
+                                                {projectForm.errors.github_repo_url && <p className="text-xs text-red-500 dark:text-red-400 mt-1">{projectForm.errors.github_repo_url}</p>}
                                                 {renderGithubPreflightBadge()}
                                             </div>
 
                                             <div>
-                                                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Rama para Deploy</label>
+                                                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Rama para Deploy</label>
                                                 <input
                                                     type="text"
                                                     value={projectForm.data.branch}
                                                     onChange={e => projectForm.setData('branch', e.target.value)}
                                                     required
-                                                    className="w-full px-4 py-2.5 bg-slate-950 border-0 rounded-xl text-slate-200 focus:ring-1 focus:ring-indigo-500 placeholder-slate-700 text-sm"
+                                                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-0 rounded-xl text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-indigo-500 placeholder-slate-400 dark:placeholder-slate-700 text-sm"
                                                     placeholder="main"
                                                 />
                                             </div>
@@ -1128,19 +1129,19 @@ export default function Dashboard({ auth, profile, projects }) {
                             {/* ======================================================= */}
                             <div className="space-y-3 pt-3">
                                 <div>
-                                    <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center justify-between">
                                         <span>Categoría del Proyecto</span>
-                                        <span className="text-[10px] text-amber-400 font-semibold uppercase bg-amber-400/10 px-2 py-0.5 rounded">Obligatorio</span>
+                                        <span className="text-[10px] text-amber-700 dark:text-amber-400 font-semibold uppercase bg-amber-100 dark:bg-amber-400/10 px-2 py-0.5 rounded border border-amber-200 dark:border-transparent">Obligatorio</span>
                                     </label>
                                     <select
                                         value={projectForm.data.category || ''}
                                         onChange={e => projectForm.setData('category', e.target.value)}
                                         required
-                                        className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 focus:ring-1 focus:ring-indigo-500 text-xs sm:text-sm font-medium cursor-pointer"
+                                        className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-indigo-500 text-xs sm:text-sm font-medium cursor-pointer"
                                     >
                                         <option value="">-- Selecciona una categoría de software --</option>
                                         {PROJECT_CATEGORIES.map(cat => (
-                                            <option key={cat} value={cat} className="bg-slate-900 text-slate-200 py-1">
+                                            <option key={cat} value={cat} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 py-1">
                                                 {cat}
                                             </option>
                                         ))}
@@ -1153,65 +1154,65 @@ export default function Dashboard({ auth, profile, projects }) {
                                 </div>
 
                                 <div>
-                                    <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Nombre del Proyecto</label>
+                                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Nombre del Proyecto</label>
                                     <input
                                         type="text"
                                         value={projectForm.data.name}
                                         onChange={e => projectForm.setData('name', e.target.value)}
                                         required
-                                        className="w-full px-4 py-2.5 bg-slate-950 border-0 rounded-xl text-slate-200 focus:ring-1 focus:ring-indigo-500 placeholder-slate-700 text-sm"
+                                        className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-0 rounded-xl text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-indigo-500 placeholder-slate-400 dark:placeholder-slate-700 text-sm"
                                         placeholder="Mi Portal Académico"
                                     />
-                                    {projectForm.errors.name && <p className="text-xs text-red-400 mt-1">{projectForm.errors.name}</p>}
+                                    {projectForm.errors.name && <p className="text-xs text-red-500 dark:text-red-400 mt-1">{projectForm.errors.name}</p>}
                                 </div>
 
                                 {projectForm.data.deployment_mode === 'fullstack' && !attachParentProjectId ? (
                                     <div className="space-y-3">
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                             <div>
-                                                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Subdominio Frontend</label>
-                                                <div className="flex bg-slate-950 rounded-xl overflow-hidden">
+                                                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Subdominio Frontend</label>
+                                                <div className="flex rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950">
                                                     <input
                                                         type="text"
                                                         value={projectForm.data.subdomain}
                                                         onChange={e => projectForm.setData('subdomain', e.target.value)}
                                                         required
-                                                        className="flex-1 px-3 py-2 bg-slate-950 border-0 text-slate-200 focus:ring-0 placeholder-slate-700 text-xs font-mono"
+                                                        className="subdomain-clean-input flex-1 px-3 py-2 bg-transparent border-0 text-slate-800 dark:text-slate-200 focus:ring-0 placeholder-slate-400 dark:placeholder-slate-700 text-xs font-mono"
                                                         placeholder="mi_app_frontend"
                                                     />
-                                                    <span className="px-2.5 py-2 bg-slate-950 text-slate-500 text-[10px] flex items-center font-mono select-none">
+                                                    <span className="px-2.5 py-2 bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 text-[10px] flex items-center font-mono select-none border-l border-slate-200 dark:border-slate-800">
                                                         .nexus...
                                                     </span>
                                                 </div>
-                                                {projectForm.errors.subdomain && <p className="text-xs text-red-400 mt-1">{projectForm.errors.subdomain}</p>}
+                                                {projectForm.errors.subdomain && <p className="text-xs text-red-500 dark:text-red-400 mt-1">{projectForm.errors.subdomain}</p>}
                                             </div>
 
                                             <div>
-                                                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Subdominio Backend (API)</label>
-                                                <div className="flex bg-slate-950 rounded-xl overflow-hidden">
+                                                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Subdominio Backend (API)</label>
+                                                <div className="flex rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950">
                                                     <input
                                                         type="text"
                                                         value={projectForm.data.backend_subdomain || ''}
                                                         onChange={e => projectForm.setData('backend_subdomain', e.target.value)}
                                                         required
-                                                        className="flex-1 px-3 py-2 bg-slate-950 border-0 text-slate-200 focus:ring-0 placeholder-slate-700 text-xs font-mono"
+                                                        className="subdomain-clean-input flex-1 px-3 py-2 bg-transparent border-0 text-slate-800 dark:text-slate-200 focus:ring-0 placeholder-slate-400 dark:placeholder-slate-700 text-xs font-mono"
                                                         placeholder="mi_app_backend"
                                                     />
-                                                    <span className="px-2.5 py-2 bg-slate-950 text-slate-500 text-[10px] flex items-center font-mono select-none">
+                                                    <span className="px-2.5 py-2 bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 text-[10px] flex items-center font-mono select-none border-l border-slate-200 dark:border-slate-800">
                                                         .nexus...
                                                     </span>
                                                 </div>
-                                                {projectForm.errors.backend_subdomain && <p className="text-xs text-red-400 mt-1">{projectForm.errors.backend_subdomain}</p>}
+                                                {projectForm.errors.backend_subdomain && <p className="text-xs text-red-500 dark:text-red-400 mt-1">{projectForm.errors.backend_subdomain}</p>}
                                             </div>
                                         </div>
 
                                         {/* Vista Previa de URLs en Vivo */}
                                         {projectForm.data.subdomain && (
-                                            <div className="mt-2 p-2.5 bg-slate-950 rounded-xl text-[11px] font-mono space-y-1">
-                                                <div className="text-slate-300 truncate">
+                                            <div className="mt-2 p-2.5 bg-slate-100 dark:bg-slate-950 rounded-xl text-[11px] font-mono space-y-1 border border-slate-200 dark:border-slate-800">
+                                                <div className="text-slate-700 dark:text-slate-300 truncate">
                                                     Frontend: http://{projectForm.data.subdomain}.nexus-academic.software
                                                 </div>
-                                                <div className="text-slate-400 truncate">
+                                                <div className="text-slate-500 dark:text-slate-400 truncate">
                                                     API: http://{projectForm.data.backend_subdomain || (projectForm.data.subdomain + '_backend')}.nexus-academic.software/api
                                                 </div>
                                             </div>
@@ -1219,17 +1220,17 @@ export default function Dashboard({ auth, profile, projects }) {
                                     </div>
                                 ) : (
                                     <div>
-                                        <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Subdominio</label>
-                                        <div className={`flex bg-slate-950 rounded-xl overflow-hidden ${projectForm.errors.subdomain ? 'border border-red-500/60' : 'border-0'}`}>
+                                        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">Subdominio</label>
+                                        <div className={`flex rounded-xl overflow-hidden border ${projectForm.errors.subdomain ? 'border-red-500/60' : 'border-slate-200 dark:border-slate-800'} bg-slate-50 dark:bg-slate-950`}>
                                             <input
                                                 type="text"
                                                 value={projectForm.data.subdomain}
                                                 onChange={e => projectForm.setData('subdomain', e.target.value)}
                                                 required
-                                                className="flex-1 px-4 py-2.5 bg-slate-950 border-0 text-slate-200 focus:ring-0 placeholder-slate-700 text-sm font-mono"
+                                                className="subdomain-clean-input flex-1 px-4 py-2.5 bg-transparent border-0 text-slate-800 dark:text-slate-200 focus:ring-0 placeholder-slate-400 dark:placeholder-slate-700 text-sm font-mono"
                                                 placeholder="mi-proyecto"
                                             />
-                                            <span className="px-4 py-2.5 bg-slate-950 text-slate-500 text-sm flex items-center font-mono select-none">
+                                            <span className="px-4 py-2.5 bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 text-sm flex items-center font-mono select-none border-l border-slate-200 dark:border-slate-800">
                                                 .nexus-academic.software
                                             </span>
                                         </div>
@@ -1245,28 +1246,28 @@ export default function Dashboard({ auth, profile, projects }) {
                             {/* ======================================================= */}
                             {/* EDITOR VISUAL DE VARIABLES DE ENTORNO (.env)            */}
                             {/* ======================================================= */}
-                            <div className="pt-2 border-t border-slate-800/80">
+                            <div className="pt-2 border-t border-slate-200 dark:border-slate-800/80">
                                 <button
                                     type="button"
                                     onClick={() => setIsEnvSectionOpen(!isEnvSectionOpen)}
-                                    className="w-full flex items-center justify-between p-3 rounded-xl bg-slate-950/60 hover:bg-slate-950 border border-slate-800/80 transition text-left group"
+                                    className="w-full flex items-center justify-between p-3 rounded-xl bg-slate-50 hover:bg-slate-100/80 dark:bg-slate-950/60 dark:hover:bg-slate-950 border border-slate-200 dark:border-slate-800/80 transition text-left group"
                                 >
                                     <div className="flex items-center gap-2.5">
-                                        <span className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 group-hover:bg-indigo-500/20 transition">
+                                        <span className="p-1.5 rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400 group-hover:bg-indigo-100 dark:group-hover:bg-indigo-500/20 transition">
                                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
                                             </svg>
                                         </span>
                                         <div>
-                                            <div className="text-xs font-semibold text-slate-200 flex items-center gap-2">
+                                            <div className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
                                                 Variables de Entorno (.env)
                                                 {activeEnvCount > 0 && (
-                                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300">
+                                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300 border border-indigo-200 dark:border-transparent">
                                                         {activeEnvCount} {activeEnvCount === 1 ? 'variable' : 'variables'}
                                                     </span>
                                                 )}
                                             </div>
-                                            <div className="text-[11px] text-slate-400">
+                                            <div className="text-[11px] text-slate-500 dark:text-slate-400">
                                                 Opcional · API Keys, tokens y variables de entorno personalizadas
                                             </div>
                                         </div>
@@ -1277,19 +1278,19 @@ export default function Dashboard({ auth, profile, projects }) {
                                 </button>
 
                                 {isEnvSectionOpen && (
-                                    <div className="mt-2 p-3.5 bg-slate-950/90 rounded-xl border border-slate-800/90 space-y-3">
-                                        <div className="flex items-center justify-between pb-2 border-b border-slate-800/60">
-                                            <span className="text-[11px] font-medium text-slate-400">
+                                    <div className="mt-2.5 p-3.5 bg-slate-50/90 dark:bg-slate-950/90 rounded-xl border border-slate-200 dark:border-slate-800/90 space-y-3 env-section-box">
+                                        <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800/60">
+                                            <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
                                                 Formato de edición:
                                             </span>
-                                            <div className="flex gap-1 bg-slate-900 p-0.5 rounded-lg border border-slate-800">
+                                            <div className="flex gap-1 bg-slate-200/70 dark:bg-slate-900 p-0.5 rounded-lg border border-slate-300/60 dark:border-slate-800">
                                                 <button
                                                     type="button"
                                                     onClick={() => setEnvEditorMode('visual')}
                                                     className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${
                                                         envEditorMode === 'visual'
                                                             ? 'bg-indigo-600 text-white shadow-xs'
-                                                            : 'text-slate-400 hover:text-slate-200'
+                                                            : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
                                                     }`}
                                                 >
                                                     Modo Visual (Clave - Valor)
@@ -1300,7 +1301,7 @@ export default function Dashboard({ auth, profile, projects }) {
                                                     className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${
                                                         envEditorMode === 'raw'
                                                             ? 'bg-indigo-600 text-white shadow-xs'
-                                                            : 'text-slate-400 hover:text-slate-200'
+                                                            : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
                                                     }`}
                                                 >
                                                     Texto Plano (.env)
@@ -1317,21 +1318,21 @@ export default function Dashboard({ auth, profile, projects }) {
                                                             value={pair.key}
                                                             onChange={e => handleEnvPairChange(idx, 'key', e.target.value)}
                                                             placeholder="VARIABLE_KEY"
-                                                            className="w-5/12 px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-slate-200 text-xs font-mono uppercase focus:ring-1 focus:ring-indigo-500 placeholder-slate-600"
+                                                            className="w-5/12 px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-lg text-slate-800 dark:text-slate-200 text-xs font-mono uppercase focus:ring-1 focus:ring-indigo-500 placeholder-slate-400 dark:placeholder-slate-600"
                                                         />
-                                                        <span className="text-slate-500 font-mono text-xs">=</span>
+                                                        <span className="text-slate-400 dark:text-slate-500 font-mono text-xs font-bold">=</span>
                                                         <input
                                                             type="text"
                                                             value={pair.value}
                                                             onChange={e => handleEnvPairChange(idx, 'value', e.target.value)}
                                                             placeholder="valor_o_token"
-                                                            className="flex-1 px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-slate-200 text-xs font-mono focus:ring-1 focus:ring-indigo-500 placeholder-slate-600"
+                                                            className="flex-1 px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-lg text-slate-800 dark:text-slate-200 text-xs font-mono focus:ring-1 focus:ring-indigo-500 placeholder-slate-400 dark:placeholder-slate-600"
                                                         />
                                                         <button
                                                             type="button"
                                                             onClick={() => handleRemoveEnvPair(idx)}
                                                             title="Eliminar variable"
-                                                            className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition"
+                                                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:text-slate-500 dark:hover:text-rose-400 dark:hover:bg-rose-500/10 rounded-lg transition"
                                                         >
                                                             ✕
                                                         </button>
@@ -1342,7 +1343,7 @@ export default function Dashboard({ auth, profile, projects }) {
                                                     <button
                                                         type="button"
                                                         onClick={handleAddEnvPair}
-                                                        className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-indigo-400 hover:text-indigo-300 text-xs font-semibold border border-slate-800 flex items-center gap-1.5 transition"
+                                                        className="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-800 text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 text-xs font-semibold border border-slate-300 dark:border-slate-800 flex items-center gap-1.5 transition shadow-2xs"
                                                     >
                                                         <span>+</span> Añadir Variable
                                                     </button>
@@ -1353,7 +1354,7 @@ export default function Dashboard({ auth, profile, projects }) {
                                                                 setEnvPairs([{ key: '', value: '' }]);
                                                                 projectForm.setData('env_vars', '');
                                                             }}
-                                                            className="text-[11px] text-slate-500 hover:text-rose-400 transition"
+                                                            className="text-[11px] font-medium text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 transition"
                                                         >
                                                             Limpiar todo
                                                         </button>
@@ -1367,20 +1368,20 @@ export default function Dashboard({ auth, profile, projects }) {
                                                     value={projectForm.data.env_vars}
                                                     onChange={e => handleRawEnvChange(e.target.value)}
                                                     placeholder={`KEY=VALOR\nAPI_KEY=mi_super_secreto\nNEXT_PUBLIC_APP_TITLE=Mi App`}
-                                                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-slate-200 text-xs font-mono focus:ring-1 focus:ring-indigo-500 placeholder-slate-600 resize-y"
+                                                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-200 text-xs font-mono focus:ring-1 focus:ring-indigo-500 placeholder-slate-400 dark:placeholder-slate-600 resize-y"
                                                 />
-                                                <p className="text-[11px] text-slate-500">
+                                                <p className="text-[11px] text-slate-500 dark:text-slate-400">
                                                     Una variable por línea en formato <code>CLAVE=VALOR</code>. Las líneas vacías serán omitidas.
                                                 </p>
                                             </div>
                                         )}
 
-                                        <div className="flex items-start gap-2 p-2.5 rounded-lg bg-indigo-950/20 border border-indigo-900/40 text-[11px] text-indigo-300/80 leading-relaxed">
-                                            <svg className="w-3.5 h-3.5 text-indigo-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <div className="flex items-start gap-2.5 p-2.5 rounded-lg bg-indigo-50/80 dark:bg-indigo-950/20 border border-indigo-200/60 dark:border-indigo-900/40 text-[11px] text-indigo-900 dark:text-indigo-300/80 leading-relaxed">
+                                            <svg className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                             </svg>
-                                            <div>
-                                                <strong className="text-indigo-200">Nota del Sistema:</strong> Las credenciales de base de datos (<code>DB_HOST</code>, <code>DB_PASSWORD</code>, etc.) se autogeneran e inyectan automáticamente. Agrega aquí tus API keys o configuraciones particulares.
+                                            <div className="env-system-note">
+                                                <strong className="text-indigo-950 dark:text-indigo-200 font-bold">Nota del Sistema:</strong> Las credenciales de base de datos (<code>DB_HOST</code>, <code>DB_PASSWORD</code>, etc.) se autogeneran e inyectan automáticamente. Agrega aquí tus API keys o configuraciones particulares.
                                             </div>
                                         </div>
                                     </div>
@@ -1389,8 +1390,8 @@ export default function Dashboard({ auth, profile, projects }) {
 
                             <button
                                 type="submit"
-                                disabled={projectForm.processing}
-                                className="w-full py-3 mt-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold transition cursor-pointer text-sm shadow-md border-0"
+                                disabled={projectForm.processing || (uploadType === 'github' && githubCheckStatus === 'invalid')}
+                                className="w-full py-3 mt-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold transition cursor-pointer text-sm shadow-md border-0"
                             >
                                 {projectForm.processing
                                     ? 'Preparando Despliegue...'
@@ -1586,7 +1587,7 @@ export default function Dashboard({ auth, profile, projects }) {
                             </div>
 
                             <div className="pt-4 mt-4 text-[11px] text-slate-500 text-center">
-                                Nexus Academic
+                                Uleam Academic Code
                             </div>
                         </div>
                     )}

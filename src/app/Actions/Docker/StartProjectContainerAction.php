@@ -77,15 +77,24 @@ class StartProjectContainerAction
                 }
             }
 
+            $isHeavyApp = $project->language === 'ruby'
+                || File::exists($projectPath . '/packages/evershop')
+                || File::exists($projectPath . '/packages/sync-server')
+                || File::exists($projectPath . '/server/app.js')
+                || File::exists($projectPath . '/apps/web')
+                || File::exists($projectPath . '/pnpm-workspace.yaml')
+                || File::exists($projectPath . '/turbo.json')
+                || File::exists($projectPath . '/lerna.json');
+
             // 5. Construct Docker Run Command
             $command = [
                 'docker', 'run', '-d',
                 '--name', $containerName,
                 '--runtime', $runtime,
                 '--network', 'uleam_academic_network',
-                '--memory', ($project->language === 'ruby' ? '1024m' : '256m'),
-                '--cpus', ($project->language === 'ruby' ? '1.0' : '0.5'),
-                '--pids-limit', ($project->language === 'ruby' ? '200' : '50'),
+                '--memory', ($isHeavyApp ? '1024m' : ($project->language === 'nodejs' ? '512m' : '256m')),
+                '--cpus', ($isHeavyApp ? '1.0' : '0.5'),
+                '--pids-limit', ($isHeavyApp ? '200' : '100'),
                 '--storage-opt', 'size=1G',
                 '-v', "$projectPath:$workDir", // Montar en su WORKDIR como lectura y escritura
             ];
@@ -184,8 +193,37 @@ class StartProjectContainerAction
             // ───────────────────────────────────────────────────────────────────────────
 
             // Add environment variables if needed
+            $isProduction = config('app.env') === 'production';
+            $primaryUrl = $isProduction ? "https://{$project->subdomain}.{$domain}" : "http://{$project->subdomain}.localhost";
+
             $command[] = '-e';
             $command[] = 'PORT=' . $settings['port'];
+            $command[] = '-e';
+            $command[] = 'APP_URL=' . $primaryUrl;
+            $command[] = '-e';
+            $command[] = 'PUBLIC_URL=' . $primaryUrl;
+            $command[] = '-e';
+            $command[] = 'BASE_URL=' . $primaryUrl;
+            $command[] = '-e';
+            $command[] = 'NEXT_PUBLIC_BASE_URL=' . $primaryUrl;
+            $command[] = '-e';
+            $command[] = 'AUTH_URL=' . $primaryUrl;
+            $command[] = '-e';
+            $command[] = 'NEXT_PUBLIC_SELF_HOSTED=true';
+            $command[] = '-e';
+            $command[] = 'SECRET_PASSWORD=' . hash('sha256', $project->id);
+            $command[] = '-e';
+            $command[] = 'BETTER_AUTH_SECRET=' . hash('sha256', $project->id . 'better_auth');
+            $command[] = '-e';
+            $command[] = 'SUPPORT_EMAIL=support@nexus-academic.software';
+            $command[] = '-e';
+            $command[] = 'HOSTNAME=0.0.0.0';
+            $command[] = '-e';
+            $command[] = 'NEXTAUTH_URL=' . $primaryUrl;
+            $command[] = '-e';
+            $command[] = 'EVERSHOP_HOME_URL=' . $primaryUrl;
+            $command[] = '-e';
+            $command[] = 'SUPPRESS_NO_CONFIG_WARNING=1';
 
             if (!empty($project->db_name)) {
                 $dbDriver = $project->db_driver ?: 'pgsql';
@@ -216,7 +254,11 @@ class StartProjectContainerAction
                     $command[] = '-e';
                     $command[] = 'DATABASE_URL=' . $mongoUri;
                     $command[] = '-e';
+                    $command[] = 'DATABASE=' . $mongoUri;
+                    $command[] = '-e';
                     $command[] = 'MONGODB_URI=' . $mongoUri;
+                    $command[] = '-e';
+                    $command[] = 'MONGO_URI=' . $mongoUri;
                     $command[] = '-e';
                     $command[] = 'MONGO_URL=' . $mongoUri;
                     $command[] = '-e';
@@ -258,6 +300,24 @@ class StartProjectContainerAction
                         $command[] = 'DB_PASS=' . $project->db_password;
                         $command[] = '-e';
                         $command[] = 'DATABASE_URL=' . $dbUrlScheme . '://' . $project->db_user . ':' . $project->db_password . '@' . $dbHost . ':' . $dbPort . '/' . $project->db_name;
+                        if ($dbDriver === 'mysql') {
+                            $command[] = '-e';
+                            $command[] = 'MYSQL_HOST=' . $dbHost;
+                            $command[] = '-e';
+                            $command[] = 'MYSQL_HOST_NAME=' . $dbHost;
+                            $command[] = '-e';
+                            $command[] = 'MYSQL_PORT=' . $dbPort;
+                            $command[] = '-e';
+                            $command[] = 'MYSQL_DATABASE=' . $project->db_name;
+                            $command[] = '-e';
+                            $command[] = 'MYSQL_DB_NAME=' . $project->db_name;
+                            $command[] = '-e';
+                            $command[] = 'MYSQL_USER=' . $project->db_user;
+                            $command[] = '-e';
+                            $command[] = 'MYSQL_USERNAME=' . $project->db_user;
+                            $command[] = '-e';
+                            $command[] = 'MYSQL_PASSWORD=' . $project->db_password;
+                        }
                         if ($dbDriver === 'pgsql' || $dbDriver === 'postgres') {
                             $command[] = '-e';
                             $command[] = 'POSTGRES_HOST=' . $dbHost;
@@ -312,6 +372,10 @@ class StartProjectContainerAction
             if ($project->language === 'php') {
                 $command[] = '-e';
                 $command[] = 'PHP_CLI_SERVER_WORKERS=4';
+                $command[] = '-e';
+                $command[] = "ALLOWED_HOSTNAMES={$project->subdomain}.localhost,{$project->subdomain}.{$domain},localhost,127.0.0.1";
+                $command[] = '-e';
+                $command[] = 'CI_ENVIRONMENT=development';
             }
 
             if ($project->language === 'ruby') {
@@ -456,7 +520,9 @@ class StartProjectContainerAction
                 ];
             }
 
-            $projectUrl = "https://{$project->subdomain}.{$domain}";
+            $projectUrl = (config('app.env') === 'production')
+                ? "https://{$project->subdomain}.{$domain}"
+                : "http://{$project->subdomain}.localhost";
             $output .= "Servidor web verificado y activo (En ejecución).\n\n";
             $output .= "=======================================================\n";
             $output .= "PROYECTO DESPLEGADO CON EXITO\n";
@@ -524,6 +590,35 @@ class StartProjectContainerAction
     {
         switch ($language) {
             case 'nodejs':
+                // Soporte para Actual Budget (sync-server con backend y frontend integrado en Node 24)
+                if (File::exists($projectPath . '/packages/sync-server/build/app.js')) {
+                    File::ensureDirectoryExists($projectPath . '/data', 0777);
+                    @chmod($projectPath . '/data', 0777);
+                    return [
+                        'image' => 'node:24-bookworm',
+                        'port' => 3000,
+                        'command' => ['node', 'packages/sync-server/build/app.js']
+                    ];
+                }
+
+                // Soporte para Planka Kanban (Sails.js + PostgreSQL en puerto 1337)
+                if (File::exists($projectPath . '/server/app.js') && (File::exists($projectPath . '/server/config') || File::exists($projectPath . '/client'))) {
+                    return [
+                        'image' => 'node:20',
+                        'port' => 1337,
+                        'command' => ['sh', '-c', 'cd /app/server && node app.js --prod']
+                    ];
+                }
+
+                // Soporte para Rallly / Next.js standalone monorepo en Node 24 (puerto 3000)
+                if (File::exists($projectPath . '/apps/web/.next/standalone/apps/web/server.js')) {
+                    return [
+                        'image' => 'node:24-bookworm',
+                        'port' => 3000,
+                        'command' => ['sh', '-c', 'cd /app/apps/web/.next/standalone && node apps/web/server.js']
+                    ];
+                }
+
                 $command = ['node', 'index.js'];
                 // Monorepos con client y api integrados
                 if (File::exists($projectPath . '/client/server.js') && File::exists($projectPath . '/api')) {
@@ -558,8 +653,12 @@ JS;
                     $command = ['node', 'app.js'];
                 } elseif (File::exists($projectPath . '/client/server.js')) {
                     $command = ['node', 'client/server.js'];
+                } elseif (File::exists($projectPath . '/backend/src/server.js')) {
+                    $command = ['sh', '-c', 'cd /app/backend && node src/server.js'];
                 } elseif (File::exists($projectPath . '/backend/server.js')) {
-                    $command = ['node', 'backend/server.js'];
+                    $command = ['sh', '-c', 'cd /app/backend && node server.js'];
+                } elseif (File::exists($projectPath . '/backend/package.json')) {
+                    $command = ['sh', '-c', 'cd /app/backend && npm start'];
                 } else {
                     // Detección universal de SPAs estáticas (Create React App, Vite, Vue, Angular, etc.)
                     $staticDirs = ['build', 'dist', 'out', 'public', 'client/build', 'frontend/dist', 'frontend/build'];
@@ -610,18 +709,35 @@ JS;
                     $command = ['php', '-d', 'error_reporting=E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED', '-S', '0.0.0.0:80', '-t', 'public', 'server.php'];
                 } elseif (File::exists($projectPath . '/public/index.php')) {
                     $routerPath = $projectPath . '/_php_router.php';
-                    if (!File::exists($routerPath)) {
-                        $routerContent = <<<'PHP'
+                    $routerContent = <<<'PHP'
 <?php
 $uri = urldecode(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?? '');
-if ($uri !== '/' && file_exists(__DIR__ . '/public' . $uri)) {
+if ($uri !== '/' && file_exists(__DIR__ . '/public' . $uri) && !is_dir(__DIR__ . '/public' . $uri)) {
     return false;
 }
+chdir(__DIR__ . '/public');
+$_SERVER['SCRIPT_FILENAME'] = __DIR__ . '/public/index.php';
+$_SERVER['SCRIPT_NAME'] = '/index.php';
+$_SERVER['PHP_SELF'] = '/index.php';
 require_once __DIR__ . '/public/index.php';
 PHP;
-                        File::put($routerPath, $routerContent);
-                    }
+                    File::put($routerPath, $routerContent);
                     $command = ['php', '-d', 'error_reporting=E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED', '-S', '0.0.0.0:80', '-t', 'public', '_php_router.php'];
+                } elseif (File::exists($projectPath . '/index.php')) {
+                    $routerPath = $projectPath . '/_root_php_router.php';
+                    $routerContent = <<<'PHP'
+<?php
+$uri = urldecode(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?? '');
+if ($uri !== '/' && file_exists(__DIR__ . $uri) && !is_dir(__DIR__ . $uri)) {
+    return false;
+}
+$_SERVER['SCRIPT_FILENAME'] = __DIR__ . '/index.php';
+$_SERVER['SCRIPT_NAME'] = '/index.php';
+$_SERVER['PHP_SELF'] = '/index.php';
+require_once __DIR__ . '/index.php';
+PHP;
+                    File::put($routerPath, $routerContent);
+                    $command = ['php', '-d', 'error_reporting=E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED', '-S', '0.0.0.0:80', '_root_php_router.php'];
                 }
                 return [
                     'image' => 'webdevops/php:8.4',
@@ -840,6 +956,7 @@ PHP;
                         !str_starts_with($l, 'at ') && 
                         !str_starts_with($l, '#') &&
                         !str_starts_with($l, 'Tasks:') &&
+                        !str_starts_with($l, 'npm notice') &&
                         !str_contains($l, ':in `<main>\'') &&
                         !str_contains($l, ':in `block')
                     ) {
@@ -895,6 +1012,9 @@ PHP;
                 str_contains($logLower, 'loaderror') || str_contains($logLower, 'class not found')) {
             $titulo = "Dependencia o Módulo No Instalado";
             $quePaso = "El código intenta importar un paquete o módulo que no se encuentra instalado en las dependencias.";
+            if (!empty($lastErrorLine)) {
+                $quePaso .= "\nDetalle del error reportado: \"{$lastErrorLine}\"";
+            }
             $solucion = "- Declara todas tus librerías en tu archivo de configuración (package.json, requirements.txt, Gemfile o composer.json).\n- Asegúrate de hacer 'git commit' y 'git push' de dicho archivo en tu repositorio.";
         }
         // Caso 4: Falta el comando de inicio o script start

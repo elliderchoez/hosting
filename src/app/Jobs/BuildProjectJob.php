@@ -101,6 +101,15 @@ class BuildProjectJob implements ShouldQueue
             $flattenLog = $this->flattenDirectoryStructure($project, $projectPath);
             $logs .= $flattenLog . "\n\n";
 
+            // Paso 1.6: Validación de Compatibilidad del Proyecto
+            $compatibilityError = $this->checkProjectArchitectureCompatibility($projectPath);
+            if ($compatibilityError) {
+                $logs .= "--- PASO 1.6: Validación de Compatibilidad del Proyecto ---\n";
+                $logs .= "[ERROR DE COMPATIBILIDAD]: {$compatibilityError}\n\n";
+                $this->failBuild($project, $deployment, $logs, $startTime, $projectPath);
+                return;
+            }
+
             // Verificación de Cuota Máxima de Almacenamiento (Máximo 1GB)
             $projectSizeBytes = $this->calculateDirectorySize($projectPath);
             $maxAllowedBytes = 1024 * 1024 * 1024; // 1GB
@@ -262,6 +271,17 @@ class BuildProjectJob implements ShouldQueue
                 }
             }
 
+            // Deshabilitar verificación forzada de correo electrónico en entornos de sandbox para evaluación fluida
+            $fortifyConfigPath = $projectPath . '/config/fortify.php';
+            if (\Illuminate\Support\Facades\File::exists($fortifyConfigPath)) {
+                $fortifyContent = \Illuminate\Support\Facades\File::get($fortifyConfigPath);
+                if (str_contains($fortifyContent, 'Features::emailVerification()')) {
+                    $fortifyContent = str_replace('Features::emailVerification()', '// Features::emailVerification()', $fortifyContent);
+                    \Illuminate\Support\Facades\File::put($fortifyConfigPath, $fortifyContent);
+                    $logs .= "Verificación estricta de correo electrónico desactivada automáticamente para permitir pruebas inmediatas.\n";
+                }
+            }
+
             $buildResult = $buildAction->execute($project, $projectPath);
             $logs .= $buildResult['output'] . "\n";
 
@@ -334,12 +354,108 @@ class BuildProjectJob implements ShouldQueue
                 }
             }
 
+            // Soporte predeterminado para Flarum (instalación automatizada, permisos y credenciales de evaluador)
+            if (\Illuminate\Support\Facades\File::exists($projectPath . '/site.php') && \Illuminate\Support\Facades\File::exists($projectPath . '/flarum')) {
+                if (\Illuminate\Support\Facades\File::isDirectory($projectPath . '/public/assets')) {
+                    @chmod($projectPath . '/public/assets', 0777);
+                    (new Process(['chmod', '-R', '777', $projectPath . '/public/assets']))->run();
+                }
+                @chmod($projectPath, 0777);
+
+                // Si Flarum aún no ha sido instalado (falta config.php), aprovisionarlo automáticamente
+                if (!\Illuminate\Support\Facades\File::exists($projectPath . '/config.php')) {
+                    $logs .= "Ejecutando instalación automatizada de Flarum (CLI install)...\n";
+                    $dbDriver = !empty($project->db_name) ? ($project->db_driver ?: 'mysql') : 'sqlite';
+                    $dbHost = $dbDriver === 'mysql' ? 'uleam_mysql_students' : 'uleam_postgres_students';
+                    $dbPort = $dbDriver === 'mysql' ? 3306 : 5432;
+                    $dbDatabase = !empty($project->db_name) ? $project->db_name : '/app/storage/flarum.sqlite';
+                    $dbUsername = !empty($project->db_name) ? $project->db_user : '';
+                    $dbPassword = !empty($project->db_name) ? $project->db_password : '';
+
+                    $installConfig = [
+                        'debug' => false,
+                        'baseUrl' => "http://{$project->subdomain}.localhost",
+                        'databaseConfiguration' => [
+                            'driver' => $dbDriver,
+                            'host' => $dbHost,
+                            'port' => $dbPort,
+                            'database' => $dbDatabase,
+                            'username' => $dbUsername,
+                            'password' => $dbPassword,
+                            'prefix' => '',
+                        ],
+                        'adminUser' => [
+                            'username' => 'admin',
+                            'password' => 'password',
+                            'email' => 'admin@uleam.edu.ec',
+                        ],
+                        'settings' => [
+                            'forum_title' => $project->name ?: 'Flarum Forum',
+                        ],
+                    ];
+
+                    \Illuminate\Support\Facades\File::put($projectPath . '/install.json', json_encode($installConfig, JSON_PRETTY_PRINT));
+
+                    $uid = trim(shell_exec('id -u') ?? '1000');
+                    $gid = trim(shell_exec('id -g') ?? '1000');
+
+                    $installProcess = new Process([
+                        'docker', 'run', '--rm',
+                        '--network', 'uleam_academic_network',
+                        '-u', "{$uid}:{$gid}",
+                        '-v', "{$projectPath}:/app",
+                        '-w', '/app',
+                        'webdevops/php:8.4',
+                        'php', 'flarum', 'install', '--file', 'install.json'
+                    ]);
+                    $installProcess->setTimeout(180);
+                    $installProcess->run();
+                    @unlink($projectPath . '/install.json');
+
+                    // Garantizar permisos 777 universales vía contenedor Docker como root
+                    (new Process(['docker', 'run', '--rm', '-v', "{$projectPath}:/app", 'alpine', 'chmod', '-R', '777', '/app']))->run();
+
+                    $cfgFile = $projectPath . '/config.php';
+                    if (\Illuminate\Support\Facades\File::exists($cfgFile)) {
+                        $dynamicUrlCode = "'url' => (isset(\$_SERVER['HTTP_HOST']) ? ('http' . ((isset(\$_SERVER['HTTPS']) && \$_SERVER['HTTPS'] === 'on') || (isset(\$_SERVER['HTTP_X_FORWARDED_PROTO']) && \$_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') ? 's' : '') . '://' . \$_SERVER['HTTP_HOST']) : 'http://{$project->subdomain}.localhost')";
+                        try {
+                            $cfgContent = \Illuminate\Support\Facades\File::get($cfgFile);
+                            $cfgContent = preg_replace("/'url'\s*=>\s*['\"][^'\"]+['\"]/", $dynamicUrlCode, $cfgContent);
+                            \Illuminate\Support\Facades\File::put($cfgFile, $cfgContent);
+                        } catch (\Throwable $cfgErr) {
+                            (new Process([
+                                'docker', 'run', '--rm',
+                                '-v', "{$projectPath}:/app",
+                                'alpine', 'sh', '-c',
+                                "sed -i \"s|'url' => '.*'|{$dynamicUrlCode}|g\" /app/config.php && chmod 777 /app/config.php"
+                            ]))->run();
+                        }
+                    }
+
+                    $logs .= $installProcess->isSuccessful() 
+                        ? "Flarum instalado y configurado exitosamente con base de datos.\n"
+                        : "Aviso en instalación Flarum: " . $installProcess->getErrorOutput() . "\n";
+                }
+
+                $project->demo_instructions = "Acceso predeterminado para pruebas (Flarum Forum):\nUsuario: admin\nClave: password\n\nForo de discusión Flarum 2.x instalado y configurado con base de datos, etiquetas y usuario administrador listo para evaluar.";
+                $project->save();
+            }
+
             // Soporte predeterminado para Amazona (MERN E-Commerce)
             if (\Illuminate\Support\Facades\File::exists($projectPath . '/backend/server.js') && \Illuminate\Support\Facades\File::exists($projectPath . '/backend/data.js')) {
                 if (empty($project->demo_instructions) || !str_contains($project->demo_instructions, 'admin@example.com')) {
                     $project->demo_instructions = "Acceso predeterminado para pruebas (Amazona E-Commerce):\nUsuario: admin@example.com\nClave: 1234\n\nTienda completa MERN (MongoDB + Express + React + Node.js) con catálogo de productos, carrito de compras y panel de administración.";
                     $project->save();
                     $logs .= "Credenciales predeterminadas para Amazona integradas en las instrucciones: admin@example.com / 1234\n";
+                }
+            }
+
+            // Soporte predeterminado para IDURAR ERP CRM (MERN)
+            if (\Illuminate\Support\Facades\File::exists($projectPath . '/backend/src/server.js') || \Illuminate\Support\Facades\File::exists($projectPath . '/src/server.js')) {
+                if (empty($project->demo_instructions) || !str_contains($project->demo_instructions, 'admin@admin.com')) {
+                    $project->demo_instructions = "Acceso predeterminado para pruebas (IDURAR ERP CRM):\nUsuario: admin@admin.com\nClave: admin123\n\nSistema ERP / CRM completo (Node.js, Express, React, MongoDB) con gestión de clientes, facturas, cotizaciones y pagos.";
+                    $project->save();
+                    $logs .= "Credenciales predeterminadas para IDURAR integradas en las instrucciones: admin@admin.com / admin123\n";
                 }
             }
 
@@ -350,6 +466,21 @@ class BuildProjectJob implements ShouldQueue
                     $project->save();
                     $logs .= "Credenciales predeterminadas para Firefly III integradas en las instrucciones: admin@example.com / password\n";
                 }
+            }
+
+            // Soporte predeterminado para EverShop E-Commerce
+            if (\Illuminate\Support\Facades\File::exists($projectPath . '/packages/evershop')) {
+                $adminUrl = (config('app.env') === 'production')
+                    ? "https://{$project->subdomain}.{$domain}/admin"
+                    : "http://{$project->subdomain}.localhost/admin";
+
+                $project->demo_instructions = "Acceso predeterminado para pruebas (EverShop E-Commerce):\n"
+                    . "Panel de Administración: {$adminUrl}\n"
+                    . "Usuario Administrador: admin@example.com\n"
+                    . "Clave: password\n\n"
+                    . "Tienda de Clientes (Storefront): El catálogo incluye productos, categorías y blog de muestra. Para iniciar sesión como cliente, puedes registrarte en 'Create an account'.";
+                $project->save();
+                $logs .= "Credenciales predeterminadas para EverShop integradas: admin@example.com / password en {$adminUrl}\n";
             }
 
             $deployment->build_log = $logs;
@@ -373,6 +504,23 @@ class BuildProjectJob implements ShouldQueue
             $project->container_id = $startResult['container_id'];
             $project->last_visited_at = now();
             $project->save();
+
+            // Soporte predeterminado para EverShop E-Commerce: crear admin y sembrar catálogo demo una vez que las tablas ya existen
+            if (\Illuminate\Support\Facades\File::exists($projectPath . '/packages/evershop')) {
+                try {
+                    $containerId = $startResult['container_id'];
+                    $execProcess = new \Symfony\Component\Process\Process([
+                        'docker', 'exec', $containerId,
+                        'sh', '-c',
+                        'node ./packages/evershop/dist/bin/evershop.js user:create --name "Admin" --email "admin@example.com" --password "password" || true; node ./packages/evershop/dist/bin/evershop.js seed --all || true'
+                    ]);
+                    $execProcess->setTimeout(180);
+                    $execProcess->run();
+                    $logs .= "Datos de demostración y usuario administrador creados automáticamente para EverShop.\n";
+                } catch (\Throwable $th) {
+                    // Ignorar si falla el seed secundario
+                }
+            }
 
             // Generar snapshot inicial universal para cualquier aplicación (Node, monorepos, TypeORM, Prisma, etc.)
             if (!empty($project->db_name)) {
@@ -422,7 +570,10 @@ class BuildProjectJob implements ShouldQueue
             $logs = str_replace($projectPath . '/', '', $logs);
             $logs = str_replace($projectPath, '.', $logs);
         }
-        return preg_replace('/\/home\/[^\/]+\/[^\/\s\'"]+\/src\/storage\/app\/projects\/[^\/\s\'"]+/', '.', $logs);
+        $logs = preg_replace('/\/home\/[^\/]+\/[^\/\s\'"]+\/src\/storage\/app\/projects\/[^\/\s\'"]+/', '.', $logs);
+
+        // Eliminar emojis y caracteres gráficos no estándar de todos los logs
+        return preg_replace('/[\x{1F600}-\x{1F64F}\x{1F300}-\x{1F5FF}\x{1F680}-\x{1F6FF}\x{1F1E0}-\x{1F1FF}\x{2600}-\x{26FF}\x{2700}-\x{27BF}\x{1F900}-\x{1F9FF}\x{1F018}-\x{1F0F5}\x{1F200}-\x{1F270}\x{FE00}-\x{FE0F}\x{1F000}-\x{1F02F}\x{1F0A0}-\x{1F0FF}]/u', '', $logs);
     }
 
     /**
@@ -457,6 +608,20 @@ class BuildProjectJob implements ShouldQueue
             $rootScore = $this->calculateProjectScore($projectPath);
             if ($rootScore >= 10) {
                 return "Estructura del proyecto verificada (Archivos en la raíz).";
+            }
+
+            // Monorepos: Si existen múltiples componentes de proyecto (ej: frontend y backend, client y api/server),
+            // preservar la estructura completa del monorepo y no aplanar.
+            $monorepoDirs = ['backend', 'frontend', 'client', 'api', 'server', 'web', 'app'];
+            $matchingComponents = 0;
+            foreach ($monorepoDirs as $mDir) {
+                if (\Illuminate\Support\Facades\File::isDirectory($projectPath . '/' . $mDir) && 
+                    $this->calculateProjectScore($projectPath . '/' . $mDir) >= 5) {
+                    $matchingComponents++;
+                }
+            }
+            if ($matchingComponents >= 2) {
+                return "Estructura de monorepo detectada ({$matchingComponents} componentes: frontend/backend/client/api). Preservando estructura integral.";
             }
 
             // Find the best project directory recursively (up to depth 3)
@@ -644,16 +809,22 @@ class BuildProjectJob implements ShouldQueue
         $sqlFiles = $this->getProjectScanFiles($projectPath, '*.sql');
         $hasSql = !empty($sqlFiles);
 
-        // 2. Verificar si tiene migraciones o auto-sincronización (Laravel, Django, TypeORM, Prisma, Sequelize, Knex, Drizzle, Mongoose, Grocy/SQLite, etc.)
+        // 2. Verificar si tiene migraciones o auto-sincronización (Laravel, Django, TypeORM, Prisma, Sequelize, Knex, Drizzle, Mongoose, Grocy/SQLite, CodeIgniter, etc.)
         $hasMigrations = false;
         if (\Illuminate\Support\Facades\File::exists($projectPath . '/artisan') || 
             \Illuminate\Support\Facades\File::exists($projectPath . '/manage.py') ||
             \Illuminate\Support\Facades\File::isDirectory($projectPath . '/migrations') ||
             \Illuminate\Support\Facades\File::isDirectory($projectPath . '/database/migrations') ||
+            \Illuminate\Support\Facades\File::isDirectory($projectPath . '/application/migrations') ||
+            \Illuminate\Support\Facades\File::isDirectory($projectPath . '/app/Database/Migrations') ||
+            \Illuminate\Support\Facades\File::isDirectory($projectPath . '/src/Migrations') ||
             \Illuminate\Support\Facades\File::isDirectory($projectPath . '/db/migrate') ||
             \Illuminate\Support\Facades\File::isDirectory($projectPath . '/db/cache_migrate') ||
             \Illuminate\Support\Facades\File::exists($projectPath . '/Gemfile') ||
-            \Illuminate\Support\Facades\File::exists($projectPath . '/config-dist.php')) {
+            \Illuminate\Support\Facades\File::exists($projectPath . '/config-dist.php') ||
+            \Illuminate\Support\Facades\File::exists($projectPath . '/config-sample.php') ||
+            \Illuminate\Support\Facades\File::exists($projectPath . '/config.sample.php') ||
+            \Illuminate\Support\Facades\File::exists($projectPath . '/wp-config-sample.php')) {
             $hasMigrations = true;
         }
 
@@ -867,6 +1038,12 @@ class BuildProjectJob implements ShouldQueue
             return;
         }
 
+        // Proyectos EverShop gestionan sus migraciones y esquemas de base de datos en su arranque
+        if (\Illuminate\Support\Facades\File::exists($projectPath . '/packages/evershop') || \Illuminate\Support\Facades\File::exists($projectPath . '/packages/loot-core')) {
+            $logs .= "Proyecto con gestión interna de esquemas y migraciones detectado. Omitiendo importación manual de archivos SQL.\n\n";
+            return;
+        }
+
         // Search for .sql files recursively (excluding vendor, node_modules, etc.)
         $sqlFiles = $this->getProjectScanFiles($projectPath, '*.sql');
 
@@ -877,8 +1054,23 @@ class BuildProjectJob implements ShouldQueue
 
         foreach ($sqlFiles as $sqlFile) {
             $relPath = $sqlFile->getRelativePathname();
-            // Omitir scripts SQL internos de configuración de Docker o CI de terceros
-            if (str_contains($relPath, 'docker/') || str_contains($relPath, '.github/')) {
+            $lowerRelPath = strtolower($relPath);
+            // Omitir scripts SQL internos de configuración de Docker, CI o testing/unit-tests
+            if (
+                str_contains($lowerRelPath, 'docker/') ||
+                str_contains($lowerRelPath, '.github/') ||
+                str_contains($lowerRelPath, 'testing') ||
+                str_contains($lowerRelPath, 'test/') ||
+                str_contains($lowerRelPath, 'tests/') ||
+                str_contains($lowerRelPath, 'spec/') ||
+                str_contains($lowerRelPath, 'mock') ||
+                str_contains($lowerRelPath, 'migration') ||
+                str_contains($lowerRelPath, 'migrations/') ||
+                str_contains($lowerRelPath, 'sqlscripts/') ||
+                str_contains($lowerRelPath, 'upgrade') ||
+                str_contains($lowerRelPath, 'rollback') ||
+                str_contains($lowerRelPath, 'drop')
+            ) {
                 continue;
             }
 
@@ -927,6 +1119,7 @@ class BuildProjectJob implements ShouldQueue
      */
     private function runFrameworkMigrations(Project $project, string $projectPath, &$logs): void
     {
+        $baseDomain = env('APP_DOMAIN', 'nexus-academic.software');
         $dbHost = $project->db_driver === 'mysql' ? 'uleam_mysql_students' : 'uleam_postgres_students';
         $dbPort = $project->db_driver === 'mysql' ? '3306' : '5432';
 
@@ -1059,6 +1252,14 @@ class BuildProjectJob implements ShouldQueue
                 return;
             }
 
+            // Soporte automatizado para FreeScout Help Desk
+            if (\Illuminate\Support\Facades\File::exists($projectPath . '/app/Mailbox.php')) {
+                if (empty($project->demo_instructions)) {
+                    $project->demo_instructions = "Acceso al Panel de FreeScout Help Desk:\nUsuario: admin@example.com\nClave: password\n\nEl sistema cuenta con un buzón de soporte configurado con tickets de prueba para responder, reasignar o crear nuevas consultas desde el menú superior 'Manage'.";
+                    $project->save();
+                }
+            }
+
             $command = [
                 'docker', 'run', '--rm',
                 '--network', 'uleam_academic_network',
@@ -1093,6 +1294,25 @@ class BuildProjectJob implements ShouldQueue
                     'php', 'artisan', 'db:seed', '--force'
                 ];
                 $this->executeMigrationCommand($seedCommand, $logs);
+            }
+
+            // Soporte para Filament Shield (generación de roles y permisos para paneles administrativos)
+            if (\Illuminate\Support\Facades\File::exists($projectPath . '/database/seeders/ShieldSeeder.php')) {
+                $shieldCmd = [
+                    'docker', 'run', '--rm',
+                    '--network', 'uleam_academic_network',
+                    '-v', "{$projectPath}:/app",
+                    '-w', '/app',
+                    '-e', "DB_CONNECTION={$project->db_driver}",
+                    '-e', "DB_HOST={$dbHost}",
+                    '-e', "DB_PORT={$dbPort}",
+                    '-e', "DB_DATABASE={$project->db_name}",
+                    '-e', "DB_USERNAME={$project->db_user}",
+                    '-e', "DB_PASSWORD={$project->db_password}",
+                    'webdevops/php:8.4',
+                    'php', 'artisan', 'db:seed', '--class=Database\\Seeders\\ShieldSeeder', '--force'
+                ];
+                $this->executeMigrationCommand($shieldCmd, $logs);
             }
 
             // Auto-completar instalación para proyectos con asistentes web (Zero-Click para evaluadores)
@@ -1230,6 +1450,110 @@ try {
         } catch (\Throwable $e) {}
     }
 
+    // B3. Monica CRM Auto-Setup
+    if (class_exists('App\Domains\Settings\CreateAccount\Services\CreateAccount')) {
+        try {
+            $monicaUser = \Illuminate\Support\Facades\DB::table('users')->where('email', 'admin@example.com')->first();
+            if (!$monicaUser) {
+                app(\App\Domains\Settings\CreateAccount\Services\CreateAccount::class)->execute([
+                    'first_name' => 'Admin',
+                    'last_name' => 'Evaluador',
+                    'email' => 'admin@example.com',
+                    'password' => 'password',
+                ]);
+            }
+            echo "AUTH_USER:admin@example.com\n";
+        } catch (\Throwable $e) {}
+    }
+
+    // B4. FreeScout Help Desk Auto-Setup
+    if (\Illuminate\Support\Facades\Schema::hasTable('mailboxes') && \Illuminate\Support\Facades\Schema::hasTable('users')) {
+        try {
+            $fsUser = \App\User::where('email', 'admin@example.com')->first();
+            if (!$fsUser) {
+                $fsUser = new \App\User();
+                $fsUser->first_name = 'Admin';
+                $fsUser->last_name = 'Docente';
+                $fsUser->email = 'admin@example.com';
+                $fsUser->password = \Illuminate\Support\Facades\Hash::make('password');
+            }
+            $fsUser->role = \App\User::ROLE_ADMIN;
+            $fsUser->status = \App\User::STATUS_ACTIVE;
+            $fsUser->invite_state = \App\User::INVITE_STATE_ACTIVATED;
+            $fsUser->save();
+            \Illuminate\Support\Facades\DB::table('users')->where('email', 'admin@example.com')->update([
+                'role' => \App\User::ROLE_ADMIN,
+                'status' => \App\User::STATUS_ACTIVE,
+                'invite_state' => \App\User::INVITE_STATE_ACTIVATED,
+            ]);
+
+            // Aprovisionar buzón de soporte inicial si aún no existe
+            if (\App\Mailbox::count() === 0) {
+                $mb = new \App\Mailbox();
+                $mb->name = 'Atención y Soporte';
+                $mb->email = 'soporte@uleam.edu.ec';
+                $mb->in_protocol = 1;
+                $mb->in_server = 'localhost';
+                $mb->in_port = 993;
+                $mb->in_username = 'soporte';
+                $mb->in_password = 'demo';
+                $mb->out_method = \App\Mailbox::OUT_METHOD_PHP_MAIL;
+                $mb->save();
+                $mb->users()->sync([$fsUser->id]);
+                $mb->syncPersonalFolders([$fsUser->id]);
+
+                // Crear tickets de prueba para que tanto "Unassigned" como "Mine" tengan conversaciones
+                try {
+                    $customer = \App\Customer::create('juan.perez@estudiante.uleam.edu.ec', [
+                        'first_name' => 'Juan',
+                        'last_name' => 'Perez'
+                    ]);
+                    // Ticket 1: Asignado al Admin (Carpeta Mine)
+                    $convData1 = [
+                        'type' => \App\Conversation::TYPE_EMAIL,
+                        'subject' => 'Consulta sobre matrícula y horario académico',
+                        'mailbox_id' => $mb->id,
+                        'source_type' => 1,
+                        'user_id' => $fsUser->id,
+                    ];
+                    $threads1 = [
+                        [
+                            'type' => \App\Thread::TYPE_CUSTOMER,
+                            'body' => 'Estimados, tengo una consulta respecto a la inscripción de materias para el presente periodo académico. ¿Podrían indicarme los pasos?',
+                            'customer_id' => $customer->id,
+                        ]
+                    ];
+                    \App\Conversation::create($convData1, $threads1, $customer);
+
+                    // Ticket 2: Sin asignar (Carpeta Unassigned - vista por defecto al entrar al buzón)
+                    $customer2 = \App\Customer::create('maria.alava@estudiante.uleam.edu.ec', [
+                        'first_name' => 'Maria',
+                        'last_name' => 'Alava'
+                    ]);
+                    $convData2 = [
+                        'type' => \App\Conversation::TYPE_EMAIL,
+                        'subject' => 'Consulta de horarios y aula de clases',
+                        'mailbox_id' => $mb->id,
+                        'source_type' => 1,
+                        'user_id' => null,
+                    ];
+                    $threads2 = [
+                        [
+                            'type' => \App\Thread::TYPE_CUSTOMER,
+                            'body' => 'Buenas tardes, quisiera consultar en qué aula se dictará la clase de Sistemas Distribuidos el día de mañana.',
+                            'customer_id' => $customer2->id,
+                        ]
+                    ];
+                    \App\Conversation::create($convData2, $threads2, $customer2);
+
+                    \Illuminate\Support\Facades\Artisan::call('freescout:update-folder-counters');
+                    \Illuminate\Support\Facades\Artisan::call('freescout:clear-cache');
+                } catch (\Throwable $te) {}
+            }
+            echo "AUTH_USER:admin@example.com\n";
+        } catch (\Throwable $e) {}
+    }
+
     // C. Tablas de Configuración y Asistentes Web Generales (settings, configs, options)
     foreach (['settings', 'configs', 'options', 'app_settings', 'system_settings'] as $table) {
         if (\Illuminate\Support\Facades\Schema::hasTable($table)) {
@@ -1272,6 +1596,11 @@ try {
     $targetTables = ['users', 'admins', 'administrators', 'administradores'];
     foreach ($targetTables as $userTable) {
         if (\Illuminate\Support\Facades\Schema::hasTable($userTable)) {
+            // Si es FreeScout (tabla mailboxes), saltar Section D porque ya fue aprovisionado con rol ROLE_ADMIN en B4
+            if (\Illuminate\Support\Facades\Schema::hasTable('mailboxes')) {
+                break;
+            }
+
             $cols = \Illuminate\Support\Facades\Schema::getColumnListing($userTable);
             $firstUser = \Illuminate\Support\Facades\DB::table($userTable)->first();
             $updateData = [];
@@ -1279,9 +1608,25 @@ try {
             if (in_array('is_admin', $cols)) $updateData['is_admin'] = 1;
             if (in_array('admin', $cols)) $updateData['admin'] = 1;
             if (in_array('is_superadmin', $cols)) $updateData['is_superadmin'] = 1;
-            if (in_array('role', $cols)) $updateData['role'] = 'admin';
+            if (in_array('is_account_administrator', $cols)) $updateData['is_account_administrator'] = 1;
+            if (in_array('is_instance_administrator', $cols)) $updateData['is_instance_administrator'] = 1;
+            if (in_array('role', $cols)) {
+                try {
+                    $rType = \Illuminate\Support\Facades\Schema::getColumnType($userTable, 'role');
+                    $updateData['role'] = in_array($rType, ['integer', 'smallint', 'tinyint', 'bigint', 'boolean']) ? 1 : 'admin';
+                } catch (\Throwable $e) {
+                    $updateData['role'] = 1;
+                }
+            }
             if (in_array('role_id', $cols)) $updateData['role_id'] = 1;
-            if (in_array('status', $cols)) $updateData['status'] = 'active';
+            if (in_array('status', $cols)) {
+                try {
+                    $sType = \Illuminate\Support\Facades\Schema::getColumnType($userTable, 'status');
+                    $updateData['status'] = in_array($sType, ['integer', 'smallint', 'tinyint', 'bigint', 'boolean']) ? 1 : 'active';
+                } catch (\Throwable $e) {
+                    $updateData['status'] = 1;
+                }
+            }
             if (in_array('activated', $cols)) $updateData['activated'] = 1;
             if (in_array('username', $cols)) $updateData['username'] = 'admin';
             if (in_array('permissions', $cols)) $updateData['permissions'] = '{"superuser":"1","admin":"1"}';
@@ -1301,6 +1646,37 @@ try {
                 if (in_array('last_name', $cols)) $insertData['last_name'] = 'Evaluador';
                 if (in_array('created_at', $cols)) $insertData['created_at'] = now();
                 if (in_array('updated_at', $cols)) $insertData['updated_at'] = now();
+
+                // Soporte para tablas con UUIDs en clave primaria
+                if (in_array('id', $cols)) {
+                    try {
+                        $colType = \Illuminate\Support\Facades\Schema::getColumnType($userTable, 'id');
+                        if (in_array($colType, ['string', 'guid', 'char'])) {
+                            $insertData['id'] = (string) \Illuminate\Support\Str::uuid();
+                        }
+                    } catch (\Throwable $e) {}
+                }
+
+                // Soporte para sistemas con tabla accounts (Multi-tenant)
+                if (in_array('account_id', $cols) && \Illuminate\Support\Facades\Schema::hasTable('accounts')) {
+                    try {
+                        $firstAcc = \Illuminate\Support\Facades\DB::table('accounts')->first();
+                        if (!$firstAcc) {
+                            $accId = (string) \Illuminate\Support\Str::uuid();
+                            $accData = [];
+                            $accCols = \Illuminate\Support\Facades\Schema::getColumnListing('accounts');
+                            if (in_array('id', $accCols)) $accData['id'] = $accId;
+                            if (in_array('name', $accCols)) $accData['name'] = 'Admin Account';
+                            if (in_array('created_at', $accCols)) $accData['created_at'] = now();
+                            if (in_array('updated_at', $accCols)) $accData['updated_at'] = now();
+                            \Illuminate\Support\Facades\DB::table('accounts')->insert($accData);
+                            $insertData['account_id'] = $accId;
+                        } else {
+                            $insertData['account_id'] = $firstAcc->id;
+                        }
+                    } catch (\Throwable $e) {}
+                }
+
                 \Illuminate\Support\Facades\DB::table($userTable)->insert($insertData);
                 echo "AUTH_USER:admin@example.com" . PHP_EOL;
             }
@@ -1314,16 +1690,22 @@ try {
                         ->first();
                     if ($adminRole) {
                         $targetUserId = $firstUser ? $firstUser->id : 1;
+                        $userModelClass = config('auth.providers.users.model', 'App\\Models\\User');
                         \Illuminate\Support\Facades\DB::table('model_has_roles')->updateOrInsert([
                             'role_id' => $adminRole->id,
                             'model_id' => $targetUserId,
-                            'model_type' => 'App\\Models\\User'
+                            'model_type' => $userModelClass
                         ]);
                     }
                 } catch (\Throwable $e) {}
             }
             break;
         }
+    }
+
+    // Asegurar que todos los usuarios queden con email verificado para no bloquear evaluación con pantallas de verificación
+    if (\Illuminate\Support\Facades\Schema::hasTable('users') && \Illuminate\Support\Facades\Schema::hasColumn('users', 'email_verified_at')) {
+        \Illuminate\Support\Facades\DB::table('users')->whereNull('email_verified_at')->update(['email_verified_at' => now()]);
     }
 } catch (\Throwable $e) {}
 PHP;
@@ -1762,6 +2144,218 @@ RB;
             $this->generateInitialDatabaseSnapshot($project, $projectPath);
             return;
         }
+
+        // 3.7. IDURAR ERP CRM (MERN / MongoDB inicialización)
+        $idurarSetupCandidates = [
+            ['dir' => 'backend', 'file' => 'src/setup/setup.js'],
+            ['dir' => '.', 'file' => 'src/setup/setup.js']
+        ];
+        foreach ($idurarSetupCandidates as $setupCandidate) {
+            $checkDir = ($setupCandidate['dir'] === '.') ? $projectPath : $projectPath . '/' . $setupCandidate['dir'];
+            if (\Illuminate\Support\Facades\File::exists($checkDir . '/' . $setupCandidate['file'])) {
+                $logs .= "--- PASO 3.6: Inicialización de IDURAR ERP CRM (setup inicial de base de datos) ---\n";
+                $setupWorkDir = ($setupCandidate['dir'] === '.') ? '/app' : "/app/{$setupCandidate['dir']}";
+                $mongoUri = "mongodb://{$project->db_user}:{$project->db_password}@uleam_mongodb_students:27017/{$project->db_name}?authSource={$project->db_name}";
+                $setupCommand = [
+                    'docker', 'run', '--rm',
+                    '--network', 'uleam_academic_network',
+                    '-v', "{$projectPath}:/app",
+                    '-w', $setupWorkDir,
+                    '-e', "DATABASE={$mongoUri}",
+                    '-e', "DATABASE_URL={$mongoUri}",
+                    '-e', "MONGODB_URI={$mongoUri}",
+                    'node:20-alpine',
+                    'node', $setupCandidate['file']
+                ];
+                $this->executeMigrationCommand($setupCommand, $logs);
+                $this->generateInitialDatabaseSnapshot($project, $projectPath);
+                return;
+            }
+        }
+
+        // 3.8. Planka Kanban (Sails.js + Knex / PostgreSQL)
+        if (\Illuminate\Support\Facades\File::exists($projectPath . '/server/db/init.js')) {
+            $logs .= "--- PASO 3.6: Planka Kanban Detectado: Inicializando Base de Datos PostgreSQL (knex migrate & seed) ---\n";
+            $plankaInitCmd = [
+                'docker', 'run', '--rm',
+                '--network', 'uleam_academic_network',
+                '-v', "{$projectPath}:/app",
+                '-w', '/app/server',
+                'node:20',
+                'node', 'db/init.js'
+            ];
+            $this->executeMigrationCommand($plankaInitCmd, $logs);
+
+            $project->demo_instructions = "Acceso predeterminado para pruebas (Planka Kanban):\nUsuario: demo@demo.demo\nClave: demo\n\nSistema ágil tipo Trello/Kanban con proyectos, tableros, listas y tarjetas.";
+            $project->save();
+            $logs .= "Credenciales predeterminadas para Planka integradas en las instrucciones: demo@demo.demo / demo\n";
+
+            $this->generateInitialDatabaseSnapshot($project, $projectPath);
+            return;
+        }
+
+        // 3.9. Rallly (Next.js + Prisma / PostgreSQL)
+        if (\Illuminate\Support\Facades\File::exists($projectPath . '/packages/database/prisma') || \Illuminate\Support\Facades\File::exists($projectPath . '/prisma.config.ts')) {
+            $logs .= "--- PASO 3.6: Monorepo Prisma / Rallly Detectado: Ejecutando Migraciones (pnpm db:deploy) ---\n";
+            $ralllyMigrateCmd = [
+                'docker', 'run', '--rm',
+                '--network', 'uleam_academic_network',
+                '-v', "{$projectPath}:/app",
+                '-e', 'HOME=/tmp',
+                '-e', 'PNPM_HOME=/tmp/.pnpm',
+                '-e', "DATABASE_URL=" . ($project->db_driver === 'mysql' ? 'mysql' : 'postgresql') . "://{$project->db_user}:{$project->db_password}@{$dbHost}:{$dbPort}/{$project->db_name}",
+                '-w', '/app',
+                'node:24-bookworm',
+                'sh', '-c', 'mkdir -p /tmp/.bin && (corepack enable --install-directory /tmp/.bin 2>/dev/null || true); export PATH=/tmp/.bin:$PATH; pnpm db:deploy'
+            ];
+            $this->executeMigrationCommand($ralllyMigrateCmd, $logs);
+
+            $project->demo_instructions = "Acceso para pruebas (Rallly Polls & Meetings):\nPlataforma ágil de encuestas, eventos y coordinación de reuniones.\nPuedes crear encuestas públicas de inmediato o registrarte/iniciar sesión con cualquier correo (ej: admin@example.com).\nEl código de verificación de 6 dígitos se muestra directamente en pantalla y en 'Ver Logs' -> 'Consola del contenedor'.";
+            $project->save();
+            $logs .= "Instrucciones de demostración configuradas para Rallly.\n";
+
+            $this->generateInitialDatabaseSnapshot($project, $projectPath);
+            return;
+        }
+
+        // 4. CodeIgniter 4 (PHP)
+        if (\Illuminate\Support\Facades\File::exists($projectPath . '/spark')) {
+            $logs .= "--- PASO 3.6: Framework CodeIgniter 4 Detectado: Ejecutando Migraciones (spark migrate) ---\n";
+            $ciCommand = [
+                'docker', 'run', '--rm',
+                '--network', 'uleam_academic_network',
+                '-v', "{$projectPath}:/app",
+                '-w', '/app',
+                '-e', "CI_ENVIRONMENT=development",
+                '-e', "ALLOWED_HOSTNAMES={$project->subdomain}.localhost,{$project->subdomain}.{$baseDomain},localhost,127.0.0.1",
+                '-e', "MYSQL_HOST={$dbHost}",
+                '-e', "MYSQL_HOST_NAME={$dbHost}",
+                '-e', "MYSQL_PORT={$dbPort}",
+                '-e', "MYSQL_DATABASE={$project->db_name}",
+                '-e', "MYSQL_DB_NAME={$project->db_name}",
+                '-e', "MYSQL_USER={$project->db_user}",
+                '-e', "MYSQL_USERNAME={$project->db_user}",
+                '-e', "MYSQL_PASSWORD={$project->db_password}",
+                '-e', "DB_HOST={$dbHost}",
+                '-e', "DB_DATABASE={$project->db_name}",
+                '-e', "DB_USERNAME={$project->db_user}",
+                '-e', "DB_PASSWORD={$project->db_password}",
+                'webdevops/php:8.4',
+                'php', 'spark', 'migrate'
+            ];
+            $this->executeMigrationCommand($ciCommand, $logs);
+
+            // Asegurar permisos en directorio writable
+            \Illuminate\Support\Facades\File::ensureDirectoryExists($projectPath . '/writable', 0777);
+            @chmod($projectPath . '/writable', 0777);
+            (new Process(['docker', 'run', '--rm', '-v', "{$projectPath}:/app", 'alpine', 'chmod', '-R', '777', '/app/writable']))->run();
+
+            // Detectar credenciales predeterminadas para OpenSourcePOS
+            if (\Illuminate\Support\Facades\File::exists($projectPath . '/app/Config/OSPOS.php') || str_contains(strtolower($project->name), 'opensourcepos') || str_contains(strtolower($project->name), 'ospos')) {
+                $project->demo_instructions = "Acceso predeterminado para pruebas (OpenSourcePOS):\nUsuario: admin\nClave: pointofsale\n\nSistema punto de venta (POS) completamente configurado con base de datos e inventario listo para evaluar.";
+                $project->save();
+            }
+
+            $this->generateInitialDatabaseSnapshot($project, $projectPath);
+            return;
+        }
+
+        // 5. Easy!Appointments (CodeIgniter 3)
+        if (\Illuminate\Support\Facades\File::exists($projectPath . '/config-sample.php') && \Illuminate\Support\Facades\File::isDirectory($projectPath . '/application/migrations')) {
+            $logs .= "--- PASO 3.6: Aplicación Easy!Appointments Detectada: Configurando e Instalando ---\n";
+
+            // Crear config.php si aún no existe
+            $cfgFile = $projectPath . '/config.php';
+            if (!\Illuminate\Support\Facades\File::exists($cfgFile)) {
+                $configSample = \Illuminate\Support\Facades\File::get($projectPath . '/config-sample.php');
+                $baseUrl = "http://{$project->subdomain}.localhost";
+                $configContent = str_replace(
+                    [
+                        "const BASE_URL = 'http://localhost';",
+                        "const DB_HOST = 'mysql';",
+                        "const DB_NAME = 'easyappointments';",
+                        "const DB_USERNAME = 'user';",
+                        "const DB_PASSWORD = 'password';"
+                    ],
+                    [
+                        "const BASE_URL = '{$baseUrl}';",
+                        "const DB_HOST = '{$dbHost}';",
+                        "const DB_NAME = '{$project->db_name}';",
+                        "const DB_USERNAME = '{$project->db_user}';",
+                        "const DB_PASSWORD = '{$project->db_password}';"
+                    ],
+                    $configSample
+                );
+                \Illuminate\Support\Facades\File::put($cfgFile, $configContent);
+                @chmod($cfgFile, 0777);
+            }
+
+            // Permisos en storage, cache, logs
+            \Illuminate\Support\Facades\File::ensureDirectoryExists($projectPath . '/storage/logs', 0777);
+            \Illuminate\Support\Facades\File::ensureDirectoryExists($projectPath . '/storage/sessions', 0777);
+            \Illuminate\Support\Facades\File::ensureDirectoryExists($projectPath . '/storage/cache', 0777);
+            (new Process(['docker', 'run', '--rm', '-v', "{$projectPath}:/app", 'alpine', 'chmod', '-R', '777', '/app/storage', '/app/config.php']))->run();
+
+            // Ejecutar instalación por consola
+            $eaCommand = [
+                'docker', 'run', '--rm',
+                '--network', 'uleam_academic_network',
+                '-v', "{$projectPath}:/app",
+                '-w', '/app',
+                'webdevops/php:8.4',
+                'php', 'index.php', 'console', 'install'
+            ];
+            $this->executeMigrationCommand($eaCommand, $logs);
+
+            $project->demo_instructions = "Acceso predeterminado para pruebas (Easy!Appointments):\nUsuario: administrator\nClave: administrator\n\nSistema integral de gestión de citas y reservas online con calendario interactivo, catálogo de servicios, proveedores y agenda médica/académica lista para evaluar.";
+            $project->save();
+
+            $this->generateInitialDatabaseSnapshot($project, $projectPath);
+            return;
+        }
+
+        // 6. Kimai (Symfony Time Tracking)
+        if (\Illuminate\Support\Facades\File::exists($projectPath . '/bin/console') && \Illuminate\Support\Facades\File::exists($projectPath . '/config/packages/kimai.yaml')) {
+            $logs .= "--- PASO 3.6: Aplicación Kimai Detectada: Ejecutando Instalación y Superusuario ---\n";
+
+            $installCmd = [
+                'docker', 'run', '--rm',
+                '--network', 'uleam_academic_network',
+                '-v', "{$projectPath}:/app",
+                '-w', '/app',
+                'webdevops/php:8.4',
+                'php', 'bin/console', 'kimai:install', '-n'
+            ];
+            $this->executeMigrationCommand($installCmd, $logs);
+
+            $adminCmd = [
+                'docker', 'run', '--rm',
+                '--network', 'uleam_academic_network',
+                '-v', "{$projectPath}:/app",
+                '-w', '/app',
+                'webdevops/php:8.4',
+                'php', 'bin/console', 'kimai:user:create', '--ignore-existing', 'admin', 'admin@example.com', 'ROLE_SUPER_ADMIN', 'password', '-n'
+            ];
+            $this->executeMigrationCommand($adminCmd, $logs);
+
+            $assetsCmd = [
+                'docker', 'run', '--rm',
+                '--network', 'uleam_academic_network',
+                '-v', "{$projectPath}:/app",
+                '-w', '/app',
+                'webdevops/php:8.4',
+                'php', 'bin/console', 'assets:install', '--symlink', '--relative'
+            ];
+            $this->executeMigrationCommand($assetsCmd, $logs);
+
+            (new Process(['docker', 'run', '--rm', '-v', "{$projectPath}:/app", 'alpine', 'chmod', '-R', '777', '/app/var']))->run();
+
+            $project->demo_instructions = "Acceso predeterminado para pruebas (Kimai Time Tracking):\nUsuario: admin (o admin@example.com)\nClave: password\n\nSistema integral de control de horarios, proyectos, clientes, hojas de tiempo y facturación listo para evaluar.";
+            $project->save();
+
+            $this->generateInitialDatabaseSnapshot($project, $projectPath);
+            return;
+        }
     }
 
     /**
@@ -1780,6 +2374,7 @@ RB;
         }
 
         $output = $process->getOutput() . $process->getErrorOutput();
+        $output = preg_replace('/[\x{1F600}-\x{1F64F}\x{1F300}-\x{1F5FF}\x{1F680}-\x{1F6FF}\x{1F1E0}-\x{1F1FF}\x{2600}-\x{26FF}\x{2700}-\x{27BF}\x{1F900}-\x{1F9FF}\x{1F018}-\x{1F0F5}\x{1F200}-\x{1F270}\x{FE00}-\x{FE0F}\x{1F000}-\x{1F02F}\x{1F0A0}-\x{1F0FF}]/u', '', $output);
         $logs .= $output . "\n";
 
         if ($process->isSuccessful()) {
@@ -1831,19 +2426,30 @@ RB;
      */
     private function detectDbDriver(Project $project, string $projectPath): string
     {
-        // 1. Check package.json for Node.js (priority for MongoDB/MySQL)
-        $packageJsonPath = $projectPath . '/package.json';
-        if (\Illuminate\Support\Facades\File::exists($packageJsonPath)) {
-            $packageJson = json_decode(\Illuminate\Support\Facades\File::get($packageJsonPath), true);
-            $deps = array_merge(
-                $packageJson['dependencies'] ?? [],
-                $packageJson['devDependencies'] ?? []
-            );
-            if (isset($deps['mongoose']) || isset($deps['mongodb'])) {
-                return 'mongodb';
-            }
-            if (isset($deps['mysql']) || isset($deps['mysql2'])) {
-                return 'mysql';
+        // 1. Check package.json for Node.js (including monorepos: backend, frontend, api, server, etc.)
+        $packageJsonFiles = $this->getProjectScanFiles($projectPath, 'package.json');
+        foreach ($packageJsonFiles as $pkgFile) {
+            $packageJson = json_decode(@file_get_contents($pkgFile->getRealPath()), true);
+            if ($packageJson) {
+                $deps = array_merge(
+                    $packageJson['dependencies'] ?? [],
+                    $packageJson['devDependencies'] ?? []
+                );
+                if (isset($deps['mongoose']) || isset($deps['mongodb'])) {
+                    return 'mongodb';
+                }
+                if (isset($deps['pg']) || isset($deps['postgres']) || isset($deps['@evershop/postgres-query-builder'])) {
+                    return 'pgsql';
+                }
+                if (isset($packageJson['description']) && stripos($packageJson['description'], 'postgres') !== false) {
+                    return 'pgsql';
+                }
+                if (isset($deps['better-sqlite3']) || isset($deps['sqlite3']) || isset($deps['sqlite']) || \Illuminate\Support\Facades\File::exists($projectPath . '/packages/loot-core')) {
+                    return 'sqlite';
+                }
+                if (isset($deps['mysql']) || isset($deps['mysql2'])) {
+                    return 'mysql';
+                }
             }
         }
 
@@ -1856,13 +2462,12 @@ RB;
             }
         }
 
-        // 3. Check .env, .env.example, .env.dist if exists in project
-        $envFiles = ['.env', '.env.example', '.env.dist', '.env.local'];
+        // 3. Check .env, .env.example, .env.dist if exists in project (root and subdirectories)
+        $envFiles = $this->getProjectScanFiles($projectPath, '.env*');
         foreach ($envFiles as $eFile) {
-            $ePath = $projectPath . '/' . $eFile;
-            if (\Illuminate\Support\Facades\File::exists($ePath)) {
-                $envContent = \Illuminate\Support\Facades\File::get($ePath);
-                if (stripos($envContent, 'DB_CONNECTION=mongodb') !== false || stripos($envContent, 'MONGODB_URI') !== false || stripos($envContent, 'MONGO_URL') !== false) {
+            $envContent = @file_get_contents($eFile->getRealPath());
+            if ($envContent) {
+                if (stripos($envContent, 'DB_CONNECTION=mongodb') !== false || stripos($envContent, 'MONGODB_URI') !== false || stripos($envContent, 'MONGO_URL') !== false || (stripos($envContent, 'DATABASE=') !== false && stripos($envContent, 'mongodb') !== false)) {
                     return 'mongodb';
                 }
                 if (stripos($envContent, 'DB_CONNECTION=mysql') !== false || stripos($envContent, 'DB_DRIVER=mysql') !== false) {
@@ -1961,17 +2566,22 @@ RB;
 
         $dbHost = $project->db_driver === 'mysql' ? ($project->language === 'ruby' ? 'uleam-mysql-students' : 'uleam_mysql_students') : ($project->db_driver === 'mongodb' ? 'uleam_mongodb_students' : ($project->language === 'ruby' ? 'uleam-postgres-students' : 'uleam_postgres_students'));
         $dbPort = $project->db_driver === 'mysql' ? '3306' : ($project->db_driver === 'mongodb' ? '27017' : '5432');
-        $appUrl = "http://{$project->subdomain}.localhost";
+        $baseDomain = env('APP_DOMAIN', 'nexus-academic.software');
+        $isProd = config('app.env') === 'production';
+        $projectHost = $isProd ? "{$project->subdomain}.{$baseDomain}" : "{$project->subdomain}.localhost";
+        $appUrl = $isProd ? "https://{$projectHost}" : "http://{$projectHost}";
         $dbPrefix = $project->db_driver === 'mysql' ? ($project->language === 'ruby' ? 'mysql2' : 'mysql') : ($project->db_driver === 'mongodb' ? 'mongodb' : ($project->language === 'ruby' ? 'postgres' : 'postgresql'));
         $dbUrl = "{$dbPrefix}://{$project->db_user}:{$project->db_password}@{$dbHost}:{$dbPort}/{$project->db_name}";
         if ($project->db_driver === 'mongodb') {
-            $dbUrl .= "?authSource=admin";
+            $dbUrl .= "?authSource={$project->db_name}";
         }
 
         $redisHost = ($project->language === 'ruby') ? 'uleam-redis-students' : 'uleam_redis_students';
 
         $commonEnvVars = [
             'APP_URL' => $appUrl,
+            'APP_DOMAIN' => $projectHost,
+            'ADMIN_DOMAIN' => $projectHost,
             'DB_CONNECTION' => $project->db_driver ?: 'mysql',
             'DB_HOST' => $dbHost,
             'DB_PORT' => $dbPort,
@@ -1982,8 +2592,10 @@ RB;
             'DB_PASSWORD' => $project->db_password,
             'DB_PASS' => $project->db_password,
             'DATABASE_URL' => $dbUrl,
+            'DATABASE' => $dbUrl,
             'MONGODB_URI' => $dbUrl,
             'MONGO_URI' => $dbUrl,
+            'MONGO_URL' => $dbUrl,
             'DB_URI' => $dbUrl,
             'PGHOST' => $dbHost,
             'PGPORT' => $dbPort,
@@ -2012,20 +2624,70 @@ RB;
             'FILESYSTEM_DISK' => 'public',
             'SANCTUM_STATEFUL_DOMAINS' => "{$project->subdomain}.localhost,localhost,127.0.0.1",
             'SESSION_DOMAIN' => '',
+            'APP_TRUSTED_HOSTS' => "{$projectHost},localhost,127.0.0.1,{$project->subdomain}.localhost,{$project->subdomain}.nexus-academic.software",
+            'APP_X_FRAME_OPTIONS' => 'false',
             'APP_INSTALLED' => 'true',
             'INSTALLED' => 'true',
             'SETUP_COMPLETED' => 'true',
             'PRECONFIGURED_INSTALL' => 'true',
             'INSTALL' => 'false',
             'ALREADY_INSTALLED' => 'true',
+            'APP_SECRET' => hash('sha256', $project->id),
+            'DEFAULT_URI' => $appUrl,
+            // CodeIgniter 4 / OpenSourcePOS
+            'CI_ENVIRONMENT' => 'development',
+            'ALLOWED_HOSTNAMES' => "{$project->subdomain}.localhost,{$project->subdomain}.{$baseDomain},localhost,127.0.0.1",
+            'MYSQL_HOST' => $dbHost,
+            'MYSQL_HOST_NAME' => $dbHost,
+            'MYSQL_PORT' => $dbPort,
+            'MYSQL_DATABASE' => $project->db_name,
+            'MYSQL_DB_NAME' => $project->db_name,
+            'MYSQL_USER' => $project->db_user,
+            'MYSQL_USERNAME' => $project->db_user,
+            'MYSQL_PASSWORD' => $project->db_password,
         ];
 
-        // Buscar posibles ubicaciones de .env (.env en raíz, en backend, api, server)
+        // Variables con notación de punto exclusivas de CodeIgniter 4 (evitan romper parsers estrictos como Symfony Dotenv)
+        if (\Illuminate\Support\Facades\File::exists($projectPath . '/spark') || \Illuminate\Support\Facades\File::exists($projectPath . '/app/Config/App.php')) {
+            $commonEnvVars['app.allowedHostnames'] = "{$project->subdomain}.localhost,{$project->subdomain}.{$baseDomain},localhost,127.0.0.1";
+            $commonEnvVars['database.default.hostname'] = $dbHost;
+            $commonEnvVars['database.default.database'] = $project->db_name;
+            $commonEnvVars['database.default.username'] = $project->db_user;
+            $commonEnvVars['database.default.password'] = $project->db_password;
+            $commonEnvVars['database.default.DBDriver'] = ($project->db_driver === 'mysql' ? 'MySQLi' : 'Postgre');
+            $commonEnvVars['database.default.DBPrefix'] = 'ospos_';
+            $commonEnvVars['database.default.port'] = $dbPort;
+        }
+
+        // Variables para Planka Kanban (Sails.js + Knex)
+        if (\Illuminate\Support\Facades\File::exists($projectPath . '/server/db/init.js')) {
+            $commonEnvVars['BASE_URL'] = $appUrl;
+            $commonEnvVars['SECRET_KEY'] = hash('sha256', $project->id);
+            $commonEnvVars['TRUST_PROXY'] = 'true';
+            $commonEnvVars['DEFAULT_ADMIN_EMAIL'] = 'demo@demo.demo';
+            $commonEnvVars['DEFAULT_ADMIN_PASSWORD'] = 'demo';
+            $commonEnvVars['DEFAULT_ADMIN_NAME'] = 'Demo Admin';
+            $commonEnvVars['DEFAULT_ADMIN_USERNAME'] = 'demo';
+        }
+
+        // Variables para Rallly Polls (Next.js + BetterAuth + PostgreSQL)
+        if (\Illuminate\Support\Facades\File::exists($projectPath . '/apps/web') || \Illuminate\Support\Facades\File::exists($projectPath . '/packages/database')) {
+            $commonEnvVars['SECRET_PASSWORD'] = hash('sha256', $project->id);
+            $commonEnvVars['BETTER_AUTH_SECRET'] = hash('sha256', $project->id . 'better_auth');
+            $commonEnvVars['NEXT_PUBLIC_BASE_URL'] = $appUrl;
+            $commonEnvVars['AUTH_URL'] = $appUrl;
+            $commonEnvVars['NEXT_PUBLIC_SELF_HOSTED'] = 'true';
+            $commonEnvVars['SUPPORT_EMAIL'] = 'support@nexus-academic.software';
+        }
+
+        // Buscar posibles ubicaciones de .env (.env en raíz, en backend, api, server, apps/web, packages/database)
         $potentialDirs = [
             $projectPath,
             $projectPath . '/backend',
             $projectPath . '/api',
             $projectPath . '/server',
+            $projectPath . '/apps/web',
+            $projectPath . '/packages/database',
         ];
 
         foreach ($potentialDirs as $dir) {
@@ -2073,6 +2735,14 @@ RB;
                     $content .= "\nAPP_KEY={$genKey}";
                 }
             }
+
+            // Neutralizar endpoints locales/falsos de plantillas sample que causan crash de conexión (como KV_REST_API_URL o SMTP dummy en Rallly)
+            $content = preg_replace('/^KV_REST_API_URL=http:\/\/(0\.0\.0\.0|localhost).*/m', '# KV_REST_API_URL=', $content);
+            $content = preg_replace('/^KV_REST_API_TOKEN=.*/m', '# KV_REST_API_TOKEN=', $content);
+            $content = preg_replace('/^S3_ENDPOINT=http:\/\/(0\.0\.0\.0|localhost).*/m', '# S3_ENDPOINT=', $content);
+            $content = preg_replace('/^S3_BUCKET_NAME=rallly.*/m', '# S3_BUCKET_NAME=', $content);
+            $content = preg_replace('/^SMTP_HOST=(0\.0\.0\.0|localhost).*/m', '# SMTP_HOST=', $content);
+            $content = preg_replace('/^SMTP_PORT=1025.*/m', '# SMTP_PORT=', $content);
 
             \Illuminate\Support\Facades\File::put($envPath, $content);
             $logs .= "Variables de entorno configuradas exitosamente en: {$relEnvPath}\n";
@@ -2191,4 +2861,180 @@ RB;
             \Illuminate\Support\Facades\Log::error("Error handling BuildProjectJob failure: " . $e->getMessage());
         }
     }
+
+    /**
+     * Valida que el proyecto sea una aplicación web estándar y no una herramienta de orquestación de servidores/PaaS.
+     */
+    private function checkProjectArchitectureCompatibility(string $projectPath): ?string
+    {
+        $detectedCategory = null;
+        $detail = null;
+
+        // 1. Detección por dependencia o montaje del socket de Docker del host (/var/run/docker.sock)
+        $composeFiles = ['docker-compose.yml', 'docker-compose.yaml', 'docker-compose.prod.yml', 'docker-compose.prod.yaml', 'docker-compose.dev.yml'];
+        foreach ($composeFiles as $composeFile) {
+            $filePath = $projectPath . '/' . $composeFile;
+            if (\Illuminate\Support\Facades\File::exists($filePath)) {
+                $composeContent = \Illuminate\Support\Facades\File::get($filePath);
+                if (
+                    str_contains($composeContent, '/var/run/docker.sock') ||
+                    str_contains($composeContent, 'docker.sock')
+                ) {
+                    $detectedCategory = "Control del daemon Docker del anfitrión (/var/run/docker.sock)";
+                    $detail = "El archivo {$composeFile} requiere montar el socket Docker del servidor físico anfitrión";
+                    break;
+                }
+            }
+        }
+
+        // 2. Detección de orquestadores PaaS / gestores de infraestructura en composer.json
+        $composerPath = $projectPath . '/composer.json';
+        if (!$detectedCategory && \Illuminate\Support\Facades\File::exists($composerPath)) {
+            $composerJson = @json_decode(\Illuminate\Support\Facades\File::get($composerPath), true);
+            if (is_array($composerJson)) {
+                $packageName = strtolower($composerJson['name'] ?? '');
+                $description = strtolower($composerJson['description'] ?? '');
+
+                if (
+                    str_contains($packageName, 'coolify') ||
+                    str_contains($packageName, 'dokku') ||
+                    str_contains($packageName, 'portainer') ||
+                    str_contains($packageName, 'caprover') ||
+                    str_contains($description, 'self-hosted heroku') ||
+                    str_contains($description, 'self-hosted paas') ||
+                    str_contains($description, 'alternative to heroku') ||
+                    str_contains($description, 'alternative to netlify') ||
+                    str_contains($description, 'server manager')
+                ) {
+                    $detectedCategory = "Plataforma de orquestación PaaS / Gestor de servidores";
+                    $detail = "Las dependencias en composer.json clasifican el proyecto como un gestor de infraestructura autohospedado";
+                }
+            }
+        }
+
+        // 3. Detección en package.json (Portainer, CapRover, Dokku, etc.)
+        $packageJsonPath = $projectPath . '/package.json';
+        if (!$detectedCategory && \Illuminate\Support\Facades\File::exists($packageJsonPath)) {
+            $pkgJson = @json_decode(\Illuminate\Support\Facades\File::get($packageJsonPath), true);
+            if (is_array($pkgJson)) {
+                $pkgName = strtolower($pkgJson['name'] ?? '');
+                $pkgDesc = strtolower($pkgJson['description'] ?? '');
+                if (
+                    str_contains($pkgName, 'portainer') ||
+                    str_contains($pkgName, 'caprover') ||
+                    str_contains($pkgName, 'coolify') ||
+                    str_contains($pkgName, 'dokku') ||
+                    str_contains($pkgDesc, 'container management') ||
+                    str_contains($pkgDesc, 'docker management') ||
+                    str_contains($pkgDesc, 'paas')
+                ) {
+                    $detectedCategory = "Herramienta de gestión de contenedores o infraestructura";
+                    $detail = "El archivo package.json clasifica el proyecto como un panel de administración de contenedores";
+                }
+            }
+        }
+
+        // 4. Detección por firmas de controladores de despliegue de infraestructura
+        if (!$detectedCategory) {
+            if (
+                \Illuminate\Support\Facades\File::exists($projectPath . '/.coolify-logo') ||
+                \Illuminate\Support\Facades\File::exists($projectPath . '/app/Models/InstanceSettings.php') ||
+                \Illuminate\Support\Facades\File::exists($projectPath . '/app/Jobs/ApplicationDeploymentJob.php') ||
+                \Illuminate\Support\Facades\File::exists($projectPath . '/docker/coolify-helper') ||
+                \Illuminate\Support\Facades\File::exists($projectPath . '/Sentinel')
+            ) {
+                $detectedCategory = "Sistema de aprovisionamiento y despliegue de infraestructura";
+                $detail = "Se detectaron módulos internos para orquestación de sub-contenedores y servidores";
+            }
+        }
+
+        if ($detectedCategory) {
+            return "Este proyecto tiene la naturaleza de ser software de orquestación de servidores, gestión de infraestructura o plataforma PaaS/IaaS, por lo que no se puede ejecutar en Uleam Academic Code.\n\nLa plataforma está diseñada exclusivamente para alojar y desplegar aplicaciones web académicas (como páginas web, APIs, sistemas de información y proyectos de desarrollo), por lo que no es compatible con herramientas destinadas a administrar servidores o infraestructura.";
+        }
+
+        // 5. Detección de bibliotecas, paquetes de componentes y motores de framework (sin Front Controller ni aplicación web)
+        $isLibraryOrCoreEngine = false;
+        $libraryReason = null;
+
+        // Verificar si existe algún archivo de inicio web estándar para servir en el navegador
+        $hasWebEntrypoint = \Illuminate\Support\Facades\File::exists($projectPath . '/index.php')
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/public/index.php')
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/web/index.php')
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/html/index.php')
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/www/index.php')
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/index.html')
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/public/index.html')
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/server.php')
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/artisan')
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/site.php');
+
+        // A. PHP: paquetes de composer que son librerías o núcleos de framework sin punto de entrada web
+        $composerPath = $projectPath . '/composer.json';
+        if (\Illuminate\Support\Facades\File::exists($composerPath)) {
+            $composerData = @json_decode(\Illuminate\Support\Facades\File::get($composerPath), true);
+            if (is_array($composerData)) {
+                $pkgType = strtolower($composerData['type'] ?? 'library');
+                $pkgName = strtolower($composerData['name'] ?? '');
+
+                $isFrameworkCoreName = preg_match('/^(flarum|laravel|symfony|cakephp|codeigniter4|yii2|slim|laminas|zendframework)\/(framework|core|symfony|bundle|components|base)$/i', $pkgName)
+                    || \Illuminate\Support\Facades\File::exists($projectPath . '/flarum-monorepo.json');
+
+                if (!$hasWebEntrypoint && ($isFrameworkCoreName || in_array($pkgType, ['library', 'composer-plugin', 'metapackage']))) {
+                    $isLibraryOrCoreEngine = true;
+                    $libraryReason = "No se encontró un archivo principal como 'index.php' o 'index.html' en la raíz o en la carpeta pública del proyecto.";
+                }
+            }
+        }
+
+        // B. Node.js: módulos de npm o bibliotecas sin frontend ni servidor web
+        $packageJsonPath = $projectPath . '/package.json';
+        if (!$isLibraryOrCoreEngine && !$hasWebEntrypoint && \Illuminate\Support\Facades\File::exists($packageJsonPath)) {
+            $nodePkg = @json_decode(\Illuminate\Support\Facades\File::get($packageJsonPath), true);
+            if (is_array($nodePkg)) {
+                $hasScripts = isset($nodePkg['scripts']['start']) || isset($nodePkg['scripts']['dev']) || isset($nodePkg['scripts']['serve']) || isset($nodePkg['scripts']['build']);
+                $hasWebHtml = \Illuminate\Support\Facades\File::exists($projectPath . '/index.html') || \Illuminate\Support\Facades\File::exists($projectPath . '/public/index.html');
+                $hasServerFile = \Illuminate\Support\Facades\File::exists($projectPath . '/server.js') || \Illuminate\Support\Facades\File::exists($projectPath . '/app.js') || \Illuminate\Support\Facades\File::exists($projectPath . '/index.js') || \Illuminate\Support\Facades\File::exists($projectPath . '/src/server.ts') || \Illuminate\Support\Facades\File::exists($projectPath . '/src/index.ts');
+                $deps = array_merge($nodePkg['dependencies'] ?? [], $nodePkg['devDependencies'] ?? []);
+                $hasWebFramework = isset($deps['express']) || isset($deps['react']) || isset($deps['vue']) || isset($deps['next']) || isset($deps['nuxt']) || isset($deps['fastify']) || isset($deps['nest']) || isset($deps['@nestjs/core']) || isset($deps['koa']) || isset($deps['vite']);
+
+                if (!$hasScripts && !$hasWebHtml && !$hasServerFile && !$hasWebFramework) {
+                    $isLibraryOrCoreEngine = true;
+                    $libraryReason = "El proyecto no contiene archivos web (index.html, server.js) ni comandos para iniciar una aplicación.";
+                }
+            }
+        }
+
+        // C. Python: librerías de pip (setup.py) sin punto de entrada web
+        if (!$isLibraryOrCoreEngine && !$hasWebEntrypoint && (\Illuminate\Support\Facades\File::exists($projectPath . '/setup.py') || \Illuminate\Support\Facades\File::exists($projectPath . '/pyproject.toml'))) {
+            $hasPythonEntry = \Illuminate\Support\Facades\File::exists($projectPath . '/manage.py')
+                || \Illuminate\Support\Facades\File::exists($projectPath . '/app.py')
+                || \Illuminate\Support\Facades\File::exists($projectPath . '/main.py')
+                || \Illuminate\Support\Facades\File::exists($projectPath . '/wsgi.py')
+                || \Illuminate\Support\Facades\File::exists($projectPath . '/asgi.py')
+                || \Illuminate\Support\Facades\File::exists($projectPath . '/server.py')
+                || \Illuminate\Support\Facades\File::exists($projectPath . '/run.py')
+                || \Illuminate\Support\Facades\File::exists($projectPath . '/index.html');
+
+            if (!$hasPythonEntry && !\Illuminate\Support\Facades\File::exists($projectPath . '/requirements.txt')) {
+                $pyFiles = glob($projectPath . '/*.py');
+                if (empty($pyFiles) || (count($pyFiles) === 1 && basename($pyFiles[0]) === 'setup.py')) {
+                    $isLibraryOrCoreEngine = true;
+                    $libraryReason = "El proyecto es una librería de código y no incluye un archivo de servidor web como app.py, main.py o manage.py.";
+                }
+            }
+        }
+
+        if ($isLibraryOrCoreEngine) {
+            $msg = "El proyecto que intentas subir es una librería o paquete de código, no una aplicación web completa.\n\n"
+                . "Detalle: {$libraryReason}\n\n"
+                . "¿Por qué se detuvo el despliegue?\n"
+                . "Uleam Academic Code está diseñado para ejecutar y evaluar proyectos web completos (sitios web, sistemas o APIs que se puedan abrir en el navegador).\n\n"
+                . "¿Cómo solucionarlo?\n"
+                . "Asegúrate de subir el proyecto web completo que incluya su archivo principal (por ejemplo, index.php, index.html o la plantilla completa de la aplicación).";
+            return $msg;
+        }
+
+        return null;
+    }
 }
+

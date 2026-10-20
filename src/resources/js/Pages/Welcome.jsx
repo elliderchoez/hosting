@@ -255,7 +255,7 @@ export default function Welcome({ auth, projects = [] }) {
 
         // 1. Obtener la URL base del proyecto para desloguear y limpiar cookies en el navegador
         const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-        const projectBaseUrl = isLocal 
+        const projectBaseUrl = isLocal
             ? `${window.location.protocol}//${project.subdomain}.localhost`
             : `${window.location.protocol}//${project.subdomain}.nexus-academic.software`;
 
@@ -272,11 +272,11 @@ export default function Welcome({ auth, projects = [] }) {
             fetch(`${projectBaseUrl}/uleam-clear-session?t=${Date.now()}`, {
                 mode: 'no-cors',
                 credentials: 'include'
-            }).catch(() => {});
+            }).catch(() => { });
 
             // Intentar también llamar endpoints estándar de logout
-            fetch(`${projectBaseUrl}/logout`, { mode: 'no-cors', credentials: 'include' }).catch(() => {});
-            fetch(`${projectBaseUrl}/users/sign_out`, { mode: 'no-cors', credentials: 'include' }).catch(() => {});
+            fetch(`${projectBaseUrl}/logout`, { mode: 'no-cors', credentials: 'include' }).catch(() => { });
+            fetch(`${projectBaseUrl}/users/sign_out`, { mode: 'no-cors', credentials: 'include' }).catch(() => { });
 
             setTimeout(() => {
                 if (clearIframe.parentNode) {
@@ -582,7 +582,7 @@ export default function Welcome({ auth, projects = [] }) {
 
     return (
         <>
-            <Head title="Galería de Innovación Académica - Nexus Academic" />
+            <Head title="Galería de Innovación Académica - Uleam Academic Code" />
             <div className="min-h-screen bg-[#f3f5f9] dark:bg-[#090d16] text-[#1e293b] dark:text-[#f1f5f9] font-sans antialiased selection:bg-blue-600 selection:text-white transition-colors duration-200">
 
                 {/* =========================================================================
@@ -594,9 +594,9 @@ export default function Welcome({ auth, projects = [] }) {
                         {/* Logo del sistema y nombre */}
                         <Link href="/" className="flex items-center gap-2.5 shrink-0 group">
                             <ApplicationLogo className="h-8 w-auto object-contain transition group-hover:scale-105" />
-                            <div className="flex items-center">
-                                <span className="brand-nexus text-xl font-black tracking-tight text-blue-700 dark:text-blue-500">nexus</span>
-                                <span className="brand-academic text-xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">academic</span>
+                            <div className="flex items-center gap-1.5">
+                                <span className="brand-nexus text-xl font-black tracking-tight text-blue-700 dark:text-blue-500">Uleam Academic</span>
+                                <span className="brand-academic text-xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">Code</span>
                             </div>
                         </Link>
 
@@ -692,6 +692,34 @@ export default function Welcome({ auth, projects = [] }) {
                 </header>
 
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-5">
+                    {/* Banner informativo de bienvenida para Empresa o Reclutador Aliado */}
+                    {auth?.user?.is_partner && (
+                        <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-blue-900/30 via-slate-900/60 to-blue-950/40 border border-blue-500/30 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md backdrop-blur-xs">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-blue-600/20 border border-blue-400/30 flex items-center justify-center shrink-0">
+                                    <svg className="w-5 h-5 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                                        <span>Bienvenido, {auth.user.name}</span>
+                                        <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                            {auth.user.role === 'company' ? 'Empresa Aliada Verificada' : 'Reclutador Tech Verificado'}
+                                        </span>
+                                    </h2>
+                                    <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">
+                                        Tu cuenta <strong className="text-slate-900 dark:text-white">"{auth.user.company || auth.user.name}"</strong> está activa. Puedes explorar los proyectos de titulación, iniciar demostraciones en vivo y contactar a los estudiantes directamente.
+                                    </p>
+                                </div>
+                            </div>
+                            {auth.user.tax_id && (
+                                <span className="text-xs font-mono px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 shrink-0">
+                                    RUC: {auth.user.tax_id}
+                                </span>
+                            )}
+                        </div>
+                    )}
 
                     {/* =========================================================================
                         2. TÍTULO PRINCIPAL + PÍLDORA ¿CÓMO PROBAR LAS DEMOS? (ABAJO) + BUSCADOR
@@ -1232,10 +1260,10 @@ export default function Welcome({ auth, projects = [] }) {
                 <footer className="bg-white dark:bg-[#0b0f19] border-t border-slate-200 dark:border-slate-800 py-4 text-xs text-slate-500 dark:text-slate-400">
                     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
                         <div className="flex items-center gap-2">
-                            <span className="font-bold text-slate-800 dark:text-slate-200">&gt; nexus academic</span>
+                            <span className="font-bold text-slate-800 dark:text-slate-200">&gt; Uleam Academic Code</span>
                             <span>• Vitrina de Talento de Software Universitario</span>
                         </div>
-                        <p>© 2026 Nexus Academic Platform. Todos los derechos reservados.</p>
+                        <p>© 2026 Uleam Academic Code. Todos los derechos reservados.</p>
                     </div>
                 </footer>
 
@@ -1511,7 +1539,7 @@ export default function Welcome({ auth, projects = [] }) {
                                         </div>
 
                                         <div className="pt-3 border-t demo-evaluator-footer text-center">
-                                            <span className="text-[10px] font-mono">Nexus Academic PaaS v2.0</span>
+                                            <span className="text-[10px] font-mono">Uleam Academic Code PaaS v2.0</span>
                                         </div>
                                     </div>
                                 )}
@@ -2219,7 +2247,7 @@ function getDemoCredentials(project) {
         // Captura variaciones: Usuario / Identificador, Usuario / Email, Nombre de usuario, Identificador, Correo, Email, etc.
         const userMatch = project.demo_instructions.match(/(?:Usuario\s*(?:\/|\()\s*(?:Identificador|Email)\)?|Nombre\s+de\s+usuario|Identificador|Correo\s*electr[oó]nico|Correo|Email|Usuario|User|Login)\s*:\s*([^\r\n]+)/i);
         const passMatch = project.demo_instructions.match(/(?:Clave|Contrase[ñn]a|Password|Pass)\s*:\s*([^\r\n]+)/i);
-        
+
         if (userMatch && passMatch) {
             const rawUser = userMatch[1].trim();
             const rawPass = passMatch[1].trim();
@@ -2235,9 +2263,9 @@ function getDemoCredentials(project) {
             }
 
             const isEmail = primaryUser.includes('@');
-            const isRedmine = (project.name || '').toLowerCase().includes('redmine') || 
-                              project.demo_instructions.toLowerCase().includes('redmine') ||
-                              project.demo_instructions.toLowerCase().includes('identificador');
+            const isRedmine = (project.name || '').toLowerCase().includes('redmine') ||
+                project.demo_instructions.toLowerCase().includes('redmine') ||
+                project.demo_instructions.toLowerCase().includes('identificador');
 
             let userLabel = 'Usuario:';
             if (isEmail) {

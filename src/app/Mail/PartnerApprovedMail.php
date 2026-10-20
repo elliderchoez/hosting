@@ -32,7 +32,7 @@ class PartnerApprovedMail extends Mailable
     {
         $tipo = $this->partner->account_type === 'company' ? 'Empresa' : 'Reclutador';
         return new Envelope(
-            subject: "Cuenta de {$tipo} Aprobada — Bienvenido a Nexus Academic",
+            subject: "Cuenta de {$tipo} Aprobada — Bienvenido a Uleam Academic Code",
         );
     }
 

@@ -33,9 +33,9 @@ export default function AuthenticatedLayout({ header, children }) {
                             <div className="flex shrink-0 items-center">
                                 <Link href="/" className="flex items-center gap-2.5 group">
                                     <ApplicationLogo className="block h-8 w-auto object-contain transition group-hover:scale-105" />
-                                    <div className="flex items-center">
-                                        <span className="brand-nexus text-lg font-black tracking-tight text-blue-700 dark:text-blue-500">nexus</span>
-                                        <span className="brand-academic text-lg font-extrabold tracking-tight text-slate-900 dark:text-slate-100">academic</span>
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="brand-nexus text-lg font-black tracking-tight text-blue-700 dark:text-blue-500">Uleam Academic</span>
+                                        <span className="brand-academic text-lg font-extrabold tracking-tight text-slate-900 dark:text-slate-100">Code</span>
                                     </div>
                                 </Link>
                             </div>

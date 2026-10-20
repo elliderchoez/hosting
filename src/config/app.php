@@ -13,7 +13,7 @@ return [
     |
     */
 
-    'name' => env('APP_NAME', 'Nexus Academic'),
+    'name' => env('APP_NAME', 'Uleam Academic Code'),
 
     /*
     |--------------------------------------------------------------------------

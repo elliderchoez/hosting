@@ -34,7 +34,7 @@ class PartnerRejectedMail extends Mailable
     {
         $tipo = $this->partner->account_type === 'company' ? 'Empresa' : 'Reclutador';
         return new Envelope(
-            subject: "Resolución de Solicitud de {$tipo} — Nexus Academic",
+            subject: "Resolución de Solicitud de {$tipo} — Uleam Academic Code",
         );
     }
 

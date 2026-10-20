@@ -16,6 +16,10 @@ class AdminMiddleware
         $user = $request->user();
 
         if (! $user || ! $user->isAdmin()) {
+            if (\Illuminate\Support\Facades\Auth::guard('recruiter')->check()) {
+                session()->forget('url.intended');
+                return redirect()->route('welcome');
+            }
             abort(403, 'Acceso restringido para el rol de Administrador.');
         }
 

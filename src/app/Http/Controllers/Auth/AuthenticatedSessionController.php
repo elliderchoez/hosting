@@ -16,8 +16,20 @@ class AuthenticatedSessionController extends Controller
     /**
      * Display the login view.
      */
-    public function create(): Response
+    public function create(): Response|RedirectResponse
     {
+        if (Auth::guard('recruiter')->check()) {
+            session()->forget('url.intended');
+            return redirect()->route('welcome');
+        }
+
+        if (Auth::guard('web')->check()) {
+            $user = Auth::guard('web')->user();
+            return $user->isAdmin()
+                ? redirect()->route('admin.dashboard')
+                : redirect()->route('dashboard');
+        }
+
         return Inertia::render('Auth/Login', [
             'canResetPassword' => Route::has('password.request'),
             'status' => session('status'),
@@ -34,13 +46,24 @@ class AuthenticatedSessionController extends Controller
         $request->session()->regenerate();
 
         if (Auth::guard('recruiter')->check()) {
-            return redirect()->intended(route('welcome'));
+            // Desloguear guard 'web' para no mezclar sesión con admin/estudiante
+            Auth::guard('web')->logout();
+
+            // Un recruiter/empresa jamás debe ser enviado a /admin ni /dashboard
+            $intended = session()->pull('url.intended');
+            if ($intended && !str_contains($intended, '/admin') && !str_contains($intended, '/dashboard') && !str_contains($intended, '/profile/account')) {
+                return redirect()->to($intended);
+            }
+
+            return redirect()->route('welcome')->with('status', '¡Bienvenido! Has iniciado sesión como empresa aliada.');
         }
 
         if ($request->user() && $request->user()->isAdmin()) {
+            Auth::guard('recruiter')->logout();
             return redirect()->intended(route('admin.dashboard'));
         }
 
+        Auth::guard('recruiter')->logout();
         return redirect()->intended(route('dashboard', absolute: false));
     }
 

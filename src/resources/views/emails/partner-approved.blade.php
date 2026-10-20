@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cuenta Aprobada — Nexus Academic</title>
+    <title>Cuenta Aprobada — Uleam Academic Code</title>
     <style>
         body {
             margin: 0;
@@ -143,19 +143,19 @@
     <div class="container">
         <!-- Encabezado Institucional -->
         <div class="header">
-            <div class="logo-title">nexus<span style="color: #38bdf8;">academic</span></div>
+            <div class="logo-title">Uleam Academic <span style="color: #38bdf8;">Code</span></div>
         </div>
 
         <!-- Cuerpo del Correo -->
         <div class="content">
             <div class="badge">SOLICITUD APROBADA</div>
             
-            <h1>¡Bienvenido a Nexus Academic!</h1>
+            <h1>¡Bienvenido a Uleam Academic Code!</h1>
             
             <p>Estimado/a <strong>{{ $partner->name }}</strong>{{ $partner->account_type === 'company' ? ' (' . $partner->company . ')' : '' }},</p>
             
             <p>
-                Nos complace informarte que la administración de <strong>NexusAcademic</strong> ha verificado y aprobado satisfactoriamente tu registro de cuenta como <strong>{{ $partner->account_type === 'company' ? 'Empresa Aliada' : 'Reclutador Especializado' }}</strong>.
+                Nos complace informarte que la administración de <strong>Uleam Academic Code</strong> ha verificado y aprobado satisfactoriamente tu registro de cuenta como <strong>{{ $partner->account_type === 'company' ? 'Empresa Aliada' : 'Reclutador Especializado' }}</strong>.
             </p>
 
             <p>
@@ -176,7 +176,7 @@
             <!-- Botón de Inicio de Sesión -->
             <div class="btn-container">
                 <a href="{{ $loginUrl }}" class="btn" target="_blank">
-                    Iniciar Sesión en Nexus Academic
+                    Iniciar Sesión en Uleam Academic Code
                 </a>
             </div>
 
@@ -194,15 +194,15 @@
                     Por favor no respondas a este mensaje.
                 </p>
                 <p style="margin: 0; color: #475569;">
-                    Si necesitas asistencia técnica o tienes alguna consulta, puedes escribirnos al correo oficial de Nexus Academic: 
-                    <a href="mailto:{{ config('mail.support_address', 'soporte@nexusacademic.com') }}" style="color: #0284c7; font-weight: 700; text-decoration: underline;">{{ config('mail.support_address', 'soporte@nexusacademic.com') }}</a>
+                    Si necesitas asistencia técnica o tienes alguna consulta, puedes escribirnos al correo oficial de Uleam Academic Code: 
+                    <a href="mailto:{{ config('mail.support_address', 'soporte@uleamacademic.software') }}" style="color: #0284c7; font-weight: 700; text-decoration: underline;">{{ config('mail.support_address', 'soporte@uleamacademic.software') }}</a>
                 </p>
             </div>
         </div>
 
         <!-- Pie de Página Institucional -->
         <div class="footer">
-            <p><strong>Nexus Academic</strong></p>
+            <p><strong>Uleam Academic Code</strong></p>
             <p>Plataforma Institucional de Demostración y Ejecución de Proyectos de Titulación</p>
             <p>Manta, Manabí, Ecuador · © {{ date('Y') }} Todos los derechos reservados.</p>
         </div>

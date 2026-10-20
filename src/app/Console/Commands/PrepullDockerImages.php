@@ -50,7 +50,7 @@ class PrepullDockerImages extends Command
     public function handle(): int
     {
         $this->info("===================================================================");
-        $this->info(" Nexus Academic - Pre-calentamiento de Imágenes Docker Base");
+        $this->info(" Uleam Academic Code - Pre-calentamiento de Imágenes Docker Base");
         $this->info("===================================================================\n");
 
         // 1. Obtener lista de imágenes locales

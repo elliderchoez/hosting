@@ -84,38 +84,47 @@ class BuildProjectAction
                 }
             }
 
+            $isYarnOrPnpm = File::exists($path . '/yarn.lock')
+                || File::exists($path . '/.yarn')
+                || File::exists($path . '/.yarnrc.yml')
+                || File::exists($path . '/pnpm-lock.yaml')
+                || File::exists($path . '/pnpm-workspace.yaml')
+                || (isset($packageJson['workspaces']));
+
             $this->ensureCacheVolumes();
-            if ($project->db_driver === 'mysql') {
-                if (!isset($deps['mysql']) && !isset($deps['mysql2'])) {
-                    $output .= "Detectado proyecto Node.js sin driver de MySQL. Instalando mysql2 automáticamente...\n";
-                    $dbCommand = [
-                        'docker', 'run', '--rm',
-                        '-u', "$uid:$gid",
-                        '-v', "$path:/app",
-                        '-v', 'uleam_npm_cache:/tmp/npm-cache',
-                        '-e', 'npm_config_cache=/tmp/npm-cache',
-                        '-w', '/app',
-                        'node:18-alpine',
-                        'npm', 'install', 'mysql2', '--no-audit', '--no-fund', '--save', '--prefer-offline'
-                    ];
-                    $dbResult = $this->runCommand($dbCommand);
-                    $output .= $dbResult['output'] . "\n";
-                }
-            } else { // pgsql
-                if (!isset($deps['pg'])) {
-                    $output .= "Detectado proyecto Node.js sin driver de PostgreSQL. Instalando pg automáticamente...\n";
-                    $dbCommand = [
-                        'docker', 'run', '--rm',
-                        '-u', "$uid:$gid",
-                        '-v', "$path:/app",
-                        '-v', 'uleam_npm_cache:/tmp/npm-cache',
-                        '-e', 'npm_config_cache=/tmp/npm-cache',
-                        '-w', '/app',
-                        'node:18-alpine',
-                        'npm', 'install', 'pg', '--no-audit', '--no-fund', '--save', '--prefer-offline'
-                    ];
-                    $dbResult = $this->runCommand($dbCommand);
-                    $output .= $dbResult['output'] . "\n";
+            if (!$isYarnOrPnpm) {
+                if ($project->db_driver === 'mysql') {
+                    if (!isset($deps['mysql']) && !isset($deps['mysql2']) && !isset($deps['better-sqlite3']) && !isset($deps['sqlite3'])) {
+                        $output .= "Detectado proyecto Node.js sin driver de MySQL. Instalando mysql2 automáticamente...\n";
+                        $dbCommand = [
+                            'docker', 'run', '--rm',
+                            '-u', "$uid:$gid",
+                            '-v', "$path:/app",
+                            '-v', 'uleam_npm_cache:/tmp/npm-cache',
+                            '-e', 'npm_config_cache=/tmp/npm-cache',
+                            '-w', '/app',
+                            'node:20',
+                            'npm', 'install', 'mysql2', '--no-audit', '--no-fund', '--save', '--prefer-offline'
+                        ];
+                        $dbResult = $this->runCommand($dbCommand);
+                        $output .= $dbResult['output'] . "\n";
+                    }
+                } elseif ($project->db_driver === 'pgsql') {
+                    if (!isset($deps['pg']) && !isset($deps['better-sqlite3']) && !isset($deps['sqlite3'])) {
+                        $output .= "Detectado proyecto Node.js sin driver de PostgreSQL. Instalando pg automáticamente...\n";
+                        $dbCommand = [
+                            'docker', 'run', '--rm',
+                            '-u', "$uid:$gid",
+                            '-v', "$path:/app",
+                            '-v', 'uleam_npm_cache:/tmp/npm-cache',
+                            '-e', 'npm_config_cache=/tmp/npm-cache',
+                            '-w', '/app',
+                            'node:20',
+                            'npm', 'install', 'pg', '--no-audit', '--no-fund', '--save', '--prefer-offline'
+                        ];
+                        $dbResult = $this->runCommand($dbCommand);
+                        $output .= $dbResult['output'] . "\n";
+                    }
                 }
             }
 
@@ -129,7 +138,7 @@ class BuildProjectAction
                 }
             }
 
-            if (!empty($missingPackages)) {
+            if (!$isYarnOrPnpm && !empty($missingPackages)) {
                 try {
                     $finder = new \Symfony\Component\Finder\Finder();
                     $finder->files()
@@ -167,7 +176,7 @@ class BuildProjectAction
                                 '-v', 'uleam_npm_cache:/tmp/npm-cache',
                                 '-e', 'npm_config_cache=/tmp/npm-cache',
                                 '-w', '/app',
-                                'node:18-alpine',
+                                'node:20',
                                 'npm', 'install'
                             ],
                             $packagesToInstall,
@@ -188,6 +197,20 @@ class BuildProjectAction
         foreach ($subDirs as $subDir) {
             $subPackageJson = $path . '/' . $subDir . '/package.json';
             if (File::exists($subPackageJson)) {
+                // Parche de resiliencia para Planka: evitar que python3-venv ausente aborte la instalación
+                $setupPyScript = $path . '/' . $subDir . '/setup-python.js';
+                if (File::exists($setupPyScript)) {
+                    $pyContent = @file_get_contents($setupPyScript);
+                    if ($pyContent && str_contains($pyContent, 'process.exit(result.status)')) {
+                        $pyContent = str_replace(
+                            'if (result.status !== 0) process.exit(result.status);',
+                            'if (result.status !== 0) { console.warn("Optional python setup skipped"); return; }',
+                            $pyContent
+                        );
+                        @file_put_contents($setupPyScript, $pyContent);
+                    }
+                }
+
                 $subRes = $this->installNodeDependenciesWithSnapshot($project, $path, $subDir, $uid, $gid);
                 $output .= $subRes['output'];
                 if (!$subRes['success']) {
@@ -198,6 +221,14 @@ class BuildProjectAction
 
         // 2. Install root dependencies con aceleración por volumen local
         if (File::exists($path . '/package.json')) {
+            // En monorepos con server y client independientes (como Planka), omitir scripts de raíz para evitar fallos de husky
+            if (File::exists($path . '/server') && File::exists($path . '/client')) {
+                $rootPkg = json_decode(@file_get_contents($path . '/package.json'), true);
+                if (isset($rootPkg['scripts']['prepare']) && str_contains($rootPkg['scripts']['prepare'], 'husky')) {
+                    unset($rootPkg['scripts']['prepare']);
+                    @file_put_contents($path . '/package.json', json_encode($rootPkg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+                }
+            }
             $rootRes = $this->installNodeDependenciesWithSnapshot($project, $path, null, $uid, $gid);
             $output .= $rootRes['output'];
             if (!$rootRes['success']) {
@@ -285,39 +316,327 @@ class BuildProjectAction
 
         $detectedSubpaths = array_values(array_unique(array_filter($detectedSubpaths)));
 
-        // 4. Compilación del proyecto frontend (si define script build)
-        $packageJsonPath = $path . '/package.json';
-        if (File::exists($packageJsonPath)) {
-            $packageJson = json_decode(File::get($packageJsonPath), true);
-            if (isset($packageJson['scripts']['build'])) {
-                // Si el script de build hace npm install en subdirectorios, asegurar --legacy-peer-deps para Node 18/20
-                if (str_contains($packageJson['scripts']['build'], 'npm install') && !str_contains($packageJson['scripts']['build'], '--legacy-peer-deps')) {
-                    $packageJson['scripts']['build'] = str_replace('npm install', 'npm install --legacy-peer-deps', $packageJson['scripts']['build']);
-                    File::put($packageJsonPath, json_encode($packageJson, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-                }
+        // 4. Compilación del proyecto frontend (raíz o subcarpetas de monorepos: frontend, client, etc.)
+        $frontendDirs = ['.', 'frontend', 'client', 'web', 'app'];
+        foreach ($frontendDirs as $fDir) {
+            $fPkgPath = ($fDir === '.') ? $path . '/package.json' : $path . '/' . $fDir . '/package.json';
+            if (File::exists($fPkgPath)) {
+                $fPackageJson = json_decode(File::get($fPkgPath), true);
+                if (isset($fPackageJson['scripts']['build'])) {
+                    // Si el script de build hace npm install en subdirectorios, asegurar --legacy-peer-deps para Node 18/20
+                    if (str_contains($fPackageJson['scripts']['build'], 'npm install') && !str_contains($fPackageJson['scripts']['build'], '--legacy-peer-deps')) {
+                        $fPackageJson['scripts']['build'] = str_replace('npm install', 'npm install --legacy-peer-deps', $fPackageJson['scripts']['build']);
+                        File::put($fPkgPath, json_encode($fPackageJson, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+                    }
 
-                $output .= "\nEjecutando npm run build...\n";
-                $pathExports = "export PATH=\$PATH:/app/node_modules/.bin:/app/api/node_modules/.bin:/app/client/node_modules/.bin:/app/frontend/node_modules/.bin:/app/backend/node_modules/.bin:/app/server/node_modules/.bin && export NODE_OPTIONS=--openssl-legacy-provider && export PUBLIC_URL=. && export CI=false";
-                $buildCommand = [
-                    'docker', 'run', '--rm',
-                    '-u', "$uid:$gid",
-                    '-e', 'NODE_OPTIONS=--openssl-legacy-provider',
-                    '-e', 'PUBLIC_URL=.',
-                    '-e', 'CI=false',
-                    '-v', "$path:/app",
-                    '-w', '/app',
-                    'node:20-alpine',
-                    'sh', '-c',
-                    "{$pathExports} && npm run build"
-                ];
-                $buildResult = $this->runCommand($buildCommand);
-                $output .= $buildResult['output'];
-                if (!$buildResult['success']) {
-                    return ['success' => false, 'output' => $output];
-                }
+                    // Parche de compatibilidad para rutas de IDURAR / React con componentes no importados (Quote, Taxes, PaymentMode)
+                    $routesCandidates = [
+                        $path . '/frontend/src/router/routes.jsx',
+                        $path . '/frontend/src/router/routes.js',
+                        $path . '/src/router/routes.jsx',
+                        $path . '/src/router/routes.js',
+                    ];
+                    foreach ($routesCandidates as $rCandidate) {
+                        if (File::exists($rCandidate)) {
+                            $rContent = File::get($rCandidate);
+                            if (str_contains($rContent, '<Quote />') && !str_contains($rContent, 'const Quote =')) {
+                                $fallbackSnippet = "\nconst Quote = NotFound;\nconst QuoteCreate = NotFound;\nconst QuoteRead = NotFound;\nconst QuoteUpdate = NotFound;\nconst PaymentMode = NotFound;\nconst Taxes = NotFound;\n";
+                                $rContent = preg_replace('/(const NotFound = [^;]+;)/', "$1\n" . $fallbackSnippet, $rContent, 1);
+                                File::put($rCandidate, $rContent);
+                            }
+                        }
+                    }
 
-                // 5. Post-procesamiento universal de carpetas de distribución (build, dist, out, public)
-                $this->sanitizeCompiledOutputDirectories($path, $detectedSubpaths);
+                    // Asegurar que variables de entorno en frontend apunten a endpoints relativos /
+                    $frontendEnvCandidates = [
+                        $path . '/frontend/.env',
+                        $path . '/client/.env',
+                        $path . '/.env'
+                    ];
+                    foreach ($frontendEnvCandidates as $feCandidate) {
+                        if (File::exists($feCandidate)) {
+                            $feContent = File::get($feCandidate);
+                            if (str_contains($feContent, 'your_backend_url_server.com') || str_contains($feContent, 'localhost:8888')) {
+                                $feContent = preg_replace('/VITE_BACKEND_SERVER\s*=\s*["\'].*?["\']/', 'VITE_BACKEND_SERVER="/"', $feContent);
+                                $feContent = preg_replace('/VITE_FILE_BASE_URL\s*=\s*["\'].*?["\']/', 'VITE_FILE_BASE_URL="/"', $feContent);
+                                File::put($feCandidate, $feContent);
+                            }
+                        }
+                    }
+
+                    $workDir = ($fDir === '.') ? '/app' : "/app/{$fDir}";
+                    $pathExports = "export PATH=\$PATH:/app/node_modules/.bin:/app/{$fDir}/node_modules/.bin:/app/api/node_modules/.bin:/app/client/node_modules/.bin:/app/frontend/node_modules/.bin:/app/backend/node_modules/.bin:/app/server/node_modules/.bin && export NODE_OPTIONS=--openssl-legacy-provider && export VITE_BACKEND_SERVER=/ && export VITE_FILE_BASE_URL=/public/ && export PUBLIC_URL=. && export CI=false";
+
+                    // Pre-compilar paquetes del monorepo si el proyecto define compile:db o compile (ej. EverShop)
+                    if (isset($fPackageJson['scripts']['compile:db'])) {
+                        $output .= "\nCompilando paquetes de base de datos del monorepo (compile:db)...\n";
+                        $compileDbCmd = [
+                            'docker', 'run', '--rm',
+                            '-u', "$uid:$gid",
+                            '-v', "$path:/app",
+                            '-w', $workDir,
+                            'node:20-alpine',
+                            'sh', '-c',
+                            "{$pathExports} && npm run compile:db"
+                        ];
+                        $compileDbResult = $this->runCommand($compileDbCmd);
+                        $output .= $compileDbResult['output'];
+                    }
+                    if (isset($fPackageJson['scripts']['compile'])) {
+                        $output .= "\nCompilando paquetes base del monorepo (compile)...\n";
+                        $compileCmd = [
+                            'docker', 'run', '--rm',
+                            '-u', "$uid:$gid",
+                            '-v', "$path:/app",
+                            '-w', $workDir,
+                            'node:20-alpine',
+                            'sh', '-c',
+                            "{$pathExports} && npm run compile"
+                        ];
+                        $compileResult = $this->runCommand($compileCmd);
+                        $output .= $compileResult['output'];
+                    }
+
+                    // Soporte para compilación de Actual Budget (monorepo con yarn build:server)
+                    if (isset($fPackageJson['scripts']['build:server']) && File::exists($path . '/packages/sync-server')) {
+                        $output .= "\nCompilando servidor y cliente web de Actual Budget (build:server)...\n";
+                        $actualBuildCmd = [
+                            'docker', 'run', '--rm',
+                            '-u', "$uid:$gid",
+                            '-v', "$path:/app",
+                            '-w', '/app',
+                            '-e', 'HOME=/tmp',
+                            '-e', 'NODE_OPTIONS=--max_old_space_size=4096',
+                            'node:24-bookworm',
+                            'sh', '-c',
+                            'mkdir -p /tmp/.bin && (corepack enable --install-directory /tmp/.bin 2>/dev/null || true); export PATH=/tmp/.bin:$PATH; yarn build:server'
+                        ];
+                        $actualBuildRes = $this->runCommand($actualBuildCmd);
+                        $output .= $actualBuildRes['output'];
+                        continue;
+                    }
+
+                    // Soporte para compilación de Rallly (pnpm monorepo con apps/web y turbo en Next.js standalone)
+                    if (File::exists($path . '/apps/web') && File::exists($path . '/pnpm-lock.yaml')) {
+                        $output .= "\nGenerando cliente de base de datos Prisma (db:generate)...\n";
+                        $prismaGenCmd = [
+                            'docker', 'run', '--rm',
+                            '-u', "$uid:$gid",
+                            '-v', "$path:/app",
+                            '-w', '/app',
+                            '-e', 'HOME=/tmp',
+                            '-e', 'PNPM_HOME=/tmp/.pnpm',
+                            'node:24-bookworm',
+                            'sh', '-c',
+                            'mkdir -p /tmp/.bin && (corepack enable --install-directory /tmp/.bin 2>/dev/null || true); export PATH=/tmp/.bin:$PATH; pnpm db:generate'
+                        ];
+                        $prismaGenRes = $this->runCommand($prismaGenCmd);
+                        $output .= $prismaGenRes['output'];
+
+                        $output .= "\nCompilando aplicación Next.js de Rallly en modo standalone (pnpm build)...\n";
+                        $ralllyBuildCmd = [
+                            'docker', 'run', '--rm',
+                            '-u', "$uid:$gid",
+                            '-v', "$path:/app",
+                            '-w', '/app',
+                            '-e', 'HOME=/tmp',
+                            '-e', 'PNPM_HOME=/tmp/.pnpm',
+                            '-e', 'SKIP_ENV_VALIDATION=1',
+                            '-e', 'NEXT_PUBLIC_SELF_HOSTED=true',
+                            '-e', 'NODE_OPTIONS=--max_old_space_size=4096',
+                            'node:24-bookworm',
+                            'sh', '-c',
+                            'mkdir -p /tmp/.bin && (corepack enable --install-directory /tmp/.bin 2>/dev/null || true); export PATH=/tmp/.bin:$PATH; pnpm build'
+                        ];
+                        $ralllyBuildRes = $this->runCommand($ralllyBuildCmd);
+                        $output .= $ralllyBuildRes['output'];
+
+                        // Sincronizar assets estáticos en Next.js standalone
+                        $standaloneDir = $path . '/apps/web/.next/standalone';
+                        if (File::exists($standaloneDir)) {
+                            $targetStatic = $standaloneDir . '/apps/web/.next/static';
+                            $sourceStatic = $path . '/apps/web/.next/static';
+                            if (File::exists($sourceStatic) && !File::exists($targetStatic)) {
+                                File::ensureDirectoryExists(dirname($targetStatic), 0777);
+                                File::copyDirectory($sourceStatic, $targetStatic);
+                            }
+                            $targetPublic = $standaloneDir . '/apps/web/public';
+                            $sourcePublic = $path . '/apps/web/public';
+                            if (File::exists($sourcePublic) && !File::exists($targetPublic)) {
+                                File::copyDirectory($sourcePublic, $targetPublic);
+                            }
+                            $output .= "Assets estáticos (.next/static y public) vinculados al servidor standalone de Next.js.\n";
+                        }
+                        continue;
+                    }
+
+                    $output .= "\nEjecutando npm run build en " . ($fDir === '.' ? 'raíz' : $fDir) . "...\n";
+                    $buildImage = ($fDir === 'client' && File::exists($path . '/server/app.js')) ? 'node:20' : 'node:20-alpine';
+                    $buildCommand = [
+                        'docker', 'run', '--rm',
+                        '-u', "$uid:$gid",
+                        '-e', 'NODE_OPTIONS=--openssl-legacy-provider',
+                        '-e', 'VITE_BACKEND_SERVER=/',
+                        '-e', 'VITE_FILE_BASE_URL=/public/',
+                        '-e', 'PUBLIC_URL=.',
+                        '-e', 'CI=false',
+                        '-e', 'INDEX_FORMAT=ejs',
+                        '-e', 'DISABLE_ESLINT_PLUGIN=true',
+                        '-v', "$path:/app",
+                        '-w', $workDir,
+                        $buildImage,
+                        'sh', '-c',
+                        "{$pathExports} && npm run build"
+                    ];
+                    $buildResult = $this->runCommand($buildCommand);
+                    $output .= $buildResult['output'];
+                    if (!$buildResult['success']) {
+                        return ['success' => false, 'output' => $output];
+                    }
+
+                    // 5. Post-procesamiento universal de carpetas de distribución (build, dist, out, public)
+                    $this->sanitizeCompiledOutputDirectories($path, $detectedSubpaths);
+                }
+            }
+        }
+
+        // Integrar frontend compilado de Planka (Sails.js + client/dist)
+        if (File::exists($path . '/server/app.js') && File::isDirectory($path . '/client/dist')) {
+            $output .= "\nSincronizando interfaz cliente de Planka con el servidor Sails.js...\n";
+            File::ensureDirectoryExists($path . '/server/public', 0777);
+            File::ensureDirectoryExists($path . '/server/views', 0777);
+            File::copyDirectory($path . '/client/dist', $path . '/server/public');
+            if (File::exists($path . '/client/dist/index.ejs')) {
+                File::copy($path . '/client/dist/index.ejs', $path . '/server/views/index.ejs');
+                $output .= "Plantilla views/index.ejs y assets estáticos en server/public sincronizados exitosamente.\n";
+            }
+        }
+
+        // Integrar servicio de frontend estático compilado en Express backend si existe app.js
+        $appJsCandidates = [
+            $path . '/backend/src/app.js',
+            $path . '/backend/app.js',
+            $path . '/src/app.js',
+            $path . '/app.js'
+        ];
+        foreach ($appJsCandidates as $appJsPath) {
+            if (File::exists($appJsPath)) {
+                $appJsContent = File::get($appJsPath);
+                if (!str_contains($appJsContent, 'candidateDistPaths')) {
+                    $staticMiddleware = <<<'JS'
+
+// Servir frontend SPA compilado en monorepos (IDURAR / MERN / Vue / React)
+const staticFs = require('fs');
+const staticPath = require('path');
+const candidateDistPaths = [
+  staticPath.resolve(__dirname, '../../frontend/dist'),
+  staticPath.resolve(__dirname, '../frontend/dist'),
+  staticPath.resolve(__dirname, '../../client/dist'),
+  staticPath.resolve(__dirname, '../../client/build'),
+  staticPath.resolve(__dirname, '../../dist'),
+  staticPath.resolve(__dirname, '../public')
+];
+for (const sPath of candidateDistPaths) {
+  if (staticFs.existsSync(staticPath.join(sPath, 'index.html'))) {
+    app.use(express.static(sPath));
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api') || req.path.startsWith('/download') || req.path.startsWith('/public')) {
+        return next();
+      }
+      res.sendFile(staticPath.join(sPath, 'index.html'));
+    });
+    break;
+  }
+}
+
+JS;
+                    if (str_contains($appJsContent, 'app.use(errorHandlers.notFound);')) {
+                        $appJsContent = str_replace('app.use(errorHandlers.notFound);', $staticMiddleware . "\napp.use(errorHandlers.notFound);", $appJsContent);
+                    } else {
+                        $appJsContent .= $staticMiddleware;
+                    }
+                    File::put($appJsPath, $appJsContent);
+                }
+            }
+        }
+
+        // Parche de compatibilidad para setup de IDURAR ERP CRM (4.1.0)
+        $idurarSetups = [$path . '/backend/src/setup/setup.js', $path . '/src/setup/setup.js'];
+        foreach ($idurarSetups as $setupJsPath) {
+            if (File::exists($setupJsPath)) {
+                $setupJs = File::get($setupJsPath);
+                // Eliminar emojis del script de inicialización
+                $setupJs = preg_replace('/[\x{1F600}-\x{1F64F}\x{1F300}-\x{1F5FF}\x{1F680}-\x{1F6FF}\x{1F1E0}-\x{1F1FF}\x{2600}-\x{26FF}\x{2700}-\x{27BF}\x{1F900}-\x{1F9FF}\x{1F018}-\x{1F0F5}\x{1F200}-\x{1F270}\x{FE00}-\x{FE0F}\x{1F000}-\x{1F02F}\x{1F0A0}-\x{1F0FF}]/u', '', $setupJs);
+                // Omitir limpiamente los módulos comerciales (PaymentMode y Taxes) no presentes en el repositorio open-source
+                if (str_contains($setupJs, 'const PaymentMode = require') && !str_contains($setupJs, '/* PaymentMode/Taxes optional */')) {
+                    $setupJs = str_replace('const PaymentMode = require', "/* PaymentMode/Taxes optional */\n    try {\n    const PaymentMode = require", $setupJs);
+                    $setupJs = str_replace("console.log('PaymentMode created : Done!');", "console.log('PaymentMode created : Done!');\n    } catch (e) { /* Modulos reservados para IDURAR Enterprise */ }", $setupJs);
+                }
+                File::put($setupJsPath, $setupJs);
+            }
+        }
+
+        // Auto-seed para IDURAR ERP CRM (admin@admin.com / admin123 y configuraciones)
+        $idurarServerJsCandidates = [
+            $path . '/backend/src/server.js',
+            $path . '/backend/server.js',
+            $path . '/src/server.js',
+            $path . '/server.js'
+        ];
+        foreach ($idurarServerJsCandidates as $sJsPath) {
+            if (File::exists($sJsPath)) {
+                $sJs = File::get($sJsPath);
+                if (!str_contains($sJs, 'Auto-seed initial admin and settings for IDURAR')) {
+                    $idurarSeedSnippet = <<<'JS'
+
+// Auto-seed initial admin and settings for IDURAR if collections are empty
+mongoose.connection.once('open', async () => {
+  try {
+    const Admin = require('./models/coreModels/Admin');
+    const adminCount = await Admin.countDocuments();
+    if (adminCount === 0) {
+      console.log('[IDURAR] Auto-seeding initial admin and settings...');
+      const AdminPassword = require('./models/coreModels/AdminPassword');
+      const { generate: uniqueId } = require('shortid');
+      const fs = require('fs');
+      const { globSync } = require('glob');
+      const newAdminPassword = new AdminPassword();
+      const salt = uniqueId();
+      const passwordHash = newAdminPassword.generateHash(salt, 'admin123');
+      const demoAdmin = {
+        email: 'admin@admin.com',
+        name: 'IDURAR',
+        surname: 'Admin',
+        enabled: true,
+        role: 'owner',
+      };
+      const result = await new Admin(demoAdmin).save();
+      await new AdminPassword({
+        password: passwordHash,
+        emailVerified: true,
+        salt: salt,
+        user: result._id,
+        loggedSessions: []
+      }).save();
+      const Setting = require('./models/coreModels/Setting');
+      const settingFiles = [];
+      const settingsFiles = globSync('./src/setup/defaultSettings/**/*.json');
+      for (const filePath of settingsFiles) {
+        settingFiles.push(...JSON.parse(fs.readFileSync(filePath, 'utf-8')));
+      }
+      if (settingFiles.length > 0) {
+        await Setting.insertMany(settingFiles);
+      }
+      console.log('[IDURAR] Admin and default settings auto-seeded successfully!');
+    }
+  } catch (err) {
+    console.error('[IDURAR] Auto-seed error:', err.message);
+  }
+});
+JS;
+                    $sJs .= "\n" . $idurarSeedSnippet;
+                    File::put($sJsPath, $sJs);
+                }
             }
         }
 
@@ -418,18 +737,7 @@ JS;
             }
         }
 
-        // Parche de compatibilidad para module-alias en Node 20
-        $moduleAliasCandidates = [
-            $path . '/node_modules/module-alias/register.js',
-            $path . '/api/node_modules/module-alias/register.js',
-            $path . '/backend/node_modules/module-alias/register.js',
-            $path . '/server/node_modules/module-alias/register.js',
-        ];
-        foreach ($moduleAliasCandidates as $maPath) {
-            if (File::exists($maPath)) {
-                @file_put_contents($maPath, '// noop module-alias for node 20 compatibility');
-            }
-        }
+
 
         // Parche para proyectos con avatares o enlaces a i.ibb.co (ej: Jira Clone)
         $this->patchJiraCloneAvatars($path);
@@ -476,27 +784,32 @@ JS;
             ];
         }
 
-        $this->ensureCacheVolumes();
-        $command = [
-            'docker', 'run', '--rm',
-            '-u', "$uid:$gid",
-            '-v', "$path:/app",
-            '-v', "uleam_composer_cache:/tmp/cache",
-            '-e', 'COMPOSER_CACHE_DIR=/tmp/cache',
-            '-w', '/app',
-            'composer:latest',
-            'composer', 'install', '--prefer-dist', '--optimize-autoloader', '--no-interaction', '--ignore-platform-reqs', '--no-scripts'
-        ];
-
-        $output = "Ejecutando composer install desde caché local...\n";
-        $result = $this->runCommand($command);
-        $output .= $result['output'];
-
-        if (!$result['success']) {
-            return [
-                'success' => false,
-                'output' => $output
+        // Si el repositorio ya incluye dependencias preempaquetadas en vendor (ej. FreeScout o proyectos distribuidos con vendor)
+        if (File::exists($path . '/vendor/autoload.php')) {
+            $output = "Se detectaron dependencias de Composer preempaquetadas en el repositorio (vendor/autoload.php). Omitiendo 'composer install' para preservar la integridad y personalizaciones del proyecto.\n";
+        } else {
+            $this->ensureCacheVolumes();
+            $command = [
+                'docker', 'run', '--rm',
+                '-u', "$uid:$gid",
+                '-v', "$path:/app",
+                '-v', "uleam_composer_cache:/tmp/cache",
+                '-e', 'COMPOSER_CACHE_DIR=/tmp/cache',
+                '-w', '/app',
+                'composer:latest',
+                'composer', 'install', '--prefer-dist', '--optimize-autoloader', '--no-interaction', '--ignore-platform-reqs', '--no-scripts'
             ];
+
+            $output = "Ejecutando composer install desde caché local...\n";
+            $result = $this->runCommand($command);
+            $output .= $result['output'];
+
+            if (!$result['success']) {
+                return [
+                    'success' => false,
+                    'output' => $output
+                ];
+            }
         }
 
         // Auto-parchear paquetes heredados en vendor para compatibilidad con PHP 8.2+
@@ -504,6 +817,9 @@ JS;
 
         // Si es Laravel, ejecutar package:discover en el entorno de ejecución objetivo y asegurar APP_KEY
         if (File::exists($path . '/artisan')) {
+            @unlink($path . '/bootstrap/cache/packages.php');
+            @unlink($path . '/bootstrap/cache/services.php');
+
             $discoverCommand = [
                 'docker', 'run', '--rm',
                 '-u', "$uid:$gid",
@@ -597,31 +913,64 @@ JS;
             $hasViteManifest = File::exists($path . '/public/build/manifest.json') 
                 || File::exists($path . '/public/build/.vite/manifest.json');
 
-            // Verificar si ya existen assets precompilados en public/
-            $hasPrecompiledAssets = File::exists($path . '/public/css') 
+            // Verificar si el proyecto usa Gulp (ej. OpenSourcePOS, Easy!Appointments)
+            $isGulpProject = File::exists($path . '/gulpfile.js') || File::exists($path . '/gulpfile.ts');
+
+            // Auto-parchear gulpfile.js y babel.config.json si es Easy!Appointments para compatibilidad con versiones modernas de Node/del/babel
+            if (File::exists($path . '/gulpfile.js')) {
+                $gulpContent = File::get($path . '/gulpfile.js');
+                if (str_contains($gulpContent, 'del.sync')) {
+                    $gulpContent = str_replace('del.sync', '(del.deleteSync || del.sync || function(){})', $gulpContent);
+                    File::put($path . '/gulpfile.js', $gulpContent);
+                }
+            }
+            if (File::exists($path . '/babel.config.json')) {
+                $babelContent = File::get($path . '/babel.config.json');
+                if (str_contains($babelContent, 'minify')) {
+                    File::put($path . '/babel.config.json', json_encode(['presets' => ['@babel/preset-env']], JSON_PRETTY_PRINT));
+                }
+            }
+
+            // Verificar si ya existen assets precompilados en public/ o assets/
+            $hasPrecompiledAssets = (
+                File::exists($path . '/public/css') 
                 || File::exists($path . '/public/js') 
                 || $hasViteManifest 
                 || File::exists($path . '/public/packages')
                 || File::exists($path . '/public/akaunting-js')
-                || (File::exists($path . '/public/mix-manifest.json') && !$isViteProject);
+                || (File::exists($path . '/public/mix-manifest.json') && !$isViteProject)
+                || (File::exists($path . '/assets/css/general.min.css') && File::exists($path . '/assets/vendor'))
+            ) && !($isGulpProject && !File::exists($path . '/public/resources') && !File::exists($path . '/assets/vendor'));
 
             if ($buildScript && !$hasPrecompiledAssets) {
                 $output .= "\nDetectado package.json en proyecto PHP sin assets precompilados. Instalando dependencias de frontend...\n";
                 $npmRes = $this->installNodeDependenciesWithSnapshot($project, $path, null, $uid, $gid);
                 $output .= $npmRes['output'] . "\n";
 
-                $buildCmdStr = $workspaceBuild 
-                    ? "export PATH=\$PATH:/app/node_modules/.bin && npm run build --workspace={$workspaceBuild}" 
-                    : "export PATH=\$PATH:/app/node_modules/.bin && npm run {$buildScript}";
+                $isYarn = File::exists($path . '/yarn.lock');
+                $isPnpm = File::exists($path . '/pnpm-lock.yaml');
+
+                if (File::exists($path . '/gulpfile.js') && File::exists($path . '/config-sample.php')) {
+                    $buildCmdStr = "npx gulp compile";
+                } elseif ($isYarn) {
+                    $buildCmdStr = "mkdir -p /tmp/.bin && (corepack enable --install-directory /tmp/.bin 2>/dev/null || true); export PATH=/tmp/.bin:\$PATH; yarn run {$buildScript}";
+                } elseif ($isPnpm) {
+                    $buildCmdStr = "mkdir -p /tmp/.bin && (corepack enable --install-directory /tmp/.bin 2>/dev/null || true); export PATH=/tmp/.bin:\$PATH; pnpm run {$buildScript}";
+                } else {
+                    $buildCmdStr = $workspaceBuild 
+                        ? "mkdir -p /tmp/bin && printf '#!/bin/sh\\necho \"{}\"\\n' > /tmp/bin/composer && chmod +x /tmp/bin/composer && export PATH=/tmp/bin:\$PATH:/app/node_modules/.bin && npm run build --workspace={$workspaceBuild}" 
+                        : "mkdir -p /tmp/bin && printf '#!/bin/sh\\necho \"{}\"\\n' > /tmp/bin/composer && chmod +x /tmp/bin/composer && export PATH=/tmp/bin:\$PATH:/app/node_modules/.bin && npm run {$buildScript}";
+                }
 
                 $output .= "Compilando assets de frontend ({$buildCmdStr})...\n";
                 $npmBuildCmd = [
                     'docker', 'run', '--rm',
                     '-u', "$uid:$gid",
+                    '-e', 'HOME=/tmp',
                     '-e', 'NODE_OPTIONS=--openssl-legacy-provider',
                     '-v', "$path:/app",
                     '-w', '/app',
-                    'node:20',
+                    'node:22',
                     'sh', '-c', $buildCmdStr
                 ];
                 $npmBuildResult = $this->runCommand($npmBuildCmd);
@@ -1077,8 +1426,8 @@ JS;
         if (File::exists($routesFile)) {
             $routesContent = File::get($routesFile);
             if (!preg_match('/^\s*root\s+to:/m', $routesContent) && !preg_match('/^\s*root\s+[\'":]/m', $routesContent)) {
-                $rootInjection = "\n  # Fallback root landing page para APIs headless (Nexus Academic)\n" .
-                    "  root to: proc { [200, { 'Content-Type' => 'text/html; charset=utf-8' }, ['<!DOCTYPE html><html lang=\"es\"><head><meta charset=\"UTF-8\"><title>Backend API Activo</title><style>body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;box-sizing:border-box;}div{text-align:center;background:#1e293b;padding:2.5rem;border-radius:1rem;border:1px solid #334155;max-width:550px;box-shadow:0 20px 25px -5px rgba(0,0,0,0.5);}h1{color:#38bdf8;margin-top:0;font-size:1.8rem;}p{color:#94a3b8;line-height:1.6;}a{color:#818cf8;text-decoration:none;font-weight:600;}a:hover{text-decoration:underline;}.badge{display:inline-block;background:#065f46;color:#34d399;padding:4px 12px;border-radius:9999px;font-size:0.85rem;font-weight:bold;margin-bottom:1rem;}</style></head><body><div><span class=\"badge\">● Backend API Activo</span><h1>🚀 Servicio en Ejecución</h1><p>El backend está ejecutándose correctamente en Nexus Academic.</p><p>Este proyecto está configurado como un servicio API headless.</p><p style=\"margin-top:1.5rem;\"><a href=\"/up\">🩺 Ver Healthcheck (/up)</a></p></div></body></html>']] }\nend";
+                $rootInjection = "\n  # Fallback root landing page para APIs headless (Uleam Academic Code)\n" .
+                    "  root to: proc { [200, { 'Content-Type' => 'text/html; charset=utf-8' }, ['<!DOCTYPE html><html lang=\"es\"><head><meta charset=\"UTF-8\"><title>Backend API Activo</title><style>body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;box-sizing:border-box;}div{text-align:center;background:#1e293b;padding:2.5rem;border-radius:1rem;border:1px solid #334155;max-width:550px;box-shadow:0 20px 25px -5px rgba(0,0,0,0.5);}h1{color:#38bdf8;margin-top:0;font-size:1.8rem;}p{color:#94a3b8;line-height:1.6;}a{color:#818cf8;text-decoration:none;font-weight:600;}a:hover{text-decoration:underline;}.badge{display:inline-block;background:#065f46;color:#34d399;padding:4px 12px;border-radius:9999px;font-size:0.85rem;font-weight:bold;margin-bottom:1rem;}</style></head><body><div><span class=\"badge\">● Backend API Activo</span><h1>🚀 Servicio en Ejecución</h1><p>El backend está ejecutándose correctamente en Uleam Academic Code.</p><p>Este proyecto está configurado como un servicio API headless.</p><p style=\"margin-top:1.5rem;\"><a href=\"/up\">🩺 Ver Healthcheck (/up)</a></p></div></body></html>']] }\nend";
                 $routesContent = preg_replace('/end\s*$/', $rootInjection, trim($routesContent));
                 File::put($routesFile, $routesContent);
             }
@@ -1249,6 +1598,50 @@ JS;
 
         $output = "";
         $workDir = $subDir ? "/app/{$subDir}" : '/app';
+
+        $nvmrcPath = $path . '/.nvmrc';
+        $requiresNode24 = (File::exists($nvmrcPath) && str_contains(trim(File::get($nvmrcPath)), '24'))
+            || (File::exists($path . '/packages/sync-server'))
+            || (File::exists($path . '/apps/web'))
+            || (File::exists($path . '/package.json') && str_contains(File::get($path . '/package.json'), '"node": "24'));
+        $nodeImage = $requiresNode24 ? 'node:24-bookworm' : 'node:20';
+
+        if (File::exists($targetDir . '/yarn.lock')) {
+            $yarnCmd = [
+                'docker', 'run', '--rm',
+                '-u', "$uid:$gid",
+                '-v', "$path:/app",
+                '-v', 'uleam_npm_cache:/tmp/npm-cache',
+                '-e', 'HOME=/tmp',
+                '-e', 'NODE_OPTIONS=--openssl-legacy-provider',
+                '-w', $workDir,
+                $nodeImage,
+                'sh', '-c', 'mkdir -p /tmp/.bin && (corepack enable --install-directory /tmp/.bin 2>/dev/null || true); export PATH=/tmp/.bin:$PATH; yarn install || yarn install --ignore-engines'
+            ];
+            $output .= "Instalando dependencias en {$dirLabel} con Yarn...\n";
+            $result = $this->runCommand($yarnCmd);
+            $output .= $result['output'] . "\n";
+            return ['success' => $result['success'], 'output' => $output];
+        }
+
+        if (File::exists($targetDir . '/pnpm-lock.yaml')) {
+            $pnpmCmd = [
+                'docker', 'run', '--rm',
+                '-u', "$uid:$gid",
+                '-v', "$path:/app",
+                '-v', 'uleam_npm_cache:/tmp/npm-cache',
+                '-e', 'HOME=/tmp',
+                '-e', 'PNPM_HOME=/tmp/.pnpm',
+                '-e', 'NODE_OPTIONS=--openssl-legacy-provider',
+                '-w', $workDir,
+                $nodeImage,
+                'sh', '-c', 'mkdir -p /tmp/.bin && (corepack enable --install-directory /tmp/.bin 2>/dev/null || true); export PATH=/tmp/.bin:$PATH; pnpm install --no-frozen-lockfile'
+            ];
+            $output .= "Instalando dependencias en {$dirLabel} con pnpm...\n";
+            $result = $this->runCommand($pnpmCmd);
+            $output .= $result['output'] . "\n";
+            return ['success' => $result['success'], 'output' => $output];
+        }
 
         // 2. Ejecutar npm install con caché en volumen Docker NVMe ultra-rápido y paquetes locales
         $cmd = [
@@ -1586,7 +1979,15 @@ JS;
      */
     private function sanitizeCompiledOutputDirectories(string $path, array $detectedSubpaths): void
     {
-        $candidateDirs = ['build', 'dist', 'out', 'public', 'client/build', 'frontend/dist', 'frontend/build'];
+        $isNextJs = File::exists($path . '/next.config.js') 
+                 || File::exists($path . '/next.config.mjs') 
+                 || File::exists($path . '/next.config.ts')
+                 || File::isDirectory($path . '/.next');
+
+        $candidateDirs = ['build', 'dist', 'out', 'client/build', 'frontend/dist', 'frontend/build'];
+        if (!$isNextJs) {
+            $candidateDirs[] = 'public';
+        }
         $reservedDirNames = ['static', 'assets', 'media', 'css', 'js', 'fonts', 'images', 'img', 'favicon.ico'];
 
         foreach ($candidateDirs as $candidate) {
@@ -1641,14 +2042,17 @@ JS;
             }
 
             // B. Crear symlinks resilientes en el directorio compilado para absorber cualquier ruta residual
-            foreach ($detectedSubpaths as $subpath) {
-                if (empty($subpath) || in_array($subpath, $reservedDirNames, true)) {
-                    continue;
-                }
+            // NUNCA crear symlinks en 'public' ni en proyectos Next.js/SSR para evitar bucles infinitos (ELOOP)
+            if (!$isNextJs && $candidate !== 'public') {
+                foreach ($detectedSubpaths as $subpath) {
+                    if (empty($subpath) || in_array($subpath, $reservedDirNames, true)) {
+                        continue;
+                    }
 
-                $symlinkTarget = $dirPath . '/' . $subpath;
-                if (!file_exists($symlinkTarget) && !is_link($symlinkTarget)) {
-                    @symlink('.', $symlinkTarget);
+                    $symlinkTarget = $dirPath . '/' . $subpath;
+                    if (!file_exists($symlinkTarget) && !is_link($symlinkTarget)) {
+                        @symlink('.', $symlinkTarget);
+                    }
                 }
             }
         }
@@ -1703,6 +2107,17 @@ JS;
                     $mContent
                 );
                 @file_put_contents($mFile->getRealPath(), $mContent);
+            }
+        }
+
+        // 4. Parchear función e() en helpers.php heredados de Laravel (PHP 8.1+ deprecation al pasar null a htmlspecialchars)
+        foreach ([$path . '/overrides/laravel/framework/src/Illuminate/Support/helpers.php', $path . '/vendor/laravel/framework/src/Illuminate/Support/helpers.php'] as $helperPath) {
+            if (File::exists($helperPath)) {
+                $hContent = @file_get_contents($helperPath);
+                if ($hContent && str_contains($hContent, 'htmlspecialchars($value,')) {
+                    $hContent = str_replace('htmlspecialchars($value,', 'htmlspecialchars($value ?? \'\',', $hContent);
+                    @file_put_contents($helperPath, $hContent);
+                }
             }
         }
 

@@ -90,6 +90,21 @@ class ProjectController extends Controller
         }
 
         $isFolderUpload = $request->hasFile('folder_files');
+
+        // Validación preventiva: Bloquear herramientas de orquestación e infraestructura no compatibles con el sandbox
+        if (!$isFolderUpload && $request->filled('github_repo_url')) {
+            $incompError = $this->getIncompatibleRepoErrorMessage((string) $request->input('github_repo_url'));
+            if ($incompError) {
+                return redirect()->back()->withErrors(['github_repo_url' => $incompError])->withInput();
+            }
+        }
+        if (!$isFolderUpload && $request->filled('backend_github_repo_url')) {
+            $incompError = $this->getIncompatibleRepoErrorMessage((string) $request->input('backend_github_repo_url'));
+            if ($incompError) {
+                return redirect()->back()->withErrors(['backend_github_repo_url' => $incompError])->withInput();
+            }
+        }
+
         $isFullstack = $request->input('deployment_mode') === 'fullstack' && !$parentProject;
 
         // Si es despliegue de Suite Fullstack (Frontend + Backend en un solo paso)
@@ -621,6 +636,15 @@ class ProjectController extends Controller
         $owner = $matches[1];
         $repo = preg_replace('/\.git$/i', '', $matches[2]);
 
+        // Verificación temprana de repositorios incompatibles (orquestadores de infraestructura/PaaS)
+        $incompError = $this->getIncompatibleRepoErrorMessage($url);
+        if ($incompError) {
+            return response()->json([
+                'valid' => false,
+                'message' => $incompError
+            ]);
+        }
+
         // 1. Intento primario: GitHub REST API (rápido y con metadatos enriquecidos)
         try {
             $response = Http::withHeaders([
@@ -634,6 +658,22 @@ class ProjectController extends Controller
                     return response()->json([
                         'valid' => false,
                         'message' => 'El repositorio es privado. Debe ser público para que la plataforma pueda clonarlo.'
+                    ]);
+                }
+
+                // Detección de orquestador o PaaS por descripción o etiquetas (topics)
+                $descLower = strtolower($data['description'] ?? '');
+                $topics = is_array($data['topics'] ?? null) ? array_map('strtolower', $data['topics']) : [];
+                if (
+                    str_contains($descLower, 'self-hosted heroku') ||
+                    str_contains($descLower, 'self-hosted paas') ||
+                    str_contains($descLower, 'alternative to heroku') ||
+                    str_contains($descLower, 'server management') ||
+                    (in_array('paas', $topics, true) && in_array('self-hosted', $topics, true))
+                ) {
+                    return response()->json([
+                        'valid' => false,
+                        'message' => 'Proyecto no admitido: Este proyecto corresponde a software de orquestación de servidores o infraestructura (PaaS), el cual no es compatible con la plataforma. Uleam Academic Code está diseñada exclusivamente para aplicaciones web académicas.'
                     ]);
                 }
 
@@ -694,5 +734,36 @@ class ProjectController extends Controller
                 'message' => 'Error al contactar con GitHub: ' . $e->getMessage()
             ]);
         }
+    }
+
+    /**
+     * Valida si una URL corresponde a un orquestador de servidores o PaaS incompatible con el sandbox.
+     */
+    private function getIncompatibleRepoErrorMessage(string $url): ?string
+    {
+        $urlLower = strtolower($url);
+        $incompatibleSignatures = [
+            'coollabsio/coolify',
+            'coolify',
+            'portainer',
+            'caprover',
+            'dokku',
+            'rancher',
+            'casaos',
+            'yunohost',
+        ];
+
+        foreach ($incompatibleSignatures as $sig) {
+            if (
+                str_contains($urlLower, "/{$sig}") ||
+                str_contains($urlLower, "{$sig}/") ||
+                str_ends_with(rtrim($urlLower, '/'), "/{$sig}") ||
+                str_ends_with(rtrim($urlLower, '/'), "/{$sig}.git")
+            ) {
+                return 'Proyecto no admitido: Las herramientas de orquestación de servidores, infraestructura o PaaS autohospedado requieren acceso root directo al daemon Docker del host y no son compatibles con los contenedores sandbox de proyectos académicos.';
+            }
+        }
+
+        return null;
     }
 }

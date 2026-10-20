@@ -112,9 +112,9 @@ return [
 
     'from' => [
         'address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),
-        'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'Laravel')),
+        'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'Uleam Academic Code')),
     ],
 
-    'support_address' => env('MAIL_SUPPORT_ADDRESS', 'soporte@nexusacademic.com'),
+    'support_address' => env('MAIL_SUPPORT_ADDRESS', 'soporte@uleamacademic.software'),
 
 ];

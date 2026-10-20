@@ -40,9 +40,9 @@ export default function GuestLayout({ children, maxWidth = 'sm:max-w-md' }) {
             <div>
                 <Link href="/" className="flex flex-col items-center group gap-2">
                     <ApplicationLogo className="h-14 w-auto object-contain transition group-hover:scale-105" />
-                    <div className="flex items-center">
-                        <span className="brand-nexus text-2xl font-black tracking-tight text-blue-700 dark:text-blue-500">nexus</span>
-                        <span className="brand-academic text-2xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">academic</span>
+                    <div className="flex items-center gap-2">
+                        <span className="brand-nexus text-2xl font-black tracking-tight text-blue-700 dark:text-blue-500">Uleam Academic</span>
+                        <span className="brand-academic text-2xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">Code</span>
                     </div>
                 </Link>
             </div>

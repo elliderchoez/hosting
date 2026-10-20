@@ -528,7 +528,7 @@ export default function AdminDashboard({ telemetry: initialTelemetry, metrics, s
 
     return (
         <AuthenticatedLayout>
-            <Head title="Consola de Administración - Nexus Academic" />
+            <Head title="Consola de Administración - Uleam Academic Code" />
 
             <div className="py-4 sm:py-5 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto space-y-4">
                 {/* Toast Notification */}
@@ -2367,7 +2367,7 @@ export default function AdminDashboard({ telemetry: initialTelemetry, metrics, s
                             </div>
                             <div className="text-slate-500 dark:text-slate-400 text-[11px] pt-1 border-t border-slate-200 dark:border-slate-800/80">
                                 {(togglePartnerModal.partner.status === 'approved' && togglePartnerModal.partner.verified)
-                                    ? 'Al desactivar, la empresa o reclutador no podrá iniciar sesión en Nexus Academic hasta que sea reactivada.'
+                                    ? 'Al desactivar, la empresa o reclutador no podrá iniciar sesión en Uleam Academic Code hasta que sea reactivada.'
                                     : 'Al activar, la empresa o reclutador podrá ingresar de inmediato con su correo y contraseña.'}
                             </div>
                         </div>

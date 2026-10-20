@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Resolución de Solicitud — Nexus Academic</title>
+    <title>Resolución de Solicitud — Uleam Academic Code</title>
     <style>
         body {
             margin: 0;
@@ -125,7 +125,7 @@
     <div class="container">
         <!-- Encabezado Institucional -->
         <div class="header">
-            <div class="logo-title">nexus<span style="color: #38bdf8;">academic</span></div>
+            <div class="logo-title">Uleam Academic <span style="color: #38bdf8;">Code</span></div>
         </div>
 
         <!-- Cuerpo del Correo -->
@@ -163,15 +163,15 @@
                     Por favor no respondas a este mensaje, ya que fue emitido automáticamente por el sistema.
                 </p>
                 <p style="margin: 0; color: #475569;">
-                    Para cualquier aclaración o asistencia técnica, puedes escribirnos al correo oficial de Nexus Academic: 
-                    <a href="mailto:{{ config('mail.support_address', 'soporte@nexusacademic.com') }}" style="color: #0284c7; font-weight: 700; text-decoration: underline;">{{ config('mail.support_address', 'soporte@nexusacademic.com') }}</a>
+                    Para cualquier aclaración o asistencia técnica, puedes escribirnos al correo oficial de Uleam Academic Code: 
+                    <a href="mailto:{{ config('mail.support_address', 'soporte@uleamacademic.software') }}" style="color: #0284c7; font-weight: 700; text-decoration: underline;">{{ config('mail.support_address', 'soporte@uleamacademic.software') }}</a>
                 </p>
             </div>
         </div>
 
         <!-- Pie de Página Institucional -->
         <div class="footer">
-            <p><strong>Nexus Academic</strong></p>
+            <p><strong>Uleam Academic Code</strong></p>
             <p>Plataforma Institucional de Demostración y Ejecución de Proyectos de Titulación</p>
             <p>Manta, Manabí, Ecuador · © {{ date('Y') }} Todos los derechos reservados.</p>
         </div>

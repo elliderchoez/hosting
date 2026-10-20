@@ -5,7 +5,7 @@ import { createInertiaApp } from '@inertiajs/react';
 import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import { createRoot } from 'react-dom/client';
 
-const appName = import.meta.env.VITE_APP_NAME || 'Nexus Academic';
+const appName = import.meta.env.VITE_APP_NAME || 'Uleam Academic Code';
 
 createInertiaApp({
     title: (title) => title ? `${appName} | ${title}` : appName,
