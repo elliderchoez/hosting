@@ -40,6 +40,15 @@ class AutoSleepContainers extends Command
         }
 
         foreach ($runningProjects as $project) {
+            // No dormir servicios backend si su frontend vinculado sigue activo
+            if ($project->is_backend_service) {
+                $frontend = Project::where('backend_project_id', $project->id)->first();
+                if ($frontend && ($frontend->status === 'running' || ($frontend->last_visited_at && abs(now()->diffInMinutes($frontend->last_visited_at)) < 15))) {
+                    $this->info("Servicio backend con frontend activo ({$frontend->name}). Manteniendo encendido.");
+                    continue;
+                }
+            }
+
             $containerName = "project-{$project->id}";
             $this->info("Checking container: $containerName (Project: {$project->name})");
 
@@ -64,22 +73,31 @@ class AutoSleepContainers extends Command
 
             // 2. Comprobar tiempo de inactividad
             $idleMinutes = $project->last_visited_at ? (int) abs(now()->diffInMinutes($project->last_visited_at)) : 999;
-            $this->info("Container idle time: $idleMinutes minutes.");
+            $updatedMinutes = $project->updated_at ? (int) abs(now()->diffInMinutes($project->updated_at)) : 999;
+            $effectiveIdleMinutes = min($idleMinutes, $updatedMinutes);
+            $this->info("Container idle time: $idleMinutes minutes (effective: $effectiveIdleMinutes min).");
 
-            // Si fue visitado o ejecutado hace menos de 10 minutos, se mantiene activo
-            if ($idleMinutes < 10) {
+            // Si fue visitado o iniciado/actualizado hace menos de 15 minutos, se mantiene activo
+            if ($effectiveIdleMinutes < 15) {
                 Cache::put($cacheKey, $rxValue, now()->addHours(24));
-                $this->info("Container was active recently ($idleMinutes min ago). Keeping alive.");
+                $this->info("Container was active recently ($effectiveIdleMinutes min ago). Keeping alive.");
                 continue;
             }
 
-            // Si han pasado 10 minutos o más, verificar si hubo tráfico sustancial
+            // Si es la primera medición de RX tras el periodo de gracia, inicializar y esperar al siguiente ciclo
+            if ($lastRx === null) {
+                Cache::put($cacheKey, $rxValue, now()->addHours(24));
+                $this->info("Initial RX measurement recorded for {$project->name}. Waiting for next check cycle.");
+                continue;
+            }
+
+            // Si han pasado 15 minutos o más, verificar si hubo tráfico sustancial
             $currentBytes = $this->parseBytes($rxValue);
-            $lastBytes = $lastRx !== null ? $this->parseBytes($lastRx) : $currentBytes;
+            $lastBytes = $this->parseBytes($lastRx);
             $bytesDiff = max(0, $currentBytes - $lastBytes);
 
             // Menos de 40 KB de tráfico se considera ruido de red de Docker (ARP / multicast / pings)
-            if ($lastRx === null || $bytesDiff < 40960) {
+            if ($bytesDiff < 40960) {
                 $this->warn("Inactivity threshold (10 min) reached for {$project->name} (Traffic diff: {$bytesDiff}B). Putting to sleep...");
                 $result = $stopAction->execute($project);
                 

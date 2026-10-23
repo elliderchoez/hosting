@@ -78,6 +78,9 @@ class StartProjectContainerAction
             }
 
             $isHeavyApp = $project->language === 'ruby'
+                || $project->language === 'java'
+                || $project->language === 'dotnet'
+                || ($project->language === 'python' && (File::exists($projectPath . '/manage.py') || File::exists($projectPath . '/pyproject.toml') || File::exists($projectPath . '/Pipfile')))
                 || File::exists($projectPath . '/packages/evershop')
                 || File::exists($projectPath . '/packages/sync-server')
                 || File::exists($projectPath . '/server/app.js')
@@ -86,15 +89,21 @@ class StartProjectContainerAction
                 || File::exists($projectPath . '/turbo.json')
                 || File::exists($projectPath . '/lerna.json');
 
+            $memoryLimit = $isHeavyApp ? '1024m' : ($project->language === 'nodejs' ? '768m' : '512m');
+            $memorySwap = $isHeavyApp ? '2048m' : '1024m';
+            $cpusLimit = $isHeavyApp ? '1.5' : '1.0';
+            $pidsLimit = $isHeavyApp ? '300' : '200';
+
             // 5. Construct Docker Run Command
             $command = [
                 'docker', 'run', '-d',
                 '--name', $containerName,
                 '--runtime', $runtime,
                 '--network', 'uleam_academic_network',
-                '--memory', ($isHeavyApp ? '1024m' : ($project->language === 'nodejs' ? '512m' : '256m')),
-                '--cpus', ($isHeavyApp ? '1.0' : '0.5'),
-                '--pids-limit', ($isHeavyApp ? '200' : '100'),
+                '--memory', $memoryLimit,
+                '--memory-swap', $memorySwap,
+                '--cpus', $cpusLimit,
+                '--pids-limit', $pidsLimit,
                 '--storage-opt', 'size=1G',
                 '-v', "$projectPath:$workDir", // Montar en su WORKDIR como lectura y escritura
             ];
@@ -129,6 +138,15 @@ class StartProjectContainerAction
                 $command[] = "traefik.http.routers.{$project->id}.entrypoints=websecure";
                 $command[] = '--label';
                 $command[] = "traefik.http.routers.{$project->id}.tls.certresolver=myresolver";
+
+                $command[] = '--label';
+                $command[] = "traefik.http.routers.{$project->id}-http.rule=Host(`{$project->subdomain}.{$domain}`)";
+                $command[] = '--label';
+                $command[] = "traefik.http.routers.{$project->id}-http.entrypoints=web";
+                $command[] = '--label';
+                $command[] = "traefik.http.routers.{$project->id}-http.middlewares={$corsName}";
+                $command[] = '--label';
+                $command[] = "traefik.http.routers.{$project->id}-http.service={$serviceName}";
             } else {
                 $command[] = '--label';
                 $command[] = "traefik.http.routers.{$project->id}.rule=Host(`{$project->subdomain}.{$domain}`)";
@@ -181,6 +199,8 @@ class StartProjectContainerAction
             $command[] = '--label';
             $command[] = "traefik.http.middlewares.{$clearName}.headers.customresponseheaders.Cache-Control=no-store, no-cache, must-revalidate";
             $command[] = '--label';
+            $command[] = "traefik.http.middlewares.{$clearName}.headers.customresponseheaders.Content-Type=text/html; charset=utf-8";
+            $command[] = '--label';
             $command[] = "traefik.http.routers.{$project->id}-clear.rule=(Host(`{$project->subdomain}.{$domain}`) || Host(`{$project->subdomain}.localhost`)) && PathPrefix(`/uleam-clear-session`)";
             $command[] = '--label';
             $command[] = "traefik.http.routers.{$project->id}-clear.priority=2000";
@@ -198,6 +218,10 @@ class StartProjectContainerAction
 
             $command[] = '-e';
             $command[] = 'PORT=' . $settings['port'];
+            $command[] = '-e';
+            $command[] = 'PUERTO=' . $settings['port'];
+            $command[] = '-e';
+            $command[] = 'HOST=0.0.0.0';
             $command[] = '-e';
             $command[] = 'APP_URL=' . $primaryUrl;
             $command[] = '-e';
@@ -224,6 +248,58 @@ class StartProjectContainerAction
             $command[] = 'EVERSHOP_HOME_URL=' . $primaryUrl;
             $command[] = '-e';
             $command[] = 'SUPPRESS_NO_CONFIG_WARNING=1';
+
+            if ($project->language === 'dotnet') {
+                $command[] = '-e';
+                $command[] = 'ASPNETCORE_HTTP_PORTS=' . $settings['port'];
+                $command[] = '-e';
+                $command[] = 'ASPNETCORE_URLS=http://+:' . $settings['port'];
+            }
+
+            // Vinculación automática en suites Fullstack (Frontend <-> Backend)
+            if ($project->backend_project_id) {
+                $backend = \App\Models\Project::find($project->backend_project_id);
+                if ($backend) {
+                    $backendUrl = $isProduction ? "https://{$backend->subdomain}.{$domain}" : "http://{$backend->subdomain}.localhost";
+                    $backendInternalUrl = "http://project-{$backend->id}:5000";
+                    $command[] = '-e';
+                    $command[] = 'API_URL=' . $backendUrl;
+                    $command[] = '-e';
+                    $command[] = 'BACKEND_URL=' . $backendUrl;
+                    $command[] = '-e';
+                    $command[] = 'PUBLIC_DJANGO_API_URL=' . $backendInternalUrl;
+                    $command[] = '-e';
+                    $command[] = 'VITE_API_URL=' . $backendUrl;
+                    $command[] = '-e';
+                    $command[] = 'VITE_BACKEND_URL=' . $backendUrl;
+                    $command[] = '-e';
+                    $command[] = 'NEXT_PUBLIC_API_URL=' . $backendUrl;
+                    $command[] = '-e';
+                    $command[] = 'REACT_APP_API_URL=' . $backendUrl;
+                }
+            } elseif ($project->is_backend_service) {
+                $frontend = \App\Models\Project::where('backend_project_id', $project->id)->first();
+                if ($frontend) {
+                    $frontendUrl = $isProduction ? "https://{$frontend->subdomain}.{$domain}" : "http://{$frontend->subdomain}.localhost";
+                    $command[] = '-e';
+                    $command[] = 'FRONTEND_URL=' . $frontendUrl;
+                    $command[] = '-e';
+                    $command[] = 'APP_URL=' . $frontendUrl;
+                    $command[] = '-e';
+                    $command[] = 'CORS_ALLOWED_ORIGINS=' . $frontendUrl;
+                }
+            }
+
+            if (File::exists($projectPath . '/microblog.py')) {
+                $command[] = '-e';
+                $command[] = 'FLASK_APP=microblog.py';
+            } elseif (File::exists($projectPath . '/app.py')) {
+                $command[] = '-e';
+                $command[] = 'FLASK_APP=app.py';
+            } elseif (File::exists($projectPath . '/wsgi.py')) {
+                $command[] = '-e';
+                $command[] = 'FLASK_APP=wsgi.py';
+            }
 
             if (!empty($project->db_name)) {
                 $dbDriver = $project->db_driver ?: 'pgsql';
@@ -264,18 +340,18 @@ class StartProjectContainerAction
                     $command[] = '-e';
                     $command[] = 'MONGODB_URL=' . $mongoUri;
                 } else {
-                    $isRubySqlite = false;
+                    $isSqlite = ($dbDriver === 'sqlite' || $dbDriver === 'sqlite3');
                     if ($project->language === 'ruby') {
                         $dbYml = $projectPath . '/config/database.yml';
                         if (File::exists($dbYml)) {
                             $dbYamlContent = File::get($dbYml);
                             if (str_contains($dbYamlContent, 'sqlite3') && !str_contains($dbYamlContent, 'postgresql') && !str_contains($dbYamlContent, 'postgres') && !str_contains($dbYamlContent, 'mysql')) {
-                                $isRubySqlite = true;
+                                $isSqlite = true;
                             }
                         }
                     }
 
-                    if (!$isRubySqlite) {
+                    if (!$isSqlite) {
                         $dbHost = $dbDriver === 'mysql' ? ($project->language === 'ruby' ? 'uleam-mysql-students' : 'uleam_mysql_students') : ($project->language === 'ruby' ? 'uleam-postgres-students' : 'uleam_postgres_students');
                         $dbPort = $dbDriver === 'mysql' ? '3306' : '5432';
                         $dbUrlScheme = $dbDriver === 'mysql' ? 'mysql2' : 'postgres';
@@ -298,6 +374,16 @@ class StartProjectContainerAction
                         $command[] = 'DB_NAME=' . $project->db_name;
                         $command[] = '-e';
                         $command[] = 'DB_PASS=' . $project->db_password;
+                        $command[] = '-e';
+                        $command[] = 'DBHOST=' . $dbHost;
+                        $command[] = '-e';
+                        $command[] = 'DBPORT=' . $dbPort;
+                        $command[] = '-e';
+                        $command[] = 'DBNAME=' . $project->db_name;
+                        $command[] = '-e';
+                        $command[] = 'DBUSER=' . $project->db_user;
+                        $command[] = '-e';
+                        $command[] = 'DBPASSWORD=' . $project->db_password;
                         $command[] = '-e';
                         $command[] = 'DATABASE_URL=' . $dbUrlScheme . '://' . $project->db_user . ':' . $project->db_password . '@' . $dbHost . ':' . $dbPort . '/' . $project->db_name;
                         if ($dbDriver === 'mysql') {
@@ -344,6 +430,22 @@ class StartProjectContainerAction
                             $command[] = '-e';
                             $command[] = 'PGPASSWORD=' . $project->db_password;
                         }
+
+                        if ($project->language === 'java') {
+                            $jdbcDriver = $project->db_driver === 'mysql' ? 'com.mysql.cj.jdbc.Driver' : 'org.postgresql.Driver';
+                            $jdbcScheme = ($project->db_driver === 'pgsql' || $project->db_driver === 'postgres') ? 'postgresql' : $project->db_driver;
+                            $jdbcParams = ($project->db_driver === 'mysql') ? '?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC' : '';
+                            $jdbcUrl = "jdbc:{$jdbcScheme}://{$dbHost}:{$dbPort}/{$project->db_name}{$jdbcParams}";
+
+                            $command[] = '-e';
+                            $command[] = 'SPRING_DATASOURCE_URL=' . $jdbcUrl;
+                            $command[] = '-e';
+                            $command[] = 'SPRING_DATASOURCE_USERNAME=' . $project->db_user;
+                            $command[] = '-e';
+                            $command[] = 'SPRING_DATASOURCE_PASSWORD=' . $project->db_password;
+                            $command[] = '-e';
+                            $command[] = 'SPRING_DATASOURCE_DRIVER_CLASS_NAME=' . $jdbcDriver;
+                        }
                     }
                 }
             }
@@ -356,11 +458,23 @@ class StartProjectContainerAction
             $command[] = "REDIS_HOST={$redisHost}";
             $command[] = '-e';
             $command[] = 'REDIS_PORT=6379';
+            $command[] = '-e';
+            $command[] = "CELERY_BROKER_URL=redis://{$redisHost}:6379/0";
+            $command[] = '-e';
+            $command[] = "CELERY_RESULT_BACKEND=redis://{$redisHost}:6379/0";
+            $command[] = '-e';
+            $command[] = "CACHE_URL=redis://{$redisHost}:6379/1";
 
             // Para proyectos Node.js asegurar compatibilidad con OpenSSL 3.0, Webpack y secretos comunes
             if ($project->language === 'nodejs') {
                 $command[] = '-e';
                 $command[] = 'NODE_OPTIONS=--openssl-legacy-provider';
+                $command[] = '-e';
+                $command[] = 'PROTOCOL_HEADER=x-forwarded-proto';
+                $command[] = '-e';
+                $command[] = 'HOST_HEADER=x-forwarded-host';
+                $command[] = '-e';
+                $command[] = 'ORIGIN=' . $primaryUrl;
                 $command[] = '-e';
                 $command[] = 'JWT_SECRET=uleam_secret_jwt_token_' . md5($project->id);
                 $command[] = '-e';
@@ -431,11 +545,27 @@ class StartProjectContainerAction
                 $command[] = 'REDIS_HOST=uleam-redis-students';
             }
 
-            // Variables de entorno para optimización de memoria (256MB) y compatibilidad Python/Django/Node
+            if (File::exists($projectPath . '/manage.py')) {
+                $djangoSettingsModule = $this->detectDjangoSettingsModule($projectPath);
+                if ($djangoSettingsModule) {
+                    $command[] = '-e';
+                    $command[] = "DJANGO_SETTINGS_MODULE={$djangoSettingsModule}";
+                }
+                $command[] = '-e';
+                $command[] = 'ENV_TYPE=dev';
+                $command[] = '-e';
+                $command[] = 'DEBUG=True';
+                $command[] = '-e';
+                $command[] = 'CORS_ALLOW_ALL=True';
+                $command[] = '-e';
+                $command[] = 'CELERY_TASK_ALWAYS_EAGER=True';
+            }
             $command[] = '-e';
             $command[] = 'WEB_CONCURRENCY=1';
             $command[] = '-e';
             $command[] = 'ALLOWED_HOSTS=*';
+            $command[] = '-e';
+            $command[] = 'CSRF_TRUSTED_ORIGINS=' . $primaryUrl . ',http://' . $project->subdomain . '.localhost,http://localhost:5000,http://127.0.0.1:5000';
             if (!isset($sessionSalt)) {
                 $sessionSalt = md5($project->id . '_' . ($project->updated_at ? $project->updated_at->timestamp : time()));
             }
@@ -520,6 +650,42 @@ class StartProjectContainerAction
                 ];
             }
 
+            // Readiness Probe: Esperar a que el servidor web esté listo y respondiendo tráfico HTTP (evitar Bad Gateway 502)
+            $hostHeader = (config('app.env') === 'production')
+                ? "{$project->subdomain}.{$domain}"
+                : "{$project->subdomain}.localhost";
+            $probeUrl = "http://127.0.0.1:80/";
+            $maxWaitSeconds = ($isHeavyApp || $project->language === 'java') ? 35 : 10;
+            $serverReady = false;
+
+            for ($attempt = 1; $attempt <= $maxWaitSeconds; $attempt++) {
+                // Verificar que el contenedor no haya muerto
+                $inspect = new Process(['docker', 'inspect', '--format', '{{.State.Status}}', $containerName]);
+                $inspect->run();
+                if (trim($inspect->getOutput()) !== 'running') {
+                    break;
+                }
+
+                $ch = curl_init();
+                curl_setopt($ch, CURLOPT_URL, $probeUrl);
+                curl_setopt($ch, CURLOPT_HTTPHEADER, ["Host: {$hostHeader}"]);
+                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 1);
+                curl_setopt($ch, CURLOPT_TIMEOUT, 2);
+                curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
+                curl_exec($ch);
+                $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                curl_close($ch);
+
+                // Cualquier código HTTP válido del backend (200, 301, 302, 401, 403, 404, etc.)
+                // indica que el backend web ya aceptó la conexión y Traefik ya no retorna 502/503/504
+                if ($httpCode > 0 && $httpCode !== 502 && $httpCode !== 503 && $httpCode !== 504) {
+                    $serverReady = true;
+                    break;
+                }
+                sleep(1);
+            }
+
             $projectUrl = (config('app.env') === 'production')
                 ? "https://{$project->subdomain}.{$domain}"
                 : "http://{$project->subdomain}.localhost";
@@ -529,6 +695,11 @@ class StartProjectContainerAction
             $output .= "Tu aplicacion se encuentra en ejecucion y lista para ser evaluada.\n";
             $output .= "URL: {$projectUrl}\n";
             $output .= "=======================================================\n";
+
+            $project->status = 'running';
+            $project->container_id = $containerId;
+            $project->last_visited_at = now();
+            $project->save();
 
             return [
                 'success' => true,
@@ -653,6 +824,8 @@ JS;
                     $command = ['node', 'app.js'];
                 } elseif (File::exists($projectPath . '/client/server.js')) {
                     $command = ['node', 'client/server.js'];
+                } elseif (File::exists($projectPath . '/build/index.js')) {
+                    $command = ['node', 'build/index.js'];
                 } elseif (File::exists($projectPath . '/backend/src/server.js')) {
                     $command = ['sh', '-c', 'cd /app/backend && node src/server.js'];
                 } elseif (File::exists($projectPath . '/backend/server.js')) {
@@ -695,8 +868,12 @@ JS;
                     }
                 }
 
+                $isNode22Runtime = File::exists($projectPath . '/build/index.js')
+                    || (File::exists($projectPath . '/package.json') && (str_contains(File::get($projectPath . '/package.json'), '@sveltejs/kit') || str_contains(File::get($projectPath . '/package.json'), 'svelte-kit')))
+                    || File::exists($projectPath . '/svelte.config.js');
+
                 return [
-                    'image' => 'node:20-alpine',
+                    'image' => $isNode22Runtime ? 'node:22-slim' : 'node:20-alpine',
                     'port' => 3000,
                     'command' => $command
                 ];
@@ -807,12 +984,115 @@ PHP;
                 ];
 
             case 'python':
-                // Check if main.py, app.py or manage.py exists
-                $command = ['python', 'main.py'];
+                $entryFile = 'main.py';
                 if (File::exists($projectPath . '/app.py')) {
-                    $command = ['python', 'app.py'];
-                } elseif (File::exists($projectPath . '/manage.py')) {
-                    $command = ['python', 'manage.py', 'runserver', '0.0.0.0:5000'];
+                    $entryFile = 'app.py';
+                }
+
+                $entryModule = str_replace('.py', '', $entryFile);
+
+                // Auto-generar manage.py si es un proyecto Django (o app Django empaquetada) que no lo incluye
+                $isDjango = ($project->framework === 'django') 
+                    || File::exists($projectPath . '/manage.py')
+                    || File::exists($projectPath . '/test_settings.py')
+                    || !empty(glob($projectPath . '/*settings*.py'));
+
+                if ($isDjango && !File::exists($projectPath . '/manage.py')) {
+                    $djangoSettingsModule = $this->detectDjangoSettingsModule($projectPath) ?: (File::exists($projectPath . '/test_settings.py') ? 'test_settings' : 'settings');
+                    $managePyContent = "#!/usr/bin/env python\nimport os\nimport sys\n\ndef main():\n    os.environ.setdefault('DJANGO_SETTINGS_MODULE', '{$djangoSettingsModule}')\n    try:\n        from django.core.management import execute_from_command_line\n    except ImportError as exc:\n        raise ImportError(\"Couldn't import Django.\") from exc\n    execute_from_command_line(sys.argv)\n\nif __name__ == '__main__':\n    main()\n";
+                    File::put($projectPath . '/manage.py', $managePyContent);
+                    @chmod($projectPath . '/manage.py', 0755);
+                }
+
+                // Auto-parchear base_urls.py si existe para compatibilidad con Django 3/4 y habilitar admin
+                if (File::exists($projectPath . '/base_urls.py')) {
+                    $buContent = File::get($projectPath . '/base_urls.py');
+                    if (str_contains($buContent, "django.get_version()[0] == '2'")) {
+                        $buContent = str_replace(
+                            "if django.get_version()[0] == '2':\n    from django.urls import include, path\nelse:\n    from django.conf.urls import include, url as path",
+                            "try:\n    from django.urls import include, path\nexcept ImportError:\n    from django.conf.urls import include, url as path",
+                            $buContent
+                        );
+                    }
+                    if (!str_contains($buContent, "admin.site.urls")) {
+                        $buContent = "from django.contrib import admin\nfrom django.views.generic import RedirectView\n" . $buContent;
+                        $buContent = str_replace(
+                            "urlpatterns = [",
+                            "urlpatterns = [\n    path('admin/', admin.site.urls),\n    path('', RedirectView.as_view(url='/invoices/', permanent=False)),",
+                            $buContent
+                        );
+                    }
+                    File::put($projectPath . '/base_urls.py', $buContent);
+                }
+
+                // 1. Django: manage.py
+                if (File::exists($projectPath . '/manage.py')) {
+                    $djangoSettingsModule = $this->detectDjangoSettingsModule($projectPath);
+                    $hasWhiteNoise = false;
+                    $reqFiles = array_merge(
+                        glob($projectPath . '/requirements.txt') ?: [],
+                        glob($projectPath . '/requirements/*.txt') ?: [],
+                        glob($projectPath . '/*requirements*.txt') ?: []
+                    );
+                    foreach ($reqFiles as $rf) {
+                        if (str_contains(strtolower(@file_get_contents($rf) ?: ''), 'whitenoise')) {
+                            $hasWhiteNoise = true;
+                            break;
+                        }
+                    }
+                    if (!$hasWhiteNoise && File::exists($projectPath . '/Pipfile')) {
+                        $hasWhiteNoise = str_contains(strtolower(File::get($projectPath . '/Pipfile')), 'whitenoise');
+                    }
+                    if (!$hasWhiteNoise && File::exists($projectPath . '/pyproject.toml')) {
+                        $hasWhiteNoise = str_contains(strtolower(File::get($projectPath . '/pyproject.toml')), 'whitenoise');
+                    }
+
+                    if ($hasWhiteNoise) {
+                        $command = ['python', 'manage.py', 'runserver', '0.0.0.0:5000', '--nostatic'];
+                    } else {
+                        $command = ['python', 'manage.py', 'runserver', '0.0.0.0:5000', '--insecure'];
+                    }
+
+                    if ($djangoSettingsModule) {
+                        $command[] = "--settings={$djangoSettingsModule}";
+                    }
+                }
+                // 2. FastAPI: detect FastAPI
+                elseif ($project->framework === 'fastapi' ||
+                    File::exists($projectPath . '/.venv/bin/uvicorn') ||
+                    (File::exists($projectPath . '/' . $entryFile) && str_contains(File::get($projectPath . '/' . $entryFile), 'FastAPI'))
+                ) {
+                    $appVar = 'app';
+                    $entryContent = File::exists($projectPath . '/' . $entryFile) ? File::get($projectPath . '/' . $entryFile) : '';
+                    if (str_contains($entryContent, 'application = FastAPI')) {
+                        $appVar = 'application';
+                    }
+                    $command = ['uvicorn', "{$entryModule}:{$appVar}", '--host', '0.0.0.0', '--port', '5000'];
+                }
+                // 3. Flask
+                elseif ($project->framework === 'flask' ||
+                    (File::exists($projectPath . '/' . $entryFile) && str_contains(File::get($projectPath . '/' . $entryFile), 'Flask')) ||
+                    File::exists($projectPath . '/.flaskenv') ||
+                    File::exists($projectPath . '/microblog.py')
+                ) {
+                    $flaskApp = null;
+                    if (File::exists($projectPath . '/microblog.py')) {
+                        $flaskApp = 'microblog.py';
+                    } elseif (File::exists($projectPath . '/app.py')) {
+                        $flaskApp = 'app.py';
+                    } elseif (File::exists($projectPath . '/wsgi.py')) {
+                        $flaskApp = 'wsgi.py';
+                    } elseif (File::exists($projectPath . '/main.py')) {
+                        $flaskApp = 'main.py';
+                    }
+
+                    $command = $flaskApp
+                        ? ['python', '-m', 'flask', '--app', $flaskApp, 'run', '--host=0.0.0.0', '--port=5000']
+                        : ['python', '-m', 'flask', 'run', '--host=0.0.0.0', '--port=5000'];
+                }
+                // 4. Genérico: python app.py / python main.py
+                else {
+                    $command = ['python', $entryFile];
                 }
 
                 // If virtual env exists, run from it
@@ -821,26 +1101,127 @@ PHP;
                 }
 
                 return [
-                    'image' => 'python:3.12-alpine',
+                    'image' => 'python:3.12-slim',
                     'port' => 5000,
                     'command' => $command
                 ];
 
             case 'java':
-                // Determine JAR location (Maven: target/, Gradle: build/libs/)
-                $jarDir = File::exists($projectPath . '/pom.xml') ? 'target' : 'build/libs';
+                // Detectar versión de Java configurada (Java 8 vs 17+)
+                $javaImage = 'eclipse-temurin:17-jre-alpine';
+                $pomFile = $projectPath . '/pom.xml';
+                $gradleFile = $projectPath . '/build.gradle';
+                $systemProps = $projectPath . '/system.properties';
+
+                $isJava8 = false;
+                if (File::exists($pomFile)) {
+                    $pomXml = File::get($pomFile);
+                    if (preg_match('/<(java\.version|maven\.compiler\.source|maven\.compiler\.target)>(1\.8|8)<\//i', $pomXml)) {
+                        $isJava8 = true;
+                    }
+                }
+                if (!$isJava8 && File::exists($gradleFile)) {
+                    $gradleContent = File::get($gradleFile);
+                    if (preg_match('/sourceCompatibility\s*=\s*[\'"]?(1\.8|8)[\'"]?/i', $gradleContent)) {
+                        $isJava8 = true;
+                    }
+                }
+                if (!$isJava8 && File::exists($systemProps)) {
+                    $sysContent = File::get($systemProps);
+                    if (preg_match('/java\.runtime\.version\s*=\s*(1\.8|8)/i', $sysContent)) {
+                        $isJava8 = true;
+                    }
+                }
+
+                if ($isJava8) {
+                    $javaImage = 'eclipse-temurin:8-jre-alpine';
+                }
+
+                // 1. Soporte para aplicaciones WAR empaquetadas con webapp-runner (Tomcat embebido)
+                $warFiles = glob($projectPath . '/target/*.war');
+                $webappRunner = $projectPath . '/target/dependency/webapp-runner.jar';
+                if (File::exists($webappRunner) && !empty($warFiles)) {
+                    $warFile = basename($warFiles[0]);
+                    return [
+                        'image'   => $javaImage,
+                        'port'    => 8080,
+                        'command' => ['sh', '-c', "java -jar /app/target/dependency/webapp-runner.jar --port 8080 /app/target/{$warFile}"]
+                    ];
+                }
+
+                // 2. Soporte si el proyecto incluye Procfile
+                $procfile = $projectPath . '/Procfile';
+                if (File::exists($procfile)) {
+                    $procContent = File::get($procfile);
+                    if (preg_match('/^web:\s*(.+)$/m', $procContent, $matches)) {
+                        $webCmd = trim($matches[1]);
+
+                        // Si el Procfile especifica ejecutar un JAR, verificar que el archivo o patrón exista en el proyecto
+                        $jarExists = true;
+                        if (preg_match('/-jar\s+([^\s]+)/', $webCmd, $jarMatches)) {
+                            $jarPattern = trim($jarMatches[1], "'\"");
+                            $foundJars = glob($projectPath . '/' . ltrim($jarPattern, '/'));
+                            if (empty($foundJars)) {
+                                $jarExists = false;
+                            }
+                        }
+
+                        if ($jarExists) {
+                            $webCmd = str_replace('$PORT', '8080', $webCmd);
+                            $webCmd = str_replace('${PORT}', '8080', $webCmd);
+                            $webCmd = str_replace('$JAVA_OPTS', '', $webCmd);
+                            return [
+                                'image'   => $javaImage,
+                                'port'    => 8080,
+                                'command' => ['sh', '-c', "cd /app && {$webCmd}"]
+                            ];
+                        }
+                    }
+                }
+
+                // 3. Aplicaciones convencionales Spring Boot en JAR ejecutable
                 return [
-                    'image'   => 'eclipse-temurin:17-jre-alpine',
+                    'image'   => $javaImage,
                     'port'    => 8080,
-                    'command' => ['sh', '-c', "java -jar /app/{$jarDir}/*.jar"]
+                    'command' => ['sh', '-c', "JAR_FILE=\$(ls /app/build/libs/*.jar /app/target/*.jar /app/*.jar 2>/dev/null | grep -v -- '-plain.jar' | head -n 1); if [ -z \"\$JAR_FILE\" ]; then JAR_FILE=\$(ls /app/build/libs/*.jar /app/target/*.jar /app/*.jar 2>/dev/null | head -n 1); fi; exec java -Dserver.port=8080 -jar \"\$JAR_FILE\" --server.port=8080"]
                 ];
 
             case 'dotnet':
-                // Run the pre-published binary from /app/publish/
+                // Detect target framework version from csproj or published runtimeconfig
+                $dotnetVersion = '8.0';
+                $runtimeConfigs = glob($projectPath . '/publish/*.runtimeconfig.json');
+                $targetFile = !empty($runtimeConfigs) ? $runtimeConfigs[0] : null;
+                if ($targetFile && File::exists($targetFile)) {
+                    $jsonContent = @file_get_contents($targetFile) ?: '';
+                    if (str_contains($jsonContent, '"version": "10.') || str_contains($jsonContent, 'net10')) {
+                        $dotnetVersion = '10.0';
+                    } elseif (str_contains($jsonContent, '"version": "9.') || str_contains($jsonContent, 'net9')) {
+                        $dotnetVersion = '9.0';
+                    }
+                } else {
+                    $csprojs = glob($projectPath . '/*.csproj');
+                    if (empty($csprojs)) $csprojs = glob($projectPath . '/*/*.csproj');
+                    if (empty($csprojs)) $csprojs = glob($projectPath . '/*/*/*.csproj');
+                    if (!empty($csprojs) && File::exists($csprojs[0])) {
+                        $csprojContent = @file_get_contents($csprojs[0]) ?: '';
+                        if (str_contains($csprojContent, 'net10') || str_contains($csprojContent, 'net10.0')) {
+                            $dotnetVersion = '10.0';
+                        } elseif (str_contains($csprojContent, 'net9') || str_contains($csprojContent, 'net9.0')) {
+                            $dotnetVersion = '9.0';
+                        }
+                    }
+                }
+
+                $aspnetImage = match ($dotnetVersion) {
+                    '10.0' => 'mcr.microsoft.com/dotnet/aspnet:10.0-preview',
+                    '9.0'  => 'mcr.microsoft.com/dotnet/aspnet:9.0-alpine',
+                    default => 'mcr.microsoft.com/dotnet/aspnet:8.0-alpine',
+                };
+
                 return [
-                    'image'   => 'mcr.microsoft.com/dotnet/aspnet:8.0-alpine',
-                    'port'    => 80,
-                    'command' => ['sh', '-c', 'dotnet /app/publish/*.dll']
+                    'image'   => $aspnetImage,
+                    'port'    => 8080,
+                    'command' => ['sh', '-c', 'ENTRY_DLL=$(ls /app/publish/*.runtimeconfig.json 2>/dev/null | sed "s/\\.runtimeconfig\\.json/\\.dll/" | head -n 1); if [ -f "$ENTRY_DLL" ]; then exec dotnet "$ENTRY_DLL"; else exec dotnet $(ls /app/publish/*.dll 2>/dev/null | head -n 1); fi']
                 ];
 
             case 'dockerfile':
@@ -1049,5 +1430,77 @@ PHP;
         $out .= "=======================================================\n";
 
         return $out;
+    }
+
+    private function detectDjangoSettingsModule(string $projectPath): ?string
+    {
+        // 1. Si manage.py define DJANGO_SETTINGS_MODULE por defecto
+        if (File::exists($projectPath . '/manage.py')) {
+            $manageContent = File::get($projectPath . '/manage.py');
+            if (preg_match('/["\']DJANGO_SETTINGS_MODULE["\']\s*,\s*["\']([^"\']+)["\']/', $manageContent, $m)) {
+                return $m[1];
+            }
+        }
+
+        // 2. Si ya está definido en .env o .env.example
+        foreach (['.env', '.env.example', 'example.env'] as $envFile) {
+            if (File::exists($projectPath . '/' . $envFile)) {
+                $envContent = File::get($projectPath . '/' . $envFile);
+                if (preg_match('/^DJANGO_SETTINGS_MODULE\s*=\s*(.+)$/m', $envContent, $m)) {
+                    $val = trim($m[1], " \t\n\r\0\x0B\"'");
+                    if (!empty($val)) return $val;
+                }
+            }
+        }
+
+        // 3. Buscar en Procfile o Procfile.sh (común en babybuddy u otras apps)
+        foreach (['Procfile', 'Procfile.sh'] as $pf) {
+            if (File::exists($projectPath . '/' . $pf)) {
+                $pfContent = File::get($projectPath . '/' . $pf);
+                if (preg_match('/DJANGO_SETTINGS_MODULE=([a-zA-Z0-9_\.]+)/', $pfContent, $m)) {
+                    return $m[1];
+                }
+                if (preg_match('/gunicorn\s+([a-zA-Z0-9_]+)\.wsgi/i', $pfContent, $m)) {
+                    $pkg = $m[1];
+                    if (File::exists($projectPath . "/{$pkg}/settings/production.py")) return "{$pkg}.settings.production";
+                    if (File::exists($projectPath . "/{$pkg}/settings/base.py")) return "{$pkg}.settings.base";
+                    if (File::exists($projectPath . "/{$pkg}/settings/development.py")) return "{$pkg}.settings.development";
+                    if (File::exists($projectPath . "/{$pkg}/settings.py")) return "{$pkg}.settings";
+                }
+            }
+        }
+
+        // 4. Buscar candidatos en el árbol de directorios
+        $candidateFiles = array_merge(
+            glob($projectPath . '/*/settings/production.py') ?: [],
+            glob($projectPath . '/*/settings/base.py') ?: [],
+            glob($projectPath . '/*/settings/development.py') ?: [],
+            glob($projectPath . '/*/settings/local.py') ?: [],
+            glob($projectPath . '/*/settings/dev.py') ?: [],
+            glob($projectPath . '/*/settings.py') ?: [],
+            glob($projectPath . '/*/*/settings.py') ?: [],
+            glob($projectPath . '/*settings*.py') ?: []
+        );
+
+        // 4. Buscar candidatos en el árbol de directorios que realmente sean módulos de settings de Django
+        foreach ($candidateFiles as $file) {
+            if (str_contains($file, '/.venv/')) continue;
+            $fc = @file_get_contents($file) ?: '';
+            if (str_contains($fc, 'INSTALLED_APPS') || str_contains($fc, 'ROOT_URLCONF') || str_contains($fc, 'DATABASES') || str_contains($fc, 'from .base import') || str_contains($fc, 'from .common import')) {
+                $rel = str_replace($projectPath . '/', '', $file);
+                $rel = preg_replace('/\.py$/', '', $rel);
+                return str_replace('/', '.', $rel);
+            }
+        }
+
+        // Fallback si ninguno contiene las claves explícitas
+        foreach ($candidateFiles as $file) {
+            if (str_contains($file, '/.venv/')) continue;
+            $rel = str_replace($projectPath . '/', '', $file);
+            $rel = preg_replace('/\.py$/', '', $rel);
+            return str_replace('/', '.', $rel);
+        }
+
+        return null;
     }
 }

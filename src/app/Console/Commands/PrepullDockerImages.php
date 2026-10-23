@@ -29,13 +29,15 @@ class PrepullDockerImages extends Command
         'node:20-alpine'                         => 'Node.js 20 (Compilador Frontend / NPM)',
         'node:18-alpine'                         => 'Node.js 18 (Compatibilidad heredada)',
         'composer:latest'                        => 'Composer (Gestor PHP/Laravel)',
-        'python:3.12-alpine'                     => 'Python 3.12 (Gestor Pip/Venv)',
+        'python:3.12-slim'                       => 'Python 3.12 (Gestor Pip/Venv/Debian Slim)',
         'maven:3.9-eclipse-temurin-17-alpine'    => 'Java Maven 3.9 (Compilador Spring Boot)',
+        'maven:3.8-eclipse-temurin-8'            => 'Java Maven 3.8 con JDK 8 (Compilador Spring Boot heredado)',
         'mcr.microsoft.com/dotnet/sdk:8.0-alpine'=> '.NET SDK 8.0 (Compilador ASP.NET Core)',
         
         // Entornos de Ejecución de Contenedores
         'webdevops/php:8.4'                      => 'PHP 8.4 FPM / Apache (Monolitos Laravel)',
         'eclipse-temurin:17-jre-alpine'          => 'Java 17 JRE (Runtime de Fat JARs)',
+        'eclipse-temurin:8-jre-alpine'           => 'Java 8 JRE (Runtime proyectos heredados)',
         'mcr.microsoft.com/dotnet/aspnet:8.0'    => '.NET ASP.NET 8.0 (Runtime C#)',
         
         // Bases de Datos y Proxy

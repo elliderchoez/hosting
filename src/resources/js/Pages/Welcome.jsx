@@ -265,11 +265,11 @@ export default function Welcome({ auth, projects = [] }) {
             clearIframe.style.display = 'none';
             clearIframe.style.width = '0px';
             clearIframe.style.height = '0px';
-            clearIframe.src = `${projectBaseUrl}/uleam-clear-session?t=${Date.now()}`;
+            clearIframe.src = `${projectBaseUrl}/uleam-clear-session.html?t=${Date.now()}`;
             document.body.appendChild(clearIframe);
 
             // Fetch en paralelo con credentials para aplicar Clear-Site-Data
-            fetch(`${projectBaseUrl}/uleam-clear-session?t=${Date.now()}`, {
+            fetch(`${projectBaseUrl}/uleam-clear-session.html?t=${Date.now()}`, {
                 mode: 'no-cors',
                 credentials: 'include'
             }).catch(() => { });

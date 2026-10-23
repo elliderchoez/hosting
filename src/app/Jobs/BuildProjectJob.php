@@ -27,7 +27,7 @@ class BuildProjectJob implements ShouldQueue
      *
      * @var int
      */
-    public $timeout = 600; // 10 minutes timeout limit for compilation
+    public $timeout = 900; // 15 minutes timeout limit for compilation
 
     /**
      * The number of times the job may be attempted.
@@ -282,6 +282,255 @@ class BuildProjectJob implements ShouldQueue
                 }
             }
 
+            // Auto-generar manage.py si es un proyecto Django (o app Django empaquetada) que no lo incluye
+            $isDjango = ($project->framework === 'django') 
+                || \Illuminate\Support\Facades\File::exists($projectPath . '/manage.py')
+                || \Illuminate\Support\Facades\File::exists($projectPath . '/test_settings.py')
+                || !empty(glob($projectPath . '/*settings*.py'));
+
+            if ($isDjango && !\Illuminate\Support\Facades\File::exists($projectPath . '/manage.py')) {
+                $djangoSettingsModule = $this->detectDjangoSettingsModule($projectPath) ?: (\Illuminate\Support\Facades\File::exists($projectPath . '/test_settings.py') ? 'test_settings' : 'settings');
+                $managePyContent = "#!/usr/bin/env python\nimport os\nimport sys\n\ndef main():\n    os.environ.setdefault('DJANGO_SETTINGS_MODULE', '{$djangoSettingsModule}')\n    try:\n        from django.core.management import execute_from_command_line\n    except ImportError as exc:\n        raise ImportError(\"Couldn't import Django.\") from exc\n    execute_from_command_line(sys.argv)\n\nif __name__ == '__main__':\n    main()\n";
+                \Illuminate\Support\Facades\File::put($projectPath . '/manage.py', $managePyContent);
+                @chmod($projectPath . '/manage.py', 0755);
+                $logs .= "Archivo 'manage.py' generado automáticamente para el proyecto Django (configuración: {$djangoSettingsModule}).\n";
+            }
+
+            // Auto-parchear base_urls.py si existe para compatibilidad con Django 3/4 y habilitar admin
+            if (\Illuminate\Support\Facades\File::exists($projectPath . '/base_urls.py')) {
+                $buContent = \Illuminate\Support\Facades\File::get($projectPath . '/base_urls.py');
+                if (str_contains($buContent, "django.get_version()[0] == '2'")) {
+                    $buContent = str_replace(
+                        "if django.get_version()[0] == '2':\n    from django.urls import include, path\nelse:\n    from django.conf.urls import include, url as path",
+                        "try:\n    from django.urls import include, path\nexcept ImportError:\n    from django.conf.urls import include, url as path",
+                        $buContent
+                    );
+                }
+                if (!str_contains($buContent, "admin.site.urls")) {
+                    $buContent = "from django.contrib import admin\nfrom django.views.generic import RedirectView\n" . $buContent;
+                    $buContent = str_replace(
+                        "urlpatterns = [",
+                        "urlpatterns = [\n    path('admin/', admin.site.urls),\n    path('', RedirectView.as_view(url='/invoices/', permanent=False)),",
+                        $buContent
+                    );
+                }
+                \Illuminate\Support\Facades\File::put($projectPath . '/base_urls.py', $buContent);
+            }
+
+            // Auto-parchear base.html de faktura si existe para corregir CDN obsoleto de Bootstrap
+            $fakturaBaseHtml = $projectPath . '/faktura/templates/faktura/base.html';
+            if (\Illuminate\Support\Facades\File::exists($fakturaBaseHtml)) {
+                $baseHtml = \Illuminate\Support\Facades\File::get($fakturaBaseHtml);
+                if (str_contains($baseHtml, 'stackpath.bootstrapcdn.com')) {
+                    $baseHtml = str_replace(
+                        '<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.2.1/css/bootstrap.min.css" integrity="sha384-GJzZqFGwb1QTTN6wy59ffF1BuGJpLSa9DkKMp0DgiMDm4iYMj70gZWKYbI706tWS" crossorigin="anonymous">',
+                        '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">',
+                        $baseHtml
+                    );
+                    $baseHtml = str_replace(
+                        '<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>',
+                        '<script src="https://cdn.jsdelivr.net/npm/jquery@3.6.4/dist/jquery.min.js"></script><script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>',
+                        $baseHtml
+                    );
+                    $baseHtml = str_replace(
+                        '<body',
+                        '<body class="bg-light"',
+                        $baseHtml
+                    );
+                    \Illuminate\Support\Facades\File::put($fakturaBaseHtml, $baseHtml);
+                }
+            }
+
+            // Parche de compatibilidad para weasyprint en entornos Docker slim
+            $pdfCandidates = [
+                $projectPath . '/invoices/pdf.py',
+                $projectPath . '/backend/invoices/pdf.py',
+            ];
+            foreach ($pdfCandidates as $pdfFile) {
+                if (\Illuminate\Support\Facades\File::exists($pdfFile)) {
+                    $pdfContent = \Illuminate\Support\Facades\File::get($pdfFile);
+                    if (str_contains($pdfContent, 'except ImportError:')) {
+                        $pdfContent = str_replace('except ImportError:', 'except (ImportError, OSError):', $pdfContent);
+                        \Illuminate\Support\Facades\File::put($pdfFile, $pdfContent);
+                    }
+                }
+            }
+
+            // Parche de compatibilidad para Django-CRM: Redirección de / a /admin/ y exención en rls_context
+            $crmUrls = [
+                $projectPath . '/crm/urls.py',
+                $projectPath . '/backend/crm/urls.py',
+            ];
+            foreach ($crmUrls as $urlsFile) {
+                if (\Illuminate\Support\Facades\File::exists($urlsFile)) {
+                    $urlsContent = \Illuminate\Support\Facades\File::get($urlsFile);
+                    if (!str_contains($urlsContent, 'url="/admin/"')) {
+                        $urlsContent = str_replace('from django.views.generic import TemplateView', "from django.views.generic import RedirectView, TemplateView", $urlsContent);
+                        $urlsContent = str_replace('urlpatterns = [', "urlpatterns = [\n    path(\"\", RedirectView.as_view(url=\"/admin/\", permanent=False)),", $urlsContent);
+                        \Illuminate\Support\Facades\File::put($urlsFile, $urlsContent);
+                    }
+                }
+            }
+
+            $rlsFiles = [
+                $projectPath . '/common/middleware/rls_context.py',
+                $projectPath . '/backend/common/middleware/rls_context.py',
+            ];
+            foreach ($rlsFiles as $rlsFile) {
+                if (\Illuminate\Support\Facades\File::exists($rlsFile)) {
+                    $rlsContent = \Illuminate\Support\Facades\File::get($rlsFile);
+                    if (!str_contains($rlsContent, '"/",')) {
+                        $rlsContent = str_replace("EXEMPT_EXACT_PATHS = [\n", "EXEMPT_EXACT_PATHS = [\n        \"/\",\n", $rlsContent);
+                        \Illuminate\Support\Facades\File::put($rlsFile, $rlsContent);
+                    }
+                }
+            }
+
+            // Auto-parchear settings.py de proyectos Django para permitir dominios de la plataforma (ALLOWED_HOSTS, CSRF y frames)
+            if (\Illuminate\Support\Facades\File::exists($projectPath . '/manage.py')) {
+                $djangoSettingsModule = $this->detectDjangoSettingsModule($projectPath);
+                if ($djangoSettingsModule) {
+                    $envPath = $projectPath . '/.env';
+                    if (\Illuminate\Support\Facades\File::exists($envPath)) {
+                        $envContent = \Illuminate\Support\Facades\File::get($envPath);
+                        if (!str_contains($envContent, 'DJANGO_SETTINGS_MODULE=')) {
+                            \Illuminate\Support\Facades\File::append($envPath, "\nDJANGO_SETTINGS_MODULE={$djangoSettingsModule}\n");
+                        }
+                    }
+                }
+
+                $managePyPath = $projectPath . '/manage.py';
+                $pymysqlShim = "\ntry:\n" .
+                    "    import pymysql\n" .
+                    "    pymysql.version_info = (2, 2, 2, 'final', 0)\n" .
+                    "    pymysql.install_as_MySQLdb()\n" .
+                    "except Exception:\n" .
+                    "    pass\n" .
+                    "try:\n" .
+                    "    from django.db.backends.base.base import BaseDatabaseWrapper\n" .
+                    "    BaseDatabaseWrapper.check_database_version_supported = lambda self: None\n" .
+                    "except Exception:\n" .
+                    "    pass\n";
+
+                if (\Illuminate\Support\Facades\File::exists($managePyPath)) {
+                    $managePyContent = \Illuminate\Support\Facades\File::get($managePyPath);
+                    if (!str_contains($managePyContent, 'pymysql.install_as_MySQLdb()')) {
+                        \Illuminate\Support\Facades\File::put($managePyPath, $pymysqlShim . $managePyContent);
+                    }
+                }
+
+                $wsgiFiles = array_merge(
+                    glob($projectPath . '/*/wsgi.py') ?: [],
+                    glob($projectPath . '/*/*/wsgi.py') ?: [],
+                    glob($projectPath . '/wsgi.py') ?: []
+                );
+                foreach ($wsgiFiles as $wsgiFile) {
+                    $wsgiContent = \Illuminate\Support\Facades\File::get($wsgiFile);
+                    if (!str_contains($wsgiContent, 'pymysql.install_as_MySQLdb()')) {
+                        \Illuminate\Support\Facades\File::put($wsgiFile, $pymysqlShim . $wsgiContent);
+                    }
+                }
+
+                $djangoSettingsFiles = array_merge(
+                    glob($projectPath . '/*/settings.py') ?: [],
+                    glob($projectPath . '/*/*/settings.py') ?: [],
+                    glob($projectPath . '/*/settings/*.py') ?: [],
+                    glob($projectPath . '/settings.py') ?: [],
+                    glob($projectPath . '/*settings*.py') ?: []
+                );
+
+                $patchPayload = "\n\n# --- Configuracion Automatica ULEAM Academic ---\n" .
+                    "import os\n" .
+                    "ALLOWED_HOSTS = ['*']\n" .
+                    "CSRF_TRUSTED_ORIGINS = ['http://*.localhost', 'http://127.0.0.1', 'https://*.uleamcode.software', 'http://*.uleamcode.software']\n" .
+                    "X_FRAME_OPTIONS = 'ALLOWALL'\n" .
+                    "if isinstance(locals().get('SECRET_KEY'), (list, tuple)) or not locals().get('SECRET_KEY') or locals().get('SECRET_KEY') == '':\n" .
+                    "    SECRET_KEY = os.environ.get('SECRET_KEY') or 'uleam_secret_key_academic_platform_77483'\n" .
+                    "if 'AUTHENTICATION_BACKENDS' in locals():\n" .
+                    "    AUTHENTICATION_BACKENDS = [b for b in AUTHENTICATION_BACKENDS if 'axes' not in b.lower()]\n" .
+                    "    if not AUTHENTICATION_BACKENDS:\n" .
+                    "        AUTHENTICATION_BACKENDS = ['django.contrib.auth.backends.ModelBackend']\n" .
+                    "else:\n" .
+                    "    AUTHENTICATION_BACKENDS = ['django.contrib.auth.backends.ModelBackend']\n" .
+                    "if 'MIDDLEWARE' in locals():\n" .
+                    "    MIDDLEWARE = [m for m in MIDDLEWARE if 'axes' not in m.lower()]\n" .
+                    "    if 'whitenoise.middleware.WhiteNoiseMiddleware' not in MIDDLEWARE:\n" .
+                    "        _sec_idx = -1\n" .
+                    "        for _i, _m in enumerate(MIDDLEWARE):\n" .
+                    "            if 'SecurityMiddleware' in _m:\n" .
+                    "                _sec_idx = _i\n" .
+                    "                break\n" .
+                    "        if _sec_idx != -1:\n" .
+                    "            MIDDLEWARE.insert(_sec_idx + 1, 'whitenoise.middleware.WhiteNoiseMiddleware')\n" .
+                    "        else:\n" .
+                    "            MIDDLEWARE.insert(0, 'whitenoise.middleware.WhiteNoiseMiddleware')\n" .
+                    "AXES_ENABLED = False\n" .
+                    "WHITENOISE_MANIFEST_STRICT = False\n" .
+                    "try:\n" .
+                    "    import pymysql\n" .
+                    "    pymysql.version_info = (2, 2, 2, 'final', 0)\n" .
+                    "    pymysql.install_as_MySQLdb()\n" .
+                    "except Exception:\n" .
+                    "    pass\n" .
+                    "try:\n" .
+                    "    from django.db.backends.base.base import BaseDatabaseWrapper\n" .
+                    "    BaseDatabaseWrapper.check_database_version_supported = lambda self: None\n" .
+                    "except Exception:\n" .
+                    "    pass\n" .
+                    "if os.environ.get('DB_HOST') or os.environ.get('DATABASE_URL'):\n" .
+                    "    _driver = os.environ.get('DB_CONNECTION', 'mysql')\n" .
+                    "    _engine = 'django.db.backends.mysql' if _driver == 'mysql' else 'django.db.backends.postgresql'\n" .
+                    "    DATABASES = {\n" .
+                    "        'default': {\n" .
+                    "            'ENGINE': _engine,\n" .
+                    "            'NAME': os.environ.get('DB_DATABASE') or os.environ.get('DB_NAME') or 'uleam_db',\n" .
+                    "            'USER': os.environ.get('DB_USERNAME') or os.environ.get('DB_USER') or 'root',\n" .
+                    "            'PASSWORD': os.environ.get('DB_PASSWORD') or os.environ.get('DB_PASS') or '',\n" .
+                    "            'HOST': os.environ.get('DB_HOST') or 'localhost',\n" .
+                    "            'PORT': str(os.environ.get('DB_PORT') or ('3306' if _driver == 'mysql' else '5432')),\n" .
+                    "        }\n" .
+                    "    }\n" .
+                    "try:\n" .
+                    "    if 'STATIC_ROOT' not in locals() or not locals().get('STATIC_ROOT'):\n" .
+                    "        STATIC_ROOT = os.path.join(str(BASE_DIR), 'static') if 'BASE_DIR' in locals() else '/app/static'\n" .
+                    "except Exception:\n" .
+                    "    STATIC_ROOT = '/app/static'\n" .
+                    "try:\n" .
+                    "    if 'STORAGES' in locals() and 'staticfiles' in STORAGES:\n" .
+                    "        STORAGES['staticfiles']['BACKEND'] = 'whitenoise.storage.CompressedStaticFilesStorage'\n" .
+                    "    STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'\n" .
+                    "except Exception:\n" .
+                    "    pass\n" .
+                    "if 'STATIC_URL' not in locals() or not locals().get('STATIC_URL'):\n" .
+                    "    STATIC_URL = '/static/'\n" .
+                    "if 'SITE_ID' not in locals() or not locals().get('SITE_ID'):\n" .
+                    "    SITE_ID = 1\n" .
+                    "if 'INSTALLED_APPS' in locals():\n" .
+                    "    if isinstance(INSTALLED_APPS, tuple):\n" .
+                    "        INSTALLED_APPS = list(INSTALLED_APPS)\n" .
+                    "    if 'django.contrib.staticfiles' not in INSTALLED_APPS:\n" .
+                    "        INSTALLED_APPS.append('django.contrib.staticfiles')\n" .
+                    "if 'LOGIN_REDIRECT_URL' not in locals() or not locals().get('LOGIN_REDIRECT_URL'):\n" .
+                    "    LOGIN_REDIRECT_URL = '/invoices/'\n" .
+                    "if 'LOGIN_URL' not in locals() or not locals().get('LOGIN_URL'):\n" .
+                    "    LOGIN_URL = '/admin/login/'\n" .
+                    "if 'DEFAULT_AUTO_FIELD' not in locals() or not locals().get('DEFAULT_AUTO_FIELD'):\n" .
+                    "    DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'\n";
+
+                $patchedCount = 0;
+                foreach ($djangoSettingsFiles as $settingsFile) {
+                    if (str_contains($settingsFile, '/.venv/')) continue;
+                    $content = @file_get_contents($settingsFile);
+                    if ($content && !str_contains($content, 'Configuracion Automatica ULEAM Academic')) {
+                        @file_put_contents($settingsFile, $content . $patchPayload);
+                        $patchedCount++;
+                    }
+                }
+                if ($patchedCount > 0) {
+                    $logs .= "Configuración de Django optimizada (ALLOWED_HOSTS, CSRF y visualizador web habilitados en {$patchedCount} archivo/s de settings).\n";
+                }
+            }
+
             $buildResult = $buildAction->execute($project, $projectPath);
             $logs .= $buildResult['output'] . "\n";
 
@@ -483,6 +732,31 @@ class BuildProjectJob implements ShouldQueue
                 $logs .= "Credenciales predeterminadas para EverShop integradas: admin@example.com / password en {$adminUrl}\n";
             }
 
+            // Soporte predeterminado para OnlineBookStore (Java Servlets + MySQL)
+            if (str_contains(strtolower($project->name), 'onlinebookstore') || str_contains(strtolower($project->github_repo_url), 'onlinebookstore') || \Illuminate\Support\Facades\File::exists($projectPath . '/WebContent/login.html')) {
+                $project->demo_instructions = "Acceso predeterminado para pruebas (OnlineBookStore):\n"
+                    . "1. Usuario Cliente:\n"
+                    . "   Usuario: shashi\n"
+                    . "   Clave: shashi\n\n"
+                    . "2. Usuario Administrador:\n"
+                    . "   Usuario: Admin\n"
+                    . "   Clave: Admin\n\n"
+                    . "Librería online en Java Servlets con catálogo de libros, gestión de inventario y pedidos.";
+                $project->save();
+            }
+
+            // Soporte predeterminado para Pharmacy Management App (Spring Boot + MySQL)
+            if (str_contains(strtolower($project->name), 'pharmacy') || str_contains(strtolower($project->github_repo_url), 'pharmacy-management') || \Illuminate\Support\Facades\File::exists($projectPath . '/HeThongBanThuoc_DB.sql')) {
+                $project->demo_instructions = "API Backend Spring Boot (Gestión de Farmacia y Medicamentos):\n"
+                    . "Rutas públicas disponibles para prueba:\n"
+                    . "- Catálogo de Productos/Medicamentos: http://{$project->subdomain}.localhost/api/sanpham/all\n"
+                    . "- Medicamentos más vendidos: http://{$project->subdomain}.localhost/api/sanpham/best-sellers\n"
+                    . "- Banners de farmacia: http://{$project->subdomain}.localhost/api/banner/all\n"
+                    . "- Autenticación / Registro de usuarios: POST /api/auth/register y POST /api/auth/login\n\n"
+                    . "La base de datos MySQL incluye catálogo precargado de productos, categorías y promociones.";
+                $project->save();
+            }
+
             $deployment->build_log = $logs;
             $deployment->save();
 
@@ -522,8 +796,9 @@ class BuildProjectJob implements ShouldQueue
                 }
             }
 
-            // Generar snapshot inicial universal para cualquier aplicación (Node, monorepos, TypeORM, Prisma, etc.)
+            // Auto-inyección universal de usuario administrador si el proyecto no tiene .sql o la tabla de usuarios está vacía
             if (!empty($project->db_name)) {
+                $this->ensureDefaultAdminUserInDatabase($project, $projectPath, $logs);
                 $this->generateInitialDatabaseSnapshot($project, $projectPath);
             }
 
@@ -610,18 +885,30 @@ class BuildProjectJob implements ShouldQueue
                 return "Estructura del proyecto verificada (Archivos en la raíz).";
             }
 
-            // Monorepos: Si existen múltiples componentes de proyecto (ej: frontend y backend, client y api/server),
-            // preservar la estructura completa del monorepo y no aplanar.
-            $monorepoDirs = ['backend', 'frontend', 'client', 'api', 'server', 'web', 'app'];
-            $matchingComponents = 0;
-            foreach ($monorepoDirs as $mDir) {
-                if (\Illuminate\Support\Facades\File::isDirectory($projectPath . '/' . $mDir) && 
-                    $this->calculateProjectScore($projectPath . '/' . $mDir) >= 5) {
-                    $matchingComponents++;
+            // Monorepos: Si existen múltiples componentes de proyecto (ej: frontend y backend, client y api/server):
+            // Si el backend es Django (Python) y se despliega como servicio individual (sin suite fullstack),
+            // seleccionar el backend Django para que el servidor API y panel de administración funcionen directamente.
+            if (\Illuminate\Support\Facades\File::exists($projectPath . '/backend/manage.py') && 
+                !\Illuminate\Support\Facades\File::exists($projectPath . '/manage.py') && 
+                empty($project->root_dir) && 
+                !$project->is_backend_service && 
+                !$project->backend_project_id
+            ) {
+                $bestPath = $projectPath . '/backend';
+                $relativeBestPath = 'backend';
+                $log = "Monorepo con backend Django detectado. Seleccionando subdirectorio de backend: 'backend'\n";
+            } else {
+                $monorepoDirs = ['backend', 'frontend', 'client', 'api', 'server', 'web', 'app'];
+                $matchingComponents = 0;
+                foreach ($monorepoDirs as $mDir) {
+                    if (\Illuminate\Support\Facades\File::isDirectory($projectPath . '/' . $mDir) && 
+                        $this->calculateProjectScore($projectPath . '/' . $mDir) >= 5) {
+                        $matchingComponents++;
+                    }
                 }
-            }
-            if ($matchingComponents >= 2) {
-                return "Estructura de monorepo detectada ({$matchingComponents} componentes: frontend/backend/client/api). Preservando estructura integral.";
+                if ($matchingComponents >= 2) {
+                    return "Estructura de monorepo detectada ({$matchingComponents} componentes: frontend/backend/client/api). Preservando estructura integral.";
+                }
             }
 
             // Find the best project directory recursively (up to depth 3)
@@ -745,7 +1032,6 @@ class BuildProjectJob implements ShouldQueue
             'pom.xml', 'build.gradle', 'build.gradle.kts', 'gradlew',
             'Program.cs', 'Startup.cs',
             'go.mod', 'Cargo.toml',
-            'Dockerfile', 'dockerfile'
         ];
         foreach ($strongMarkers as $marker) {
             if (\Illuminate\Support\Facades\File::exists($dir . '/' . $marker)) {
@@ -896,6 +1182,23 @@ class BuildProjectJob implements ShouldQueue
         }
         // ----------------------------------------------------
         
+        // Soporte nativo para SQLite
+        if ($driver === 'sqlite' || $driver === 'sqlite3') {
+            $project->db_driver = 'sqlite';
+            $project->db_name = null;
+            $project->db_user = null;
+            $project->db_password = null;
+            $project->save();
+
+            $logs .= "Configurando base de datos local SQLite para el proyecto...\n";
+            \Illuminate\Support\Facades\File::ensureDirectoryExists($projectPath . '/storage', 0777);
+            @chmod($projectPath . '/storage', 0777);
+            \Illuminate\Support\Facades\File::ensureDirectoryExists($projectPath . '/db', 0777);
+            @chmod($projectPath . '/db', 0777);
+            $logs .= "Base de datos SQLite local lista para el proyecto.\n";
+            return;
+        }
+
         // 2. Generate credentials if not present
         if (empty($project->db_name)) {
             $uuidClean = str_replace('-', '_', $project->id);
@@ -914,14 +1217,7 @@ class BuildProjectJob implements ShouldQueue
         $dbpass = $project->db_password;
 
         try {
-            if ($driver === 'sqlite' || $driver === 'sqlite3') {
-                $logs .= "Configurando base de datos local SQLite para el proyecto...\n";
-                \Illuminate\Support\Facades\File::ensureDirectoryExists($projectPath . '/storage', 0777);
-                @chmod($projectPath . '/storage', 0777);
-                \Illuminate\Support\Facades\File::ensureDirectoryExists($projectPath . '/db', 0777);
-                @chmod($projectPath . '/db', 0777);
-                $logs .= "Base de datos SQLite local lista para el proyecto.\n";
-            } elseif ($driver === 'mongodb') {
+            if ($driver === 'mongodb') {
                 $logs .= "Configurando base de datos aislada en MongoDB...\n";
                 
                 // Detectar binario disponible (mongo en v4.4/v5 o mongosh en v6+)
@@ -1044,6 +1340,29 @@ class BuildProjectJob implements ShouldQueue
             return;
         }
 
+        // Extraer esquemas y semillas SQL documentadas en archivos markdown (*database*.md, *dummy*.md, etc.)
+        $mdFiles = $this->getProjectScanFiles($projectPath, '*.md');
+        foreach ($mdFiles as $mdFile) {
+            $mdName = strtolower($mdFile->getFilename());
+            if (str_contains($mdName, 'database') || str_contains($mdName, 'dummy') || str_contains($mdName, 'schema')) {
+                $mdContent = @file_get_contents($mdFile->getRealPath());
+                if ($mdContent && (stripos($mdContent, 'create table') !== false || stripos($mdContent, 'insert into') !== false)) {
+                    $sqlLines = [];
+                    foreach (explode("\n", $mdContent) as $line) {
+                        $trimmed = trim($line);
+                        if (empty($trimmed) || str_starts_with($trimmed, '#') || str_starts_with($trimmed, '```') || str_starts_with($trimmed, '-')) {
+                            continue;
+                        }
+                        $sqlLines[] = $line;
+                    }
+                    if (!empty($sqlLines)) {
+                        $extractedName = '_' . pathinfo($mdFile->getFilename(), PATHINFO_FILENAME) . '_extracted.sql';
+                        \Illuminate\Support\Facades\File::put($projectPath . '/' . $extractedName, implode("\n", $sqlLines));
+                    }
+                }
+            }
+        }
+
         // Search for .sql files recursively (excluding vendor, node_modules, etc.)
         $sqlFiles = $this->getProjectScanFiles($projectPath, '*.sql');
 
@@ -1075,6 +1394,24 @@ class BuildProjectJob implements ShouldQueue
             }
 
             $logs .= "Detectado archivo SQL: '{$relPath}'. Importando...\n";
+
+            $rawSql = @file_get_contents($sqlFile->getRealPath());
+            if ($rawSql === false) {
+                continue;
+            }
+
+            // Sanitizar sentencias problemáticas que intentan cambiar de base de datos o desconectarse
+            $sanitizedSql = preg_replace('/^\s*CREATE\s+DATABASE\s+[^;]+;/mi', '-- [SANITIZED CREATE DATABASE]', $rawSql);
+            $sanitizedSql = preg_replace('/^\s*USE\s+[`"\'\w\d_]+;/mi', '-- [SANITIZED USE DATABASE]', $sanitizedSql);
+            $sanitizedSql = preg_replace('/^\s*\\\\(c|connect)\s+.*$/m', '-- [SANITIZED CONNECT]', $sanitizedSql);
+            $sanitizedSql = preg_replace('/^\s*SELECT\s+.*?;/mi', '-- [SANITIZED SELECT]', $sanitizedSql);
+
+            if ($project->db_driver === 'mysql') {
+                $sanitizedSql = "SET FOREIGN_KEY_CHECKS = 0;\n" . $sanitizedSql . "\nSET FOREIGN_KEY_CHECKS = 1;\n";
+            }
+
+            $tempSanitizedName = '.temp_import_' . md5($relPath) . '.sql';
+            \Illuminate\Support\Facades\File::put($projectPath . '/' . $tempSanitizedName, $sanitizedSql);
             
             if ($project->db_driver === 'mysql') {
                 // Import into MySQL
@@ -1084,7 +1421,7 @@ class BuildProjectJob implements ShouldQueue
                     '-v', "{$projectPath}:/workspace:ro",
                     'mysql:8.0',
                     'sh', '-c',
-                    "mysql -h uleam_mysql_students -u '{$project->db_user}' -p'{$project->db_password}' {$project->db_name} < /workspace/{$sqlFile->getRelativePathname()}"
+                    "mysql --force -h uleam_mysql_students -u '{$project->db_user}' -p'{$project->db_password}' {$project->db_name} < /workspace/{$tempSanitizedName}"
                 ];
             } else {
                 // Import into PostgreSQL
@@ -1094,13 +1431,15 @@ class BuildProjectJob implements ShouldQueue
                     '-v', "{$projectPath}:/workspace:ro",
                     'postgres:15-alpine',
                     'sh', '-c',
-                    "PGPASSWORD='{$project->db_password}' psql -h uleam_postgres_students -U '{$project->db_user}' -d '{$project->db_name}' -f /workspace/{$sqlFile->getRelativePathname()}"
+                    "PGPASSWORD='{$project->db_password}' psql -h uleam_postgres_students -U '{$project->db_user}' -d '{$project->db_name}' -f /workspace/{$tempSanitizedName}"
                 ];
             }
 
             $process = new Process($command);
             $process->setTimeout(90);
             $process->run();
+
+            @unlink($projectPath . '/' . $tempSanitizedName);
 
             if ($process->isSuccessful()) {
                 $logs .= "Importación exitosa del archivo '{$sqlFile->getFilename()}'.\n";
@@ -1752,43 +2091,214 @@ PHP;
             
             // Inyectar variables de entorno para la base de datos y correr migraciones + superusuario
             $djangoScript = <<<'PY'
-import os
-import django
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', os.environ.get('DJANGO_SETTINGS_MODULE', ''))
-django.setup()
 from django.contrib.auth import get_user_model
 User = get_user_model()
 try:
-    if not User.objects.filter(is_superuser=True).exists():
-        User.objects.create_superuser('admin', 'admin@example.com', 'password')
-        print('AUTH_USER:admin')
-    else:
-        u = User.objects.filter(is_superuser=True).first()
+    try:
+        from django.core.management import call_command
+        call_command('create_default_admin')
+    except Exception:
+        pass
+    for u in User.objects.all():
         u.set_password('password')
+        u.is_active = True
+        u.is_staff = True
+        u.is_superuser = True
         u.save()
-        print(f'AUTH_USER:{u.username}')
+    username_field = getattr(User, 'USERNAME_FIELD', 'username')
+    if username_field == 'email':
+        admin_user = User.objects.filter(email='admin@localhost').first() or User.objects.filter(email='admin@example.com').first() or User.objects.filter(is_superuser=True).first()
+        if not admin_user:
+            try:
+                admin_user = User.objects.create_superuser(email='admin@localhost', password='password')
+            except Exception:
+                try:
+                    admin_user = User.objects.create_superuser('admin@localhost', 'password')
+                except Exception:
+                    pass
+        if admin_user:
+            admin_user.set_password('password')
+            admin_user.save()
+            print(f'AUTH_USER:{admin_user.email}')
+        else:
+            print('AUTH_USER:admin@localhost')
+    else:
+        if not User.objects.filter(username='admin').exists():
+            User.objects.create_superuser('admin', 'admin@example.com', 'password')
+        admin_user = User.objects.filter(username='admin').first()
+        if admin_user:
+            admin_user.set_password('password')
+            admin_user.save()
+        print('AUTH_USER:admin')
+    if admin_user:
+        if not admin_user.email:
+            admin_user.email = 'admin@gmail.com'
+        if hasattr(admin_user, 'user_type') and str(admin_user.user_type) != '1':
+            admin_user.user_type = '1'
+        admin_user.save()
+    try:
+        from django.apps import apps
+        if apps.is_installed('employee'):
+            EmpModel = apps.get_model('employee', 'Employee')
+            if admin_user and not EmpModel.objects.filter(employee_user_id=admin_user).exists():
+                EmpModel.objects.create(
+                    employee_user_id=admin_user,
+                    badge_id='EMP001',
+                    employee_first_name='Admin',
+                    employee_last_name='User',
+                    email='admin@example.com',
+                    is_active=True
+                )
+    except Exception:
+        pass
+    try:
+        from django.apps import apps
+        if apps.is_installed('faktura'):
+            from faktura.models import Invoice, Item
+            import datetime
+            if admin_user and not Invoice.objects.exists():
+                inv1 = Invoice.objects.create(
+                    author=admin_user,
+                    seller='Acme Corporation S.A.',
+                    seller_details='RUC: 1790012345001\nAv. Principal 123, Manta, Ecuador\nEmail: billing@acme.com',
+                    buyer='Universidad Laica Eloy Alfaro de Manabi (ULEAM)',
+                    buyer_details='RUC: 1360000840001\nCircunvalacion Via San Mateo\nManta, Manabi',
+                    status=Invoice.FINAL,
+                    type=Invoice.INVOICE,
+                    includes_vat=True,
+                    vat=15.0,
+                    currency='USD',
+                    date_of_issue=datetime.date.today(),
+                    due_date=datetime.date.today() + datetime.timedelta(days=15),
+                    note='Factura por servicios de desarrollo y plataforma academica'
+                )
+                Item.objects.create(invoice=inv1, title='Licencia de Plataforma Cloud Sandbox', price=250.0, quantity=1)
+                Item.objects.create(invoice=inv1, title='Soporte Tecnico Especializado 24/7', price=75.0, quantity=2)
+    except Exception:
+        pass
+    try:
+        from django.apps import apps
+        if apps.is_installed('axes'):
+            from axes.utils import reset
+            reset()
+    except Exception:
+        pass
 except Exception as e:
-    pass
+    print('ADMIN SETUP ERROR:', e)
 PY;
-            $command = [
-                'docker', 'run', '--rm',
-                '--network', 'uleam_academic_network',
-                '-v', "{$projectPath}:/app",
-                '-w', '/app',
+            $djangoSettingsModule = $this->detectDjangoSettingsModule($projectPath);
+            $djangoSettingsEnv = $djangoSettingsModule ? ['-e', "DJANGO_SETTINGS_MODULE={$djangoSettingsModule}"] : [];
+            $settingsFlag = $djangoSettingsModule ? " --settings={$djangoSettingsModule}" : "";
+
+            \Illuminate\Support\Facades\File::put($projectPath . '/.uleam_setup_admin.py', $djangoScript);
+
+            $isSqlite = ($project->db_driver === 'sqlite' || $project->db_driver === 'sqlite3');
+            $dbEnv = $isSqlite ? [] : [
                 '-e', "DB_CONNECTION={$project->db_driver}",
                 '-e', "DB_HOST={$dbHost}",
                 '-e', "DB_PORT={$dbPort}",
                 '-e', "DB_DATABASE={$project->db_name}",
                 '-e', "DB_USERNAME={$project->db_user}",
                 '-e', "DB_PASSWORD={$project->db_password}",
+                '-e', "DBHOST={$dbHost}",
+                '-e', "DBPORT={$dbPort}",
+                '-e', "DBNAME={$project->db_name}",
+                '-e', "DBUSER={$project->db_user}",
+                '-e', "DBPASSWORD={$project->db_password}",
+                '-e', "ENV_TYPE=dev",
+                '-e', "DEBUG=True",
                 '-e', "DATABASE_URL=" . ($project->db_driver === 'mysql' ? 'mysql' : 'postgres') . "://{$project->db_user}:{$project->db_password}@{$dbHost}:{$dbPort}/{$project->db_name}",
-                'python:3.12-alpine',
-                'sh', '-c', ".venv/bin/python manage.py migrate && .venv/bin/python -c \"{$djangoScript}\" || true"
             ];
+
+            $command = array_merge([
+                'docker', 'run', '--rm',
+                '--network', 'uleam_academic_network',
+                '-v', "{$projectPath}:/app",
+                '-w', '/app',
+                '-e', "SECRET_KEY=uleam_secret_key_" . md5($project->id),
+            ], $dbEnv, $djangoSettingsEnv, [
+                'python:3.12-slim',
+                'sh', '-c', ".venv/bin/python manage.py migrate{$settingsFlag} || true; .venv/bin/python manage.py collectstatic --noinput{$settingsFlag} || true; .venv/bin/python manage.py shell{$settingsFlag} < .uleam_setup_admin.py || true; rm -f .uleam_setup_admin.py"
+            ]);
             $this->executeMigrationCommand($command, $logs);
+            @\Illuminate\Support\Facades\File::delete($projectPath . '/.uleam_setup_admin.py');
+
+            if (preg_match('/AUTH_USER:([^\r\n]+)/', $logs, $authMatches)) {
+                $authEmail = trim($authMatches[1]);
+                $isEmail = str_contains($authEmail, '@');
+                $userLabel = $isEmail ? 'Correo' : 'Nombre de usuario';
+                $project->demo_instructions = "Acceso predeterminado para pruebas (Django Admin / Login):\n{$userLabel}: {$authEmail}\nClave: password (o admin)\n\nEl sistema incluye base de datos y superusuario listos para evaluar.";
+                $project->save();
+            } elseif (empty($project->demo_instructions) || !str_contains($project->demo_instructions, 'Clave:')) {
+                $project->demo_instructions = "Acceso predeterminado para pruebas (Django Admin / Login):\nUsuario / Email: admin@localhost (o admin)\nClave: password (o admin)\n\nEl sistema incluye base de datos y superusuario listos para evaluar.";
+                $project->save();
+            }
+
+            $this->generateInitialDatabaseSnapshot($project, $projectPath);
+            return;
+        }
+
+        // 2.1 Flask (Python / Flask-Migrate)
+        if (\Illuminate\Support\Facades\File::isDirectory($projectPath . '/migrations') && 
+            (\Illuminate\Support\Facades\File::exists($projectPath . '/.flaskenv') || 
+             \Illuminate\Support\Facades\File::exists($projectPath . '/microblog.py') || 
+             $project->framework === 'flask')
+        ) {
+            $logs .= "--- PASO 3.6: Framework Flask con Flask-Migrate Detectado: Ejecutando Migraciones (flask db upgrade) ---\n";
+            $flaskApp = \Illuminate\Support\Facades\File::exists($projectPath . '/microblog.py') ? 'microblog.py' : 'app.py';
+            $dbDriverName = ($project->db_driver === 'mysql' ? 'mysql' : 'postgresql');
+            $dbUrl = "{$dbDriverName}://{$project->db_user}:{$project->db_password}@{$dbHost}:{$dbPort}/{$project->db_name}";
+            $flaskMigrateCmd = [
+                'docker', 'run', '--rm',
+                '--network', 'uleam_academic_network',
+                '-v', "{$projectPath}:/app",
+                '-w', '/app',
+                '-e', "FLASK_APP={$flaskApp}",
+                '-e', "DATABASE_URL={$dbUrl}",
+                '-e', "SECRET_KEY=uleam_secret_key_" . md5($project->id),
+                'python:3.12-slim',
+                'sh', '-c', '.venv/bin/flask db upgrade || true'
+            ];
+            $this->executeMigrationCommand($flaskMigrateCmd, $logs);
+
+            // Auto-crear usuario evaluador en microblog si aplica
+            $userSetupScript = <<<'PY'
+try:
+    from app import create_app, db
+    from app.models import User
+    app = create_app()
+    with app.app_context():
+        u = db.session.scalar(db.select(User).filter_by(username='admin'))
+        if not u:
+            u = User(username='admin', email='admin@example.com')
+            u.set_password('password')
+            db.session.add(u)
+            db.session.commit()
+            print('AUTH_USER:admin')
+        else:
+            u.set_password('password')
+            db.session.commit()
+            print('AUTH_USER:admin')
+except Exception as e:
+    print('USER SETUP NOTICE:', e)
+PY;
+            \Illuminate\Support\Facades\File::put($projectPath . '/.uleam_setup_flask.py', $userSetupScript);
+            $userCmd = [
+                'docker', 'run', '--rm',
+                '--network', 'uleam_academic_network',
+                '-v', "{$projectPath}:/app",
+                '-w', '/app',
+                '-e', "FLASK_APP={$flaskApp}",
+                '-e', "DATABASE_URL={$dbUrl}",
+                '-e', "SECRET_KEY=uleam_secret_key_" . md5($project->id),
+                'python:3.12-slim',
+                'sh', '-c', '.venv/bin/python .uleam_setup_flask.py || true; rm -f .uleam_setup_flask.py'
+            ];
+            $this->executeMigrationCommand($userCmd, $logs);
+            @\Illuminate\Support\Facades\File::delete($projectPath . '/.uleam_setup_flask.py');
 
             if (empty($project->demo_instructions) || !str_contains($project->demo_instructions, 'Clave:')) {
-                $project->demo_instructions = "Acceso predeterminado para pruebas (Django Admin):\nUsuario: admin\nClave: password\n\nEl sistema incluye base de datos y superusuario listos para evaluar.";
+                $project->demo_instructions = "Acceso predeterminado para pruebas (Microblog Flask):\nUsuario: admin\nClave: password\n\nEl sistema incluye base de datos PostgreSQL, migraciones y usuario de prueba listos para evaluar.";
                 $project->save();
             }
 
@@ -2361,14 +2871,23 @@ RB;
     /**
      * Ejecutar comando de migración dentro del contenedor temporal de Docker.
      */
-    private function executeMigrationCommand(array $command, &$logs, int $timeout = 300): void
+    private function executeMigrationCommand(array $command, &$logs, int $timeout = 850): void
     {
+        $tempContainerName = null;
+        if (isset($command[0]) && $command[0] === 'docker' && isset($command[1]) && $command[1] === 'run') {
+            $tempContainerName = 'mig_' . uniqid();
+            array_splice($command, 2, 0, ['--name', $tempContainerName]);
+        }
+
         $process = new Process($command);
         $process->setTimeout($timeout);
         
         try {
             $process->run();
         } catch (\Symfony\Component\Process\Exception\ProcessTimedOutException $e) {
+            if ($tempContainerName) {
+                (new Process(['docker', 'rm', '-f', $tempContainerName]))->run();
+            }
             $logs .= "Aviso: Se alcanzó el límite de tiempo ({$timeout}s) durante las migraciones del framework.\n";
             return;
         }
@@ -2415,6 +2934,15 @@ RB;
             return true;
         }
         if (stripos($content, 'character_set_client') !== false) {
+            return true;
+        }
+        if (stripos($content, 'AUTO_INCREMENT') !== false) {
+            return true;
+        }
+        if (stripos($content, 'CREATE DATABASE if not exists') !== false || stripos($content, 'CREATE DATABASE IF NOT EXISTS') !== false) {
+            return true;
+        }
+        if (preg_match('/^\s*USE\s+[`"\'\w\d_]+;/mi', $content)) {
             return true;
         }
 
@@ -2505,6 +3033,51 @@ RB;
             }
             if (str_contains($ymlContent, 'postgresql') || str_contains($ymlContent, 'postgres')) {
                 return 'pgsql';
+            }
+        }
+
+        // 4c. Check Django settings.py
+        if (\Illuminate\Support\Facades\File::exists($projectPath . '/manage.py') || \Illuminate\Support\Facades\File::exists($projectPath . '/backend/manage.py')) {
+            $settingsFiles = array_merge(
+                glob($projectPath . '/*/settings.py') ?: [],
+                glob($projectPath . '/*/*/settings.py') ?: [],
+                glob($projectPath . '/settings.py') ?: [],
+                glob($projectPath . '/backend/*/settings.py') ?: [],
+                glob($projectPath . '/backend/*/*/settings.py') ?: []
+            );
+            foreach ($settingsFiles as $sf) {
+                $sContent = @file_get_contents($sf);
+                if ($sContent) {
+                    if (str_contains($sContent, 'django.db.backends.mysql')) {
+                        return 'mysql';
+                    }
+                    if (str_contains($sContent, 'django.db.backends.postgresql') || str_contains($sContent, 'django_postgrespool')) {
+                        return 'pgsql';
+                    }
+                    if (str_contains($sContent, 'django.db.backends.sqlite3')) {
+                        return 'sqlite';
+                    }
+                }
+            }
+        }
+
+        // 4d. Check Java application.properties / application.yml
+        $javaConfigFiles = $this->getProjectScanFiles($projectPath, 'application.*');
+        foreach ($javaConfigFiles as $jFile) {
+            $jContent = @file_get_contents($jFile->getRealPath());
+            if ($jContent) {
+                if (stripos($jContent, 'mysql') !== false) {
+                    return 'mysql';
+                }
+                if (stripos($jContent, 'postgresql') !== false || stripos($jContent, 'postgres') !== false) {
+                    return 'pgsql';
+                }
+                if (stripos($jContent, 'mongodb') !== false) {
+                    return 'mongodb';
+                }
+                if (stripos($jContent, 'sqlite') !== false) {
+                    return 'sqlite';
+                }
             }
         }
 
@@ -2609,6 +3182,13 @@ RB;
             'POSTGRES_DB' => $project->db_name,
             'POSTGRES_USER' => $project->db_user,
             'POSTGRES_PASSWORD' => $project->db_password,
+            'DBHOST' => $dbHost,
+            'DBPORT' => $dbPort,
+            'DBNAME' => $project->db_name,
+            'DBUSER' => $project->db_user,
+            'DBPASSWORD' => $project->db_password,
+            'ENV_TYPE' => 'dev',
+            'DEBUG' => 'True',
             'REDIS_URL' => "redis://{$redisHost}:6379",
             'REDIS_HOST' => $redisHost,
             'REDIS_PORT' => '6379',
@@ -2625,6 +3205,8 @@ RB;
             'SANCTUM_STATEFUL_DOMAINS' => "{$project->subdomain}.localhost,localhost,127.0.0.1",
             'SESSION_DOMAIN' => '',
             'APP_TRUSTED_HOSTS' => "{$projectHost},localhost,127.0.0.1,{$project->subdomain}.localhost,{$project->subdomain}.uleamcode.software",
+            'ALLOWED_HOSTS' => "*",
+            'CSRF_TRUSTED_ORIGINS' => "https://{$project->subdomain}.{$baseDomain},http://{$project->subdomain}.{$baseDomain},http://{$project->subdomain}.localhost,http://localhost:5000,http://127.0.0.1:5000",
             'APP_X_FRAME_OPTIONS' => 'false',
             'APP_INSTALLED' => 'true',
             'INSTALLED' => 'true',
@@ -2646,6 +3228,15 @@ RB;
             'MYSQL_USERNAME' => $project->db_user,
             'MYSQL_PASSWORD' => $project->db_password,
         ];
+
+        // Detección de archivo de inicio para aplicaciones Flask / Python
+        if (\Illuminate\Support\Facades\File::exists($projectPath . '/microblog.py')) {
+            $commonEnvVars['FLASK_APP'] = 'microblog.py';
+        } elseif (\Illuminate\Support\Facades\File::exists($projectPath . '/app.py')) {
+            $commonEnvVars['FLASK_APP'] = 'app.py';
+        } elseif (\Illuminate\Support\Facades\File::exists($projectPath . '/wsgi.py')) {
+            $commonEnvVars['FLASK_APP'] = 'wsgi.py';
+        }
 
         // Variables con notación de punto exclusivas de CodeIgniter 4 (evitan romper parsers estrictos como Symfony Dotenv)
         if (\Illuminate\Support\Facades\File::exists($projectPath . '/spark') || \Illuminate\Support\Facades\File::exists($projectPath . '/app/Config/App.php')) {
@@ -2748,6 +3339,53 @@ RB;
             $logs .= "Variables de entorno configuradas exitosamente en: {$relEnvPath}\n";
         }
         $logs .= "\n";
+
+        // Sincronizar archivos de configuración de bases de datos para proyectos Java
+        if ($project->language === 'java') {
+            $javaPropFiles = $this->getProjectScanFiles($projectPath, 'application.*');
+            foreach ($javaPropFiles as $jFile) {
+                $jPath = $jFile->getRealPath();
+                $jContent = @file_get_contents($jPath);
+                if (!$jContent) continue;
+
+                $relJPath = ltrim(str_replace($projectPath, '', $jPath), '/');
+                $jdbcDriver = $project->db_driver === 'mysql' ? 'com.mysql.cj.jdbc.Driver' : 'org.postgresql.Driver';
+                $jdbcScheme = ($project->db_driver === 'pgsql') ? 'postgresql' : $project->db_driver;
+                $jdbcParams = ($project->db_driver === 'mysql') ? '?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC' : '';
+                $jdbcUrl = "jdbc:{$jdbcScheme}://{$dbHost}:{$dbPort}/{$project->db_name}{$jdbcParams}";
+
+                if (str_ends_with($jPath, '.properties')) {
+                    // Soporte para apps Java personalizadas (OnlineBookStore, etc.)
+                    $jContent = preg_replace('/^db\.driver\s*=.*/m', "db.driver={$jdbcDriver}", $jContent);
+                    $jContent = preg_replace('/^db\.host\s*=.*/m', "db.host=jdbc:{$jdbcScheme}://{$dbHost}", $jContent);
+                    $jContent = preg_replace('/^db\.port\s*=.*/m', "db.port={$dbPort}", $jContent);
+                    $jContent = preg_replace('/^db\.name\s*=.*/m', "db.name={$project->db_name}", $jContent);
+                    $jContent = preg_replace('/^db\.username\s*=.*/m', "db.username={$project->db_user}", $jContent);
+                    $jContent = preg_replace('/^db\.password\s*=.*/m', "db.password={$project->db_password}", $jContent);
+
+                    // Soporte estándar Spring Boot
+                    $jContent = preg_replace('/^spring\.datasource\.url\s*=.*/m', "spring.datasource.url={$jdbcUrl}", $jContent);
+                    $jContent = preg_replace('/^spring\.datasource\.username\s*=.*/m', "spring.datasource.username={$project->db_user}", $jContent);
+                    $jContent = preg_replace('/^spring\.datasource\.password\s*=.*/m', "spring.datasource.password={$project->db_password}", $jContent);
+                    if (preg_match('/^spring\.datasource\.(driver-class-name|driverClassName)\s*=.*/m', $jContent)) {
+                        $jContent = preg_replace('/^spring\.datasource\.(driver-class-name|driverClassName)\s*=.*/m', "spring.datasource.driver-class-name={$jdbcDriver}", $jContent);
+                    } else {
+                        $jContent .= "\nspring.datasource.driver-class-name={$jdbcDriver}\n";
+                    }
+
+                    // Normalizar puerto de Spring Boot para que enlace siempre con Traefik en el puerto 8080
+                    if (preg_match('/^server\.port\s*=.*/m', $jContent)) {
+                        $jContent = preg_replace('/^server\.port\s*=.*/m', 'server.port=${PORT:8080}', $jContent);
+                    } else {
+                        $jContent .= "\nserver.port=\${PORT:8080}\n";
+                    }
+
+                    \Illuminate\Support\Facades\File::put($jPath, $jContent);
+                    $logs .= "Configuración de base de datos Java sincronizada en: {$relJPath}\n";
+                }
+            }
+            $logs .= "\n";
+        }
     }
 
     /**
@@ -2809,6 +3447,315 @@ RB;
     }
 
     /**
+     * Auto-inyectar usuario administrador por defecto si la base de datos no tiene usuarios
+     * o si el proyecto no incluyó archivos .sql con datos de usuario predeterminados.
+     */
+    private function ensureDefaultAdminUserInDatabase(Project $project, string $projectPath, &$logs): void
+    {
+        if (empty($project->db_name)) {
+            return;
+        }
+
+        $driver = $project->db_driver;
+        if (!in_array($driver, ['mysql', 'pgsql', 'postgres'])) {
+            return;
+        }
+
+        $dbname = $project->db_name;
+        $dbConn = ($driver === 'mysql') ? 'students_mysql' : 'students_postgres';
+
+        try {
+            // Para aplicaciones con ORMs (Spring Boot Hibernate, Prisma, etc.) que generan sus tablas al iniciar,
+            // esperar a que el servidor inicialice sus tablas (hasta 25 intentos x 2s = 50 segundos).
+            $tables = [];
+            $matchedTable = null;
+            $maxAttempts = 25;
+            for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+                if ($driver === 'mysql') {
+                    $rawTables = \Illuminate\Support\Facades\DB::connection($dbConn)->select("SHOW TABLES IN `{$dbname}`;");
+                    $tables = array_map(function ($row) {
+                        return array_values((array) $row)[0];
+                    }, $rawTables);
+                } else {
+                    $rawTables = \Illuminate\Support\Facades\DB::connection($dbConn)->select(
+                        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_catalog = '{$dbname}';"
+                    );
+                    $tables = array_map(function ($row) {
+                        return $row->table_name;
+                    }, $rawTables);
+                }
+
+                if (!empty($tables)) {
+                    $candidateTables = [
+                        'users', 'user', 'usuarios', 'usuario', 'admins', 'admin',
+                        'administrators', 'administrator', 'administradores',
+                        'managers', 'manager', 'inventory_manager', 'inventory_managers',
+                        'tbl_users', 'tbl_user', 'app_users', 'accounts', 'members'
+                    ];
+                    foreach ($candidateTables as $candidate) {
+                        foreach ($tables as $table) {
+                            if (strcasecmp($table, $candidate) === 0) {
+                                $matchedTable = $table;
+                                break 2;
+                            }
+                        }
+                    }
+                    if ($matchedTable) {
+                        break;
+                    }
+                }
+                sleep(2);
+            }
+
+            if (!$matchedTable) {
+                return;
+            }
+
+            // Verificar si la tabla de usuarios ya cuenta con registros
+            if ($driver === 'mysql') {
+                $countResult = \Illuminate\Support\Facades\DB::connection($dbConn)->select("SELECT COUNT(*) AS total FROM `{$dbname}`.`{$matchedTable}`;");
+            } else {
+                $countResult = \Illuminate\Support\Facades\DB::connection($dbConn)->select("SELECT COUNT(*) AS total FROM \"{$matchedTable}\";");
+            }
+
+            $userCount = $countResult[0]->total ?? 0;
+
+            if ($userCount > 0) {
+                // Ya cuenta con usuarios (por ejemplo, importados desde .sql o seeds del proyecto)
+                return;
+            }
+
+            // La tabla existe pero está VACÍA (caso típico de proyectos sin .sql o con solo DDL de Hibernate/Prisma)
+            $logs .= "--- Auto-Aprovisionamiento: Tabla de usuarios '{$matchedTable}' detectada sin registros. Inyectando usuario administrador... ---\n";
+
+            // Obtener columnas de la tabla
+            $cols = [];
+            $colDetails = [];
+            if ($driver === 'mysql') {
+                $colRows = \Illuminate\Support\Facades\DB::connection($dbConn)->select("SHOW COLUMNS FROM `{$dbname}`.`{$matchedTable}`;");
+                foreach ($colRows as $cRow) {
+                    $colName = $cRow->Field;
+                    $cols[] = strtolower($colName);
+                    $colDetails[strtolower($colName)] = [
+                        'name' => $colName,
+                        'type' => strtolower($cRow->Type),
+                        'null' => $cRow->Null,
+                        'key' => $cRow->Key,
+                        'extra' => strtolower($cRow->Extra),
+                    ];
+                }
+            } else {
+                $colRows = \Illuminate\Support\Facades\DB::connection($dbConn)->select(
+                    "SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_schema = 'public' AND table_name = '{$matchedTable}';"
+                );
+                foreach ($colRows as $cRow) {
+                    $colName = $cRow->column_name;
+                    $cols[] = strtolower($colName);
+                    $colDetails[strtolower($colName)] = [
+                        'name' => $colName,
+                        'type' => strtolower($cRow->data_type),
+                        'null' => $cRow->is_nullable,
+                        'key' => '',
+                        'extra' => strtolower($cRow->column_default ?? ''),
+                    ];
+                }
+            }
+
+            // Detectar si el código del proyecto utiliza BCrypt o comparación de texto plano
+            $usesBcrypt = ($project->language === 'java' || $project->language === 'ruby');
+            $passCol = null;
+            foreach (['password', 'passwd', 'pass', 'clave', 'pwd', 'user_password'] as $pCol) {
+                if (in_array($pCol, $cols)) {
+                    $passCol = $pCol;
+                    break;
+                }
+            }
+            if ($passCol && isset($colDetails[$passCol])) {
+                $pType = $colDetails[$passCol]['type'];
+                if (preg_match('/(?:varchar|char)\((\d+)\)/', $pType, $lenMatch)) {
+                    if ((int)$lenMatch[1] >= 60) {
+                        $usesBcrypt = true;
+                    }
+                }
+            }
+            if (!$usesBcrypt) {
+                $codeFiles = $this->getProjectScanFiles($projectPath, '*.*');
+                foreach ($codeFiles as $cFile) {
+                    $cPath = $cFile->getRealPath();
+                    if (is_file($cPath) && filesize($cPath) < 500000) {
+                        $cContent = @file_get_contents($cPath);
+                        if ($cContent && (
+                            stripos($cContent, 'BCryptPasswordEncoder') !== false ||
+                            stripos($cContent, 'bcrypt') !== false ||
+                            stripos($cContent, 'password_hash') !== false
+                        )) {
+                            $usesBcrypt = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            $makeHash = function ($p) use ($usesBcrypt, $project) {
+                if (!$usesBcrypt) return $p;
+                $h = password_hash($p, PASSWORD_BCRYPT);
+                return ($project->language === 'java' && str_starts_with($h, '$2y$')) ? '$2a$' . substr($h, 4) : $h;
+            };
+
+            $passwordVal = $makeHash('password');
+
+            $insertData = [];
+
+            // Email
+            foreach (['email', 'mail', 'correo', 'user_email'] as $eCol) {
+                if (in_array($eCol, $cols)) {
+                    $insertData[$colDetails[$eCol]['name']] = 'admin@example.com';
+                    break;
+                }
+            }
+
+            // Username
+            foreach (['username', 'user_name', 'usuario', 'login', 'name'] as $uCol) {
+                if (in_array($uCol, $cols)) {
+                    $insertData[$colDetails[$uCol]['name']] = 'Admin';
+                    break;
+                }
+            }
+
+            // First / Last Name
+            if (in_array('first_name', $cols)) $insertData[$colDetails['first_name']['name']] = 'Admin';
+            if (in_array('last_name', $cols)) $insertData[$colDetails['last_name']['name']] = 'Evaluador';
+            if (in_array('full_name', $cols)) $insertData[$colDetails['full_name']['name']] = 'Admin Evaluador';
+
+            // Password
+            foreach (['password', 'passwd', 'pass', 'clave', 'pwd', 'user_password'] as $pCol) {
+                if (in_array($pCol, $cols)) {
+                    $insertData[$colDetails[$pCol]['name']] = $passwordVal;
+                    break;
+                }
+            }
+
+            // Role
+            foreach (['role', 'roles', 'rol', 'user_role', 'role_name'] as $rCol) {
+                if (in_array($rCol, $cols)) {
+                    $rType = $colDetails[$rCol]['type'];
+                    $insertData[$colDetails[$rCol]['name']] = (str_contains($rType, 'int')) ? 1 : 'ADMIN';
+                    break;
+                }
+            }
+            if (in_array('role_id', $cols)) $insertData[$colDetails['role_id']['name']] = 1;
+
+            // Flags de activación / admin
+            if (in_array('is_admin', $cols)) $insertData[$colDetails['is_admin']['name']] = 1;
+            if (in_array('admin', $cols)) $insertData[$colDetails['admin']['name']] = 1;
+            if (in_array('is_superadmin', $cols)) $insertData[$colDetails['is_superadmin']['name']] = 1;
+            if (in_array('is_active', $cols)) $insertData[$colDetails['is_active']['name']] = 1;
+            if (in_array('active', $cols)) $insertData[$colDetails['active']['name']] = 1;
+            if (in_array('enabled', $cols)) $insertData[$colDetails['enabled']['name']] = 1;
+            if (in_array('activated', $cols)) $insertData[$colDetails['activated']['name']] = 1;
+
+            if (in_array('status', $cols)) {
+                $sType = $colDetails['status']['type'];
+                $insertData[$colDetails['status']['name']] = (str_contains($sType, 'int')) ? 1 : 'active';
+            }
+
+            // Fechas
+            if (in_array('created_at', $cols)) $insertData[$colDetails['created_at']['name']] = now();
+            if (in_array('updated_at', $cols)) $insertData[$colDetails['updated_at']['name']] = now();
+            if (in_array('email_verified_at', $cols)) $insertData[$colDetails['email_verified_at']['name']] = now();
+
+            // ID si es UUID / no auto-incrementable
+            if (in_array('id', $cols)) {
+                $idCol = $colDetails['id'];
+                if (!str_contains($idCol['extra'], 'auto_increment')) {
+                    if (str_contains($idCol['type'], 'char') || str_contains($idCol['type'], 'uuid') || str_contains($idCol['type'], 'text')) {
+                        $insertData[$idCol['name']] = (string) \Illuminate\Support\Str::uuid();
+                    }
+                }
+            }
+
+            // Si hay columnas NOT NULL obligatorias sin valor por defecto que no hemos llenado:
+            foreach ($colDetails as $cKey => $cMeta) {
+                if ($cMeta['null'] === 'NO' && !isset($insertData[$cMeta['name']]) && !str_contains($cMeta['extra'], 'auto_increment')) {
+                    if (str_contains($cMeta['type'], 'int')) {
+                        $insertData[$cMeta['name']] = 0;
+                    } elseif (str_contains($cMeta['type'], 'date') || str_contains($cMeta['type'], 'time')) {
+                        $insertData[$cMeta['name']] = now();
+                    } else {
+                        $insertData[$cMeta['name']] = 'admin';
+                    }
+                }
+            }
+
+            // Cuentas administradoras a sembrar para máxima compatibilidad con evaluadores
+            $accountsToSeed = [
+                ['email' => 'admin@example.com', 'username' => 'Admin', 'pass' => $passwordVal],
+                ['email' => 'admin@localhost', 'username' => 'Admin', 'pass' => $makeHash('admin')],
+                ['email' => 'admin@admin.com', 'username' => 'Admin', 'pass' => $makeHash('admin123')],
+            ];
+
+            $seededCount = 0;
+            foreach ($accountsToSeed as $acc) {
+                try {
+                    $rowInsert = $insertData;
+                    foreach (['email', 'mail', 'correo', 'user_email'] as $eCol) {
+                        if (isset($rowInsert[$colDetails[$eCol]['name'] ?? ''])) {
+                            $rowInsert[$colDetails[$eCol]['name']] = $acc['email'];
+                        }
+                    }
+                    foreach (['username', 'user_name', 'usuario', 'login'] as $uCol) {
+                        if (isset($rowInsert[$colDetails[$uCol]['name'] ?? ''])) {
+                            $rowInsert[$colDetails[$uCol]['name']] = $acc['username'];
+                        }
+                    }
+                    foreach (['password', 'passwd', 'pass', 'clave', 'pwd', 'user_password'] as $pCol) {
+                        if (isset($rowInsert[$colDetails[$pCol]['name'] ?? ''])) {
+                            $rowInsert[$colDetails[$pCol]['name']] = $acc['pass'];
+                        }
+                    }
+                    if (in_array('id', $cols)) {
+                        $idCol = $colDetails['id'];
+                        if (!str_contains($idCol['extra'], 'auto_increment') && (str_contains($idCol['type'], 'char') || str_contains($idCol['type'], 'uuid') || str_contains($idCol['type'], 'text'))) {
+                            $rowInsert[$idCol['name']] = (string) \Illuminate\Support\Str::uuid();
+                        }
+                    }
+
+                    if ($driver === 'mysql') {
+                        $colNames = array_map(function ($k) { return "`{$k}`"; }, array_keys($rowInsert));
+                        $placeholders = array_fill(0, count($rowInsert), '?');
+                        $sql = "INSERT INTO `{$dbname}`.`{$matchedTable}` (" . implode(', ', $colNames) . ") VALUES (" . implode(', ', $placeholders) . ");";
+                        \Illuminate\Support\Facades\DB::connection($dbConn)->insert($sql, array_values($rowInsert));
+                    } else {
+                        $colNames = array_map(function ($k) { return "\"{$k}\""; }, array_keys($rowInsert));
+                        $placeholders = array_fill(0, count($rowInsert), '?');
+                        $sql = "INSERT INTO \"{$matchedTable}\" (" . implode(', ', $colNames) . ") VALUES (" . implode(', ', $placeholders) . ");";
+                        \Illuminate\Support\Facades\DB::connection($dbConn)->insert($sql, array_values($rowInsert));
+                    }
+                    $seededCount++;
+                } catch (\Throwable $th) {
+                    // Ignorar si falla alguna cuenta secundaria por restricciones de unicidad
+                }
+            }
+
+            if ($seededCount > 0) {
+                $logs .= "Usuario administrador inyectado exitosamente en tabla '{$matchedTable}': admin@example.com / password\n";
+
+                // Actualizar demo_instructions para la guía del evaluador
+                if (empty($project->demo_instructions) || !str_contains($project->demo_instructions, 'Clave:')) {
+                    $prefix = "Acceso predeterminado para pruebas:\nUsuario / Email: admin@example.com\nClave: password";
+                    $project->demo_instructions = empty($project->demo_instructions)
+                        ? "{$prefix}\n\nUsuario administrador inyectado automáticamente para facilitar la evaluación."
+                        : "{$prefix}\n\n" . $project->demo_instructions;
+                    $project->save();
+                }
+            }
+
+        } catch (\Throwable $th) {
+            $logs .= "Aviso: No se pudo auto-inyectar usuario administrador: " . $th->getMessage() . "\n";
+        }
+    }
+
+    /**
      * Calcular el tamaño total de un directorio en bytes.
      */
     private function calculateDirectorySize(string $path): int
@@ -2850,7 +3797,7 @@ RB;
 
             $errorMsg = $exception ? $exception->getMessage() : 'Tiempo máximo de compilación excedido (Build Timeout).';
             $deployment->status = 'failed';
-            $deployment->build_log .= "\n\n[ERROR CRITICO]: El proceso de compilación ha fallado o superó el tiempo máximo límite permitido (10 minutos).\nDetalle: {$errorMsg}\n";
+            $deployment->build_log .= "\n\n[ERROR CRITICO]: El proceso de compilación ha fallado o superó el tiempo máximo límite permitido (15 minutos).\nDetalle: {$errorMsg}\n";
             $deployment->save();
 
             if ($project) {
@@ -2966,7 +3913,18 @@ RB;
             || \Illuminate\Support\Facades\File::exists($projectPath . '/public/index.html')
             || \Illuminate\Support\Facades\File::exists($projectPath . '/server.php')
             || \Illuminate\Support\Facades\File::exists($projectPath . '/artisan')
-            || \Illuminate\Support\Facades\File::exists($projectPath . '/site.php');
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/site.php')
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/manage.py')
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/app.py')
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/main.py')
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/wsgi.py')
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/asgi.py')
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/server.py')
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/run.py')
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/config.ru')
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/server.js')
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/app.js')
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/index.js');
 
         // A. PHP: paquetes de composer que son librerías o núcleos de framework sin punto de entrada web
         $composerPath = $projectPath . '/composer.json';
@@ -2988,7 +3946,14 @@ RB;
 
         // B. Node.js: módulos de npm o bibliotecas sin frontend ni servidor web
         $packageJsonPath = $projectPath . '/package.json';
-        if (!$isLibraryOrCoreEngine && !$hasWebEntrypoint && \Illuminate\Support\Facades\File::exists($packageJsonPath)) {
+        $isOtherBackendProject = \Illuminate\Support\Facades\File::exists($projectPath . '/manage.py')
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/requirements.txt')
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/pyproject.toml')
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/Pipfile')
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/composer.json')
+            || \Illuminate\Support\Facades\File::exists($projectPath . '/Gemfile');
+
+        if (!$isLibraryOrCoreEngine && !$hasWebEntrypoint && !$isOtherBackendProject && \Illuminate\Support\Facades\File::exists($packageJsonPath)) {
             $nodePkg = @json_decode(\Illuminate\Support\Facades\File::get($packageJsonPath), true);
             if (is_array($nodePkg)) {
                 $hasScripts = isset($nodePkg['scripts']['start']) || isset($nodePkg['scripts']['dev']) || isset($nodePkg['scripts']['serve']) || isset($nodePkg['scripts']['build']);
@@ -3036,5 +4001,78 @@ RB;
 
         return null;
     }
+
+    private function detectDjangoSettingsModule(string $projectPath): ?string
+    {
+        // 1. Si manage.py define DJANGO_SETTINGS_MODULE por defecto
+        if (\Illuminate\Support\Facades\File::exists($projectPath . '/manage.py')) {
+            $manageContent = \Illuminate\Support\Facades\File::get($projectPath . '/manage.py');
+            if (preg_match('/["\']DJANGO_SETTINGS_MODULE["\']\s*,\s*["\']([^"\']+)["\']/', $manageContent, $m)) {
+                return $m[1];
+            }
+        }
+
+        // 2. Si ya está definido en .env o .env.example
+        foreach (['.env', '.env.example', 'example.env'] as $envFile) {
+            if (\Illuminate\Support\Facades\File::exists($projectPath . '/' . $envFile)) {
+                $envContent = \Illuminate\Support\Facades\File::get($projectPath . '/' . $envFile);
+                if (preg_match('/^DJANGO_SETTINGS_MODULE\s*=\s*(.+)$/m', $envContent, $m)) {
+                    $val = trim($m[1], " \t\n\r\0\x0B\"'");
+                    if (!empty($val)) return $val;
+                }
+            }
+        }
+
+        // 3. Buscar en Procfile o Procfile.sh (común en babybuddy u otras apps)
+        foreach (['Procfile', 'Procfile.sh'] as $pf) {
+            if (\Illuminate\Support\Facades\File::exists($projectPath . '/' . $pf)) {
+                $pfContent = \Illuminate\Support\Facades\File::get($projectPath . '/' . $pf);
+                if (preg_match('/DJANGO_SETTINGS_MODULE=([a-zA-Z0-9_\.]+)/', $pfContent, $m)) {
+                    return $m[1];
+                }
+                if (preg_match('/gunicorn\s+([a-zA-Z0-9_]+)\.wsgi/i', $pfContent, $m)) {
+                    $pkg = $m[1];
+                    if (\Illuminate\Support\Facades\File::exists($projectPath . "/{$pkg}/settings/production.py")) return "{$pkg}.settings.production";
+                    if (\Illuminate\Support\Facades\File::exists($projectPath . "/{$pkg}/settings/base.py")) return "{$pkg}.settings.base";
+                    if (\Illuminate\Support\Facades\File::exists($projectPath . "/{$pkg}/settings/development.py")) return "{$pkg}.settings.development";
+                    if (\Illuminate\Support\Facades\File::exists($projectPath . "/{$pkg}/settings.py")) return "{$pkg}.settings";
+                }
+            }
+        }
+
+        // 4. Buscar candidatos en el árbol de directorios
+        $candidateFiles = array_merge(
+            glob($projectPath . '/*/settings/production.py') ?: [],
+            glob($projectPath . '/*/settings/base.py') ?: [],
+            glob($projectPath . '/*/settings/development.py') ?: [],
+            glob($projectPath . '/*/settings/local.py') ?: [],
+            glob($projectPath . '/*/settings/dev.py') ?: [],
+            glob($projectPath . '/*/settings.py') ?: [],
+            glob($projectPath . '/*/*/settings.py') ?: [],
+            glob($projectPath . '/*settings*.py') ?: []
+        );
+
+        // 4. Buscar candidatos en el árbol de directorios que realmente sean módulos de settings de Django
+        foreach ($candidateFiles as $file) {
+            if (str_contains($file, '/.venv/')) continue;
+            $fc = @file_get_contents($file) ?: '';
+            if (str_contains($fc, 'INSTALLED_APPS') || str_contains($fc, 'ROOT_URLCONF') || str_contains($fc, 'DATABASES') || str_contains($fc, 'from .base import') || str_contains($fc, 'from .common import')) {
+                $rel = str_replace($projectPath . '/', '', $file);
+                $rel = preg_replace('/\.py$/', '', $rel);
+                return str_replace('/', '.', $rel);
+            }
+        }
+
+        // Fallback si ninguno contiene las claves explícitas
+        foreach ($candidateFiles as $file) {
+            if (str_contains($file, '/.venv/')) continue;
+            $rel = str_replace($projectPath . '/', '', $file);
+            $rel = preg_replace('/\.py$/', '', $rel);
+            return str_replace('/', '.', $rel);
+        }
+
+        return null;
+    }
 }
+
 

@@ -282,15 +282,15 @@ export default function Dashboard({ auth, profile, projects }) {
         });
     };
 
-    // Formatear texto a slug válido para subdominio (solo letras, números y guiones bajos)
+    // Formatear texto a slug válido para subdominio según RFC 1034/1035 (solo letras, números y guiones)
     const formatToSlug = (text) => {
         return (text || '')
             .toLowerCase()
             .normalize('NFD')
             .replace(/[\u0300-\u036f]/g, '')
-            .replace(/[^a-z0-9_-]/g, '_')
-            .replace(/_+/g, '_')
-            .replace(/^_+|_+$/g, '');
+            .replace(/[^a-z0-9-]/g, '-')
+            .replace(/-+/g, '-')
+            .replace(/^-+|-+$/g, '');
     };
 
     // Actualizar nombre del proyecto y sincronizar en tiempo real el subdominio no editable
@@ -300,8 +300,8 @@ export default function Dashboard({ auth, profile, projects }) {
         projectForm.setData(prev => ({
             ...prev,
             name: newName,
-            subdomain: isFullstack ? (slug ? `${slug}_frontend` : '') : slug,
-            backend_subdomain: isFullstack ? (slug ? `${slug}_backend` : '') : ''
+            subdomain: isFullstack ? (slug ? `${slug}-frontend` : '') : slug,
+            backend_subdomain: isFullstack ? (slug ? `${slug}-backend` : '') : ''
         }));
     };
 
@@ -313,8 +313,8 @@ export default function Dashboard({ auth, profile, projects }) {
             ...prev,
             deployment_mode: isFullstack ? 'fullstack' : 'simple',
             fullstack_source: 'monorepo',
-            subdomain: isFullstack ? (slug ? `${slug}_frontend` : '') : slug,
-            backend_subdomain: isFullstack ? (slug ? `${slug}_backend` : '') : '',
+            subdomain: isFullstack ? (slug ? `${slug}-frontend` : '') : slug,
+            backend_subdomain: isFullstack ? (slug ? `${slug}-backend` : '') : '',
             frontend_dir: isFullstack ? (prev.frontend_dir || 'frontend') : 'frontend',
             backend_dir: isFullstack ? (prev.backend_dir || 'backend') : 'backend'
         }));
@@ -344,8 +344,8 @@ export default function Dashboard({ auth, profile, projects }) {
             const isFullstack = projectForm.data.deployment_mode === 'fullstack';
 
             updates.name = prettyName;
-            updates.subdomain = isFullstack ? (slug ? `${slug}_frontend` : '') : slug;
-            updates.backend_subdomain = isFullstack ? (slug ? `${slug}_backend` : '') : '';
+            updates.subdomain = isFullstack ? (slug ? `${slug}-frontend` : '') : slug;
+            updates.backend_subdomain = isFullstack ? (slug ? `${slug}-backend` : '') : '';
 
             // Auto-detección inteligente de categoría a partir de palabras clave en el repositorio
             const lowerUrl = `${url} ${repoName}`.toLowerCase();
@@ -392,8 +392,8 @@ export default function Dashboard({ auth, profile, projects }) {
                 folder_files: [file],
                 folder_paths: [file.name],
                 name: prettyName,
-                subdomain: isFullstack ? (slug ? `${slug}_frontend` : '') : slug,
-                backend_subdomain: isFullstack ? (slug ? `${slug}_backend` : '') : ''
+                subdomain: isFullstack ? (slug ? `${slug}-frontend` : '') : slug,
+                backend_subdomain: isFullstack ? (slug ? `${slug}-backend` : '') : ''
             };
 
             projectForm.setData(prev => ({
@@ -1466,8 +1466,8 @@ export default function Dashboard({ auth, profile, projects }) {
                                                     ...projectForm.data,
                                                     deployment_mode: 'fullstack',
                                                     fullstack_source: 'monorepo',
-                                                    subdomain: slug ? `${slug}_frontend` : '',
-                                                    backend_subdomain: slug ? `${slug}_backend` : '',
+                                                    subdomain: slug ? `${slug}-frontend` : '',
+                                                    backend_subdomain: slug ? `${slug}-backend` : '',
                                                     frontend_dir: 'frontend',
                                                     backend_dir: 'backend',
                                                     backend_github_repo_url: ''
@@ -1504,8 +1504,8 @@ export default function Dashboard({ auth, profile, projects }) {
                                                     ...projectForm.data,
                                                     deployment_mode: 'fullstack',
                                                     fullstack_source: 'separate',
-                                                    subdomain: slug ? `${slug}_frontend` : '',
-                                                    backend_subdomain: slug ? `${slug}_backend` : '',
+                                                    subdomain: slug ? `${slug}-frontend` : '',
+                                                    backend_subdomain: slug ? `${slug}-backend` : '',
                                                     frontend_dir: '',
                                                     backend_dir: ''
                                                 });
@@ -1541,8 +1541,8 @@ export default function Dashboard({ auth, profile, projects }) {
                                                     ...projectForm.data,
                                                     deployment_mode: 'fullstack',
                                                     fullstack_source: 'monorepo',
-                                                    subdomain: slug ? `${slug}_frontend` : '',
-                                                    backend_subdomain: slug ? `${slug}_backend` : '',
+                                                    subdomain: slug ? `${slug}-frontend` : '',
+                                                    backend_subdomain: slug ? `${slug}-backend` : '',
                                                     frontend_dir: 'frontend',
                                                     backend_dir: 'backend',
                                                     backend_github_repo_url: ''

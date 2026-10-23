@@ -471,7 +471,15 @@ class BuildProjectAction
                     }
 
                     $output .= "\nEjecutando npm run build en " . ($fDir === '.' ? 'raíz' : $fDir) . "...\n";
-                    $buildImage = ($fDir === 'client' && File::exists($path . '/server/app.js')) ? 'node:20' : 'node:20-alpine';
+                    $nvmrcPath = $path . '/.nvmrc';
+                    $requiresNode24 = (File::exists($nvmrcPath) && str_contains(trim(File::get($nvmrcPath)), '24'))
+                        || (File::exists($path . '/packages/sync-server'))
+                        || (File::exists($path . '/apps/web'))
+                        || (File::exists($path . '/package.json') && str_contains(File::get($path . '/package.json'), '"node": "24'));
+                    $isSvelteOrModernVite = (File::exists($path . '/package.json') && (str_contains(File::get($path . '/package.json'), '@sveltejs/kit') || str_contains(File::get($path . '/package.json'), 'svelte-kit')))
+                        || File::exists($path . '/svelte.config.js')
+                        || File::exists($path . '/pnpm-lock.yaml');
+                    $buildImage = $requiresNode24 ? 'node:24-bookworm' : ($isSvelteOrModernVite ? 'node:22' : 'node:20');
                     $buildCommand = [
                         'docker', 'run', '--rm',
                         '-u', "$uid:$gid",
@@ -1046,14 +1054,218 @@ JS;
         $hasPipfile = File::exists($path . '/Pipfile');
 
         if (!$hasRequirements && !$hasPyproject && !$hasPipfile) {
-            return [
-                'success' => true,
-                'output' => "No se encontró requirements.txt ni pyproject.toml. Omitiendo la instalación de dependencias de pip."
+            // Auto-generar requirements.txt si es un proyecto Django / FastAPI / Flask reconocido
+            $isDjangoPkg = File::exists($path . '/manage.py') 
+                || File::exists($path . '/test_settings.py') 
+                || !empty(glob($path . '/*settings*.py'))
+                || (File::exists($path . '/setup.py') && str_contains(strtolower(@file_get_contents($path . '/setup.py') ?: ''), 'django'));
+
+            if ($isDjangoPkg) {
+                File::put($path . '/requirements.txt', "django>=4.2,<5.0\npsycopg2-binary\npymysql\ndj-database-url\nwhitenoise\npillow\n");
+                $hasRequirements = true;
+            } elseif (File::exists($path . '/app.py') || File::exists($path . '/main.py')) {
+                $code = @File::get($path . '/app.py') ?: @File::get($path . '/main.py') ?: '';
+                if (str_contains($code, 'FastAPI') || str_contains($code, 'fastapi')) {
+                    File::put($path . '/requirements.txt', "fastapi\nuvicorn\npydantic\n");
+                    $hasRequirements = true;
+                } elseif (str_contains($code, 'Flask') || str_contains($code, 'flask')) {
+                    File::put($path . '/requirements.txt', "flask\n");
+                    $hasRequirements = true;
+                }
+            }
+
+            if (!$hasRequirements) {
+                return [
+                    'success' => true,
+                    'output' => "No se encontró requirements.txt ni pyproject.toml. Omitiendo la instalación de dependencias de pip."
+                ];
+            }
+        }
+
+        // Si existe requirements.txt, asegurar dependencias universales y detectar paquetes importados faltantes
+        if (File::exists($path . '/requirements.txt')) {
+            $reqContent = File::get($path . '/requirements.txt');
+            $packagesToAdd = (File::exists($path . '/manage.py') || File::exists($path . '/test_settings.py') || !empty(glob($path . '/*settings*.py')))
+                ? ['psycopg2-binary', 'pymysql', 'dj-database-url', 'whitenoise'] 
+                : [];
+
+            // Extraer dependencias declaradas en setup.py si existe
+            if (File::exists($path . '/setup.py')) {
+                $setupContent = @file_get_contents($path . '/setup.py') ?: '';
+                if (preg_match('/install_requires\s*=\s*\[([^\]]+)\]/', $setupContent, $mReq)) {
+                    preg_match_all('/[\'"]([a-zA-Z0-9_\-\.\<\>\=\~]+)[\'"]/', $mReq[1], $reqMatches);
+                    foreach ($reqMatches[1] as $rPkg) {
+                        $packagesToAdd[] = $rPkg;
+                    }
+                }
+            }
+
+            // Detectar automáticamente librerías comunes de Python importadas en el código que falten en requirements.txt
+            $importToPackage = [
+                'pandas' => 'pandas',
+                'numpy' => 'numpy',
+                'sklearn' => 'scikit-learn',
+                'plotly' => 'plotly',
+                'pdfkit' => 'pdfkit',
+                'xhtml2pdf' => 'xhtml2pdf',
+                'wkhtmltopdf' => 'django-wkhtmltopdf',
+                'razorpay' => 'razorpay',
+                'pytz' => 'pytz',
+                'openpyxl' => 'openpyxl',
+                'requests' => 'requests',
+                'matplotlib' => 'matplotlib',
+                'seaborn' => 'seaborn',
+                'reportlab' => 'reportlab',
+                'xlrd' => 'xlrd',
+                'xlsxwriter' => 'xlsxwriter',
+                'rest_framework' => 'djangorestframework',
+                'corsheaders' => 'django-cors-headers',
+                'crispy_forms' => 'django-crispy-forms',
+                'widget_tweaks' => 'django-widget-tweaks',
+                'allauth' => 'django-allauth',
+                'phonenumber_field' => 'django-phonenumber-field',
+                'bootstrap4' => 'django-bootstrap4',
+                'bootstrap5' => 'django-bootstrap5',
+                'ckeditor' => 'django-ckeditor',
+                'django_filters' => 'django-filter',
+                'taggit' => 'django-taggit',
+                'environ' => 'django-environ',
+                'bs4' => 'beautifulsoup4',
+                'dotenv' => 'python-dotenv',
+                'jwt' => 'PyJWT',
+                'stripe' => 'stripe',
+                'boto3' => 'boto3',
+                'qrcode' => 'qrcode',
+                'cv2' => 'opencv-python-headless',
+                'PIL' => 'pillow',
+                'yaml' => 'pyyaml',
             ];
+
+            // Escanear archivos .py (excluyendo .venv)
+            $pyFiles = glob($path . '/*.py') ?: [];
+            foreach (glob($path . '/*/*.py') ?: [] as $f) {
+                if (!str_contains($f, '/.venv/')) $pyFiles[] = $f;
+            }
+            foreach (glob($path . '/*/*/*.py') ?: [] as $f) {
+                if (!str_contains($f, '/.venv/')) $pyFiles[] = $f;
+            }
+
+            $detectedImports = [];
+            foreach ($pyFiles as $pyFile) {
+                $code = @file_get_contents($pyFile);
+                if (!$code) continue;
+                foreach ($importToPackage as $importMod => $pkg) {
+                    if (isset($detectedImports[$pkg])) continue;
+                    if (preg_match('/^\s*(import|from)\s+' . preg_quote($importMod, '/') . '\b/m', $code)) {
+                        $detectedImports[$pkg] = true;
+                        $packagesToAdd[] = $pkg;
+                    }
+                }
+            }
+
+            $appended = false;
+            foreach (array_unique($packagesToAdd) as $pkg) {
+                if (!preg_match('/^' . preg_quote($pkg, '/') . '(\s|[=><~]|$)/mi', $reqContent)) {
+                    $reqContent .= "\n" . $pkg;
+                    $appended = true;
+                }
+            }
+            if ($appended) {
+                File::put($path . '/requirements.txt', $reqContent);
+            }
         }
 
         $this->ensureCacheVolumes();
-        $installCmd = 'python -m venv .venv';
+
+        // Compilación previa de assets Node.js para proyectos Python/Django si existe package.json
+        if (File::exists($path . '/package.json')) {
+            $nodePkg = @json_decode(File::get($path . '/package.json'), true);
+            if (is_array($nodePkg)) {
+                $hasBuildStatic = isset($nodePkg['scripts']['build:static']);
+                $hasBuild = isset($nodePkg['scripts']['build']);
+                $hasMakefile = File::exists($path . '/Makefile');
+                if ($hasBuildStatic || $hasBuild || $hasMakefile) {
+                    $nodeCmd = "npm install --prefer-offline --no-audit";
+                    if ($hasBuildStatic) {
+                        $nodeCmd .= " && (npm run build:static || true)";
+                    } elseif ($hasBuild) {
+                        $nodeCmd .= " && (npm run build || true)";
+                    }
+                    if ($hasMakefile && str_contains(@File::get($path . '/Makefile') ?: '', 'static-vendor:')) {
+                        $nodeCmd .= " && (apt-get update && apt-get install -y make || true) && make static-vendor || true";
+                    }
+                    $this->runCommand([
+                        'docker', 'run', '--rm',
+                        '-u', "$uid:$gid",
+                        '-v', "$path:/app",
+                        '-w', '/app',
+                        'node:20-bookworm-slim',
+                        'sh', '-c', $nodeCmd
+                    ]);
+                }
+            }
+        }
+
+        // Sanitizar archivos de requirements para resolver conflictos comunes (duplicados de paquetes y compatibilidad de wheels en Python 3.12)
+        $reqFiles = array_merge(
+            glob($path . '/requirements.txt') ?: [],
+            glob($path . '/requirements/*.txt') ?: [],
+            glob($path . '/*requirements*.txt') ?: []
+        );
+        foreach ($reqFiles as $rf) {
+            $content = @file_get_contents($rf);
+            if (!$content) continue;
+
+            $lines = explode("\n", $content);
+            $seenPackages = [];
+            $newLines = [];
+            foreach ($lines as $line) {
+                $trimmed = trim($line);
+                if (empty($trimmed) || str_starts_with($trimmed, '#') || str_starts_with($trimmed, '-')) {
+                    $newLines[] = $line;
+                    continue;
+                }
+
+                // Detectar paquete y versión (ej. django-modeltranslation==0.18.11 o django-modeltranslation)
+                if (preg_match('/^([a-zA-Z0-9_\-\.]+)\s*([=><~].*)?$/', $trimmed, $m)) {
+                    $pkgName = strtolower(str_replace('_', '-', $m[1]));
+                    if (isset($seenPackages[$pkgName])) {
+                        // Omitir versiones duplicadas conflictivas en el mismo árbol de requirements
+                        continue;
+                    }
+                    $seenPackages[$pkgName] = true;
+
+                    // Compatibilidad de Pillow con Python 3.12 (Pillow < 10 no tiene wheels precompilados para cp312)
+                    if ($pkgName === 'pillow' && preg_match('/==\s*9\./', $trimmed)) {
+                        $line = preg_replace('/==\s*9\.[0-9\.]+/', '>=9.3.0', $line);
+                    }
+
+                    // Compatibilidad de multidict con Python 3.12 (multidict < 6.0.5 no tiene wheels precompilados para cp312)
+                    if ($pkgName === 'multidict' && preg_match('/==\s*6\.0\.[0-4]/', $trimmed)) {
+                        $line = 'multidict>=6.0.5';
+                    }
+
+                    // Compatibilidad de yarl con Python 3.12
+                    if ($pkgName === 'yarl' && preg_match('/==\s*1\.[0-8]\./', $trimmed)) {
+                        $line = 'yarl>=1.9.4';
+                    }
+
+                    // Compatibilidad de frozenlist con Python 3.12
+                    if ($pkgName === 'frozenlist' && preg_match('/==\s*1\.[0-3]\./', $trimmed)) {
+                        $line = 'frozenlist>=1.4.1';
+                    }
+
+                    // Compatibilidad de asyncpg con Python 3.12
+                    if ($pkgName === 'asyncpg' && preg_match('/==\s*0\.2[0-8]\./', $trimmed)) {
+                        $line = 'asyncpg>=0.29.0';
+                    }
+                }
+                $newLines[] = $line;
+            }
+            @file_put_contents($rf, implode("\n", $newLines));
+        }
+
+        $installCmd = 'python -m venv --clear .venv && .venv/bin/pip install --prefer-binary "setuptools<72" wheel hatchling flit-core poetry-core';
         if ($hasRequirements) {
             $installCmd .= ' && .venv/bin/pip install --prefer-binary -r requirements.txt';
         } elseif ($hasPyproject) {
@@ -1070,13 +1282,22 @@ JS;
             '-v', "uleam_pip_cache:/tmp/pip-cache",
             '-e', 'PIP_CACHE_DIR=/tmp/pip-cache',
             '-w', '/app',
-            'python:3.12-alpine',
+            'python:3.12-slim',
             'sh', '-c', $installCmd
         ];
 
         $output = "Creando entorno virtual e instalando requerimientos de Python desde caché local...\n";
         $result = $this->runCommand($command);
         $output .= $result['output'];
+
+        // Sincronizar activos estáticos generados en src hacia site-packages si existe .venv
+        $srcVendorDir = $path . '/src/helpdesk/static/helpdesk/vendor';
+        if (File::isDirectory($srcVendorDir)) {
+            $sitePkgDirs = glob($path . '/.venv/lib/python*/site-packages/helpdesk/static/helpdesk/vendor');
+            foreach ($sitePkgDirs as $targetDir) {
+                File::copyDirectory($srcVendorDir, $targetDir);
+            }
+        }
 
         return $result;
     }
@@ -1485,10 +1706,10 @@ JS;
     /**
      * Execute a shell command and return its output.
      */
-    private function runCommand(array $command, int $timeout = 600): array
+    private function runCommand(array $command, int $timeout = 850): array
     {
         $process = new Process($command);
-        $process->setTimeout($timeout); // 10 minutes timeout for builds matching BuildProjectJob
+        $process->setTimeout($timeout); // ~14 minutes timeout per command (fits in 15m job limit)
 
         try {
             $process->mustRun();
@@ -1604,7 +1825,9 @@ JS;
             || (File::exists($path . '/packages/sync-server'))
             || (File::exists($path . '/apps/web'))
             || (File::exists($path . '/package.json') && str_contains(File::get($path . '/package.json'), '"node": "24'));
-        $nodeImage = $requiresNode24 ? 'node:24-bookworm' : 'node:20';
+        $requiresNode22 = (File::exists($path . '/package.json') && (str_contains(File::get($path . '/package.json'), '@sveltejs/kit') || str_contains(File::get($path . '/package.json'), 'svelte-kit')))
+            || File::exists($path . '/svelte.config.js');
+        $nodeImage = $requiresNode24 ? 'node:24-bookworm' : ($requiresNode22 ? 'node:22' : 'node:20');
 
         if (File::exists($targetDir . '/yarn.lock')) {
             $yarnCmd = [
@@ -1756,28 +1979,68 @@ JS;
 
         $this->ensureCacheVolumes();
 
+        $isJava8 = false;
         if ($isMaven) {
-            $output .= "Detectado proyecto Maven. Ejecutando mvn package...\n";
+            $pomXml = @file_get_contents($path . '/pom.xml') ?: '';
+            if (preg_match('/<(java\.version|maven\.compiler\.source|maven\.compiler\.target)>(1\.8|8)<\//i', $pomXml)) {
+                $isJava8 = true;
+            }
+        } elseif ($isGradle) {
+            $gradleFile = File::exists($path . '/build.gradle') ? $path . '/build.gradle' : $path . '/build.gradle.kts';
+            $gradleContent = @file_get_contents($gradleFile) ?: '';
+            if (preg_match('/sourceCompatibility\s*=\s*[\'"]?(1\.8|8)[\'"]?/i', $gradleContent)) {
+                $isJava8 = true;
+            }
+        }
+        if (!$isJava8 && File::exists($path . '/system.properties')) {
+            $sysContent = @file_get_contents($path . '/system.properties') ?: '';
+            if (preg_match('/java\.runtime\.version\s*=\s*(1\.8|8)/i', $sysContent)) {
+                $isJava8 = true;
+            }
+        }
+
+        if ($isMaven) {
+            $mavenImage = $isJava8 ? 'maven:3.8-eclipse-temurin-8' : 'maven:3.9-eclipse-temurin-17-alpine';
+            $output .= "Detectado proyecto Maven (Java " . ($isJava8 ? "8" : "17+") . "). Ejecutando mvn package...\n";
             $command = [
                 'docker', 'run', '--rm',
                 '-v', "$path:/app",
                 '-v', "uleam_m2_cache:/tmp/.m2/repository",
-                '-w', '/app',
-                'maven:3.9-eclipse-temurin-17-alpine',
-                'mvn', '-q', 'package', '-DskipTests', '-Dmaven.repo.local=/tmp/.m2/repository'
             ];
+            if (!$isJava8) {
+                $command[] = '-e';
+                $command[] = 'MAVEN_OPTS=--add-opens=jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED';
+            }
+            $command[] = '-w';
+            $command[] = '/app';
+            $command[] = $mavenImage;
+            $command[] = 'mvn';
+            $command[] = '-q';
+            $command[] = 'package';
+            $command[] = '-DskipTests';
+            $command[] = '-Dmaven.test.skip=true';
+            $command[] = '-Dmaven.repo.local=/tmp/.m2/repository';
         } else {
-            $output .= "Detectado proyecto Gradle. Ejecutando gradle build...\n";
+            $gradleImage = $isJava8 ? 'gradle:7.6-jdk8-alpine' : 'gradle:8.5-jdk17-alpine';
+            $output .= "Detectado proyecto Gradle (Java " . ($isJava8 ? "8" : "17+") . "). Ejecutando gradle build...\n";
+            @chmod($path . '/gradlew', 0755);
             $wrapper = File::exists($path . '/gradlew') ? './gradlew' : 'gradle';
             $command = [
                 'docker', 'run', '--rm',
                 '-v', "$path:/app",
                 '-v', "uleam_gradle_cache:/tmp/.gradle",
                 '-e', 'GRADLE_USER_HOME=/tmp/.gradle',
-                '-w', '/app',
-                'gradle:8.5-jdk17-alpine',
-                'sh', '-c', "$wrapper build -x test --no-daemon"
             ];
+            if (!$isJava8) {
+                $command[] = '-e';
+                $command[] = 'GRADLE_OPTS=--add-opens=jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED';
+            }
+            $command[] = '-w';
+            $command[] = '/app';
+            $command[] = $gradleImage;
+            $command[] = 'sh';
+            $command[] = '-c';
+            $command[] = "chmod +x ./gradlew 2>/dev/null || true; (test -f ./gradlew && ./gradlew build -x test --no-daemon) || gradle build -x test --no-daemon";
         }
 
         $result = $this->runCommand($command);
@@ -1804,12 +2067,47 @@ JS;
         // Find the .csproj file
         $csprojFiles = glob($path . '/*.csproj');
         if (empty($csprojFiles)) {
-            // Buscar en subdirectorios nivel 1
             $csprojFiles = glob($path . '/*/*.csproj');
+            if (empty($csprojFiles)) {
+                $csprojFiles = glob($path . '/*/*/*.csproj');
+            }
         }
 
+        $dotnetVersion = '8.0';
+        $sdkImage = 'mcr.microsoft.com/dotnet/sdk:8.0-alpine';
+        $extraFlags = '';
+
+        if (!empty($csprojFiles)) {
+            $csprojContent = @file_get_contents($csprojFiles[0]) ?: '';
+            if (str_contains($csprojContent, 'net10') || str_contains($csprojContent, 'net10.0')) {
+                $dotnetVersion = '10.0';
+                $sdkImage = 'mcr.microsoft.com/dotnet/sdk:10.0-preview';
+                $extraFlags = '/p:LangVersion=preview';
+            } elseif (str_contains($csprojContent, 'net9') || str_contains($csprojContent, 'net9.0')) {
+                $dotnetVersion = '9.0';
+                $sdkImage = 'mcr.microsoft.com/dotnet/sdk:9.0-alpine';
+            } elseif (str_contains($csprojContent, 'net7') || str_contains($csprojContent, 'net7.0')) {
+                $dotnetVersion = '7.0';
+                $sdkImage = 'mcr.microsoft.com/dotnet/sdk:7.0-alpine';
+            } elseif (str_contains($csprojContent, 'net6') || str_contains($csprojContent, 'net6.0')) {
+                $dotnetVersion = '6.0';
+                $sdkImage = 'mcr.microsoft.com/dotnet/sdk:6.0-alpine';
+            }
+        }
+
+        $output .= "Versión de .NET detectada: {$dotnetVersion} (utilizando {$sdkImage}).\n";
+
+        $targetProject = '';
+        if (!empty($csprojFiles)) {
+            $relCsproj = ltrim(str_replace($path, '', $csprojFiles[0]), '/');
+            $targetProject = escapeshellarg($relCsproj);
+        }
+
+        // Normalize project files for Linux and platform hosting compatibility
+        $this->patchDotnetProject($path);
+
         $this->ensureCacheVolumes();
-        $publishCommand = 'dotnet publish -c Release -o /app/publish --nologo -v q';
+        $publishCommand = trim("dotnet publish {$targetProject} -c Release -o /app/publish {$extraFlags} --nologo -v q");
 
         $command = [
             'docker', 'run', '--rm',
@@ -1817,7 +2115,7 @@ JS;
             '-v', "uleam_nuget_cache:/tmp/nuget-cache",
             '-e', 'NUGET_PACKAGES=/tmp/nuget-cache',
             '-w', '/app',
-            'mcr.microsoft.com/dotnet/sdk:8.0-alpine',
+            $sdkImage,
             'sh', '-c', $publishCommand
         ];
 
@@ -1833,6 +2131,77 @@ JS;
 
         $output .= "\nPublicación .NET exitosa. Artefactos en /app/publish.\n";
         return ['success' => true, 'output' => $output];
+    }
+
+    /**
+     * Patch .NET project files for Linux and cloud/subdomain compatibility
+     */
+    private function patchDotnetProject(string $path): void
+    {
+        try {
+            // 1. ClearScript V8 Windows -> Linux Native Package Fix
+            $allCsprojs = glob($path . '/*.csproj');
+            $allCsprojs = array_merge($allCsprojs, glob($path . '/*/*.csproj'), glob($path . '/*/*/*.csproj'));
+
+            foreach ($allCsprojs as $csproj) {
+                if (!File::exists($csproj)) continue;
+                $content = @file_get_contents($csproj);
+                if (!$content) continue;
+
+                if (str_contains($content, 'Microsoft.ClearScript.V8.Native.win-x64') && !str_contains($content, 'Microsoft.ClearScript.V8.Native.linux-x64')) {
+                    $patched = str_replace(
+                        'Microsoft.ClearScript.V8.Native.win-x64" />',
+                        'Microsoft.ClearScript.V8.Native.win-x64" />' . "\n" . '    <PackageReference Include="Microsoft.ClearScript.V8.Native.linux-x64" />',
+                        $content
+                    );
+                    if ($patched === $content) {
+                        $patched = str_replace(
+                            'Microsoft.ClearScript.V8.Native.win-x64"',
+                            'Microsoft.ClearScript.V8.Native.win-x64" />' . "\n" . '    <PackageReference Include="Microsoft.ClearScript.V8.Native.linux-x64"',
+                            $content
+                        );
+                    }
+                    @file_put_contents($csproj, $patched);
+                }
+            }
+
+            // Central package management in Directory.Packages.props
+            $packagesProps = $path . '/Directory.Packages.props';
+            if (File::exists($packagesProps)) {
+                $propContent = @file_get_contents($packagesProps);
+                if ($propContent && str_contains($propContent, 'Microsoft.ClearScript.V8.Native.win-x64') && !str_contains($propContent, 'Microsoft.ClearScript.V8.Native.linux-x64')) {
+                    if (preg_match('/<PackageVersion\s+Include=["\']Microsoft\.ClearScript\.V8\.Native\.win-x64["\']\s+Version=["\']([^"\']+)["\']\s*\/>/', $propContent, $matches)) {
+                        $version = $matches[1];
+                        $newEntry = $matches[0] . "\n    <PackageVersion Include=\"Microsoft.ClearScript.V8.Native.linux-x64\" Version=\"{$version}\" />";
+                        $propContent = str_replace($matches[0], $newEntry, $propContent);
+                        @file_put_contents($packagesProps, $propContent);
+                    }
+                }
+            }
+
+            // 2. Normalize forceWwwPrefix & forcessl in appsettings*.json
+            $appsettingsFiles = glob($path . '/**/appsettings*.json') ?: [];
+            $appsettingsFiles = array_merge($appsettingsFiles, glob($path . '/appsettings*.json') ?: [], glob($path . '/*/appsettings*.json') ?: []);
+            foreach ($appsettingsFiles as $jsonFile) {
+                if (!File::exists($jsonFile)) continue;
+                $jsonContent = @file_get_contents($jsonFile);
+                if (!$jsonContent) continue;
+                $modified = false;
+                if (str_contains($jsonContent, '"forceWwwPrefix": true')) {
+                    $jsonContent = str_replace('"forceWwwPrefix": true', '"forceWwwPrefix": false', $jsonContent);
+                    $modified = true;
+                }
+                if (str_contains($jsonContent, '"forcessl": true')) {
+                    $jsonContent = str_replace('"forcessl": true', '"forcessl": false', $jsonContent);
+                    $modified = true;
+                }
+                if ($modified) {
+                    @file_put_contents($jsonFile, $jsonContent);
+                }
+            }
+        } catch (\Throwable $e) {
+            // Non-blocking patch
+        }
     }
 
     /**

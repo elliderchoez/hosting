@@ -348,6 +348,10 @@ class ResetStudentDatabases extends Command
                 $this->info("Snapshot inicial restaurado con éxito.");
                 $this->invalidateActiveSessionsSql($project);
                 $this->cleanDiskSessions($projectPath);
+                if ($isRunning && in_array($project->language, ['java', 'ruby'])) {
+                    $restartProc = new Process(['docker', 'restart', '-t', '2', $containerName]);
+                    $restartProc->run();
+                }
                 return;
             } else {
                 $this->warn("Aviso al restaurar snapshot: " . $proc->getErrorOutput() . " - Reintentando con migraciones estándar.");
@@ -426,7 +430,7 @@ class ResetStudentDatabases extends Command
                     '-e', "DB_USERNAME={$dbuser}",
                     '-e', "DB_PASSWORD={$dbpass}",
                     '-e', "DATABASE_URL=" . ($driver === 'mysql' ? 'mysql' : 'postgres') . "://{$dbuser}:{$dbpass}@{$dbHost}:{$dbPort}/{$dbname}",
-                    'python:3.11-alpine',
+                    'python:3.12-slim',
                     'sh', '-c', '.venv/bin/python manage.py migrate'
                 ];
             }

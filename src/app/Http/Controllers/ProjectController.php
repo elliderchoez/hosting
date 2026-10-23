@@ -168,8 +168,8 @@ class ProjectController extends Controller
                 'backend_subdomain.unique' => 'Este subdominio de backend ya está en uso.',
             ]);
 
-            $frontendSubdomain = Str::lower($request->subdomain);
-            $backendSubdomain = Str::lower($request->backend_subdomain);
+            $frontendSubdomain = str_replace('_', '-', Str::lower($request->subdomain));
+            $backendSubdomain = str_replace('_', '-', Str::lower($request->backend_subdomain));
             $scheme = request()->getScheme() ?: 'http';
             $baseDomain = config('app.env') === 'production' ? env('APP_DOMAIN', 'uleamcode.software') : 'localhost';
             $backendApiUrl = "{$scheme}://{$backendSubdomain}.{$baseDomain}/api";
@@ -280,8 +280,8 @@ class ProjectController extends Controller
             'subdomain.unique' => 'Este subdominio ya está en uso.',
         ]);
 
-        // Limpiar el formato del subdominio (minúsculas)
-        $subdomain = Str::lower($request->subdomain);
+        // Limpiar el formato del subdominio (minúsculas y guiones conformes a RFC 1034)
+        $subdomain = str_replace('_', '-', Str::lower($request->subdomain));
 
         // 3. Crear el registro del proyecto en la base de datos
         $isBackendService = $parentProject !== null;
